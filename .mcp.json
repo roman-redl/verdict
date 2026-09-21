@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "consensus": {
+      "type": "http",
+      "url": "TODO-FILL-FROM-https://docs.consensus.app/consensus-mcp",
+      "headers": {
+        "Authorization": "Bearer ${CONSENSUS_API_KEY}"
+      }
+    }
+  }
+}
