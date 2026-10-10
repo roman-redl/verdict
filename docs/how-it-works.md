@@ -158,12 +158,17 @@ see is a ranked cut, which is why the workflow asks for 2-3
 reformulations of the question and pairs the paste with the citation
 snowball (rank-free recall).
 
-**Where it fits.** Mode C (you run the queries in their free web UI,
-scroll to the end, paste back; an MCP server — 500 uses/mo on their Pro
-$12 tier — automates this away when configured). Consensus does nothing
-else in the pipeline — its niche is discovery. Mode B (fully automatic
-semantic discovery through their API/MCP) is the planned successor once
-the Go integration lands.
+**Where it fits.** Mode B (the default with an API key): the Go client
+(`internal/consensus`) walks `GET /v1/search` pages with `x-api-key`; every
+request plausibly costs one plan use (500/mo on the Pro $12 tier), so the
+walker caps pages (`CONSENSUS_PAGES`, 3 per query) and records the spend —
+engine, queries, pages, truncation — in `1-discovery.json`. The page cap
+mirrors the UI's ~50-row ranked cut, so recall still comes from query
+reformulations (`--queries`, drafted by `verdict pico`). Mode C (the free
+web UI: you run the queries, scroll to the end, paste back) remains the
+semantic path when no key is set; an MCP server exists too (the same
+search over a remote connection) but the API is what the pipeline uses.
+Consensus does nothing else in the pipeline — its niche is discovery.
 
 **Why this engine — the 2026-09-08 bake-off (the one place the retired
 engine is named).** Elicit was the original discovery engine here (mode B
@@ -308,7 +313,7 @@ and by which papers" — with full tracing back to each stage's artifacts.
 ## Part 4. Who hands what to whom
 
 ```
-question ──> [Consensus MCP/API] | [OpenAlex search] | [you + the free Consensus web UI]
+question ──> [Consensus API] | [OpenAlex search] | [you + the free Consensus web UI]
                         │
                         v
                    a list of DOIs

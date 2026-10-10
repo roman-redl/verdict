@@ -9,7 +9,7 @@ A pipeline of ready-made services with a thin Go orchestrator on top:
              ┌───────────┐   ┌───────────────────┐   ┌─────────────────────┐
  question ──>│ Consensus │──>│ Scite (tallies)   │──>│ LLM (pluggable      │──> report.md
  or          │ semantic  │   │ + OpenAlex        │   │ backend, see below) │    matrix.csv
- a DOI list  │ (web/MCP) │   │ (retractions, OA, │   │ map: per-paper      │    verdict
+ a DOI list  │ (API/web) │   │ (retractions, OA, │   │ map: per-paper      │    verdict
              └───────────┘   │ abstracts)        │   │ methodology critique│
                              └───────────────────┘   │ reduce: evidence    │
                                                      │ matrix + verdict    │
@@ -75,22 +75,33 @@ shaped the defaults:
 
 ```bash
 verdict run -q "does creatine improve cognitive performance"
+verdict run -q "..." --engine openalex   # force it even with a key set
 ```
 
 Discovery via OpenAlex: works out of the box, zero keys. Caveat: keyword
-search, not semantic — it can miss on convoluted questions.
+search, not semantic — it can miss on convoluted questions. Without
+`CONSENSUS_API_KEY` this is also what a bare `run -q` falls back to (with a
+warning).
 
-**B — paid, fully automatic (Consensus API/MCP — a roadmap item, not yet
-wired into `run`):**
+**B — paid, fully automatic (Consensus API — the default with a key):**
 
-Consensus Pro ($12/mo) includes 500 API & MCP uses per month. Until the
-integration lands, mode B is unavailable: use mode C (the default) or
-mode A. The previous paid engine was removed from the codebase entirely —
-the criteria and the comparison live in
-[docs/how-it-works.md](docs/how-it-works.md) §2.2.
+```bash
+# .env: CONSENSUS_API_KEY=...   (consensus.app → API & MCP dashboard)
+verdict run -q "does creatine improve cognitive performance"
+verdict run -q "..." --queries "<reformulation 1>" --queries "<reformulation 2>"
+```
 
-**C — free bridge over the Consensus web UI (manual selection, the
-default):**
+Semantic discovery through the Consensus API, straight into the pipeline:
+DOIs, abstracts and study-design tags arrive ready (no title→DOI resolving).
+Each results page is one API use; the walk is capped at `CONSENSUS_PAGES`
+(default 3) per query — ≤9 uses per run with three queries (the Pro tier,
+$12/mo, includes 500/mo). Reformulations still matter: the page cap mirrors
+the web UI's ~50-row cut, so 2-3 `--queries` (from `verdict pico`) recover
+the recall. Provenance — engine, queries, pages spent, truncation — lands in
+`1-discovery.json` under `discovery`.
+
+**C — free bridge over the Consensus web UI (manual selection — the
+semantic path without a key):**
 
 ```bash
 verdict web -q "..."                  # prints the question, opens consensus.app
@@ -114,7 +125,7 @@ paying twice.
 | Artifact | Stage | Contents |
 |---|---|---|
 | `0-input.txt` | always (`--dois`) | the raw paste/DOI list the corpus came from |
-| `1-discovery.json` | Consensus paste resolved to DOIs (or OpenAlex over a DOI list) | papers: DOIs, abstracts, design tags |
+| `1-discovery.json` | Consensus API / paste resolved to DOIs (or OpenAlex) | papers: DOIs, abstracts, design tags; the `discovery` block: engine, queries, pages spent, truncation |
 | `2-enrichment.json` | Scite tallies + OpenAlex + Crossref (in parallel) | supporting/contradicting/mentioning, retraction flags (two sources), OA links, contradicting DOIs (Scite key) |
 | `3-critique.json` | LLM, fan-out per paper | design quality, sample adequacy, N from the abstract, direction of findings, concerns |
 | `4-synthesis.json` + `report.md` + `matrix.csv` | LLM + deterministic assembly | evidence matrix, verdict + consensus + direction tally, contradictions, gaps |
@@ -137,13 +148,18 @@ make run QUESTION="does creatine improve cognitive performance"
 
 | Component | Default | Paid option |
 |---|---|---|
-| Discovery | OpenAlex — $0 | Consensus Pro $12/mo (API & MCP, 500 uses/mo — integration is a roadmap item) |
+| Discovery | mode B: Consensus API — a few uses per run (500/mo on Pro $12/mo); no key → mode C paste / mode A, $0 | — |
 | Citations | $0 (tallies without a key, 1 batched request per run) | Scite Pro $50/mo — not needed at this volume |
 | Metadata/retractions | OpenAlex — $0 | — |
 | LLM | existing Claude Code tariff | direct API ≈ $0.3–0.5/run (a Sonnet-class model, estimate) |
 
 ## Verified live (2026-09-07)
 
+- `internal/consensus`: `/v1/search` — `x-api-key` auth, the
+  `page`/`page_size`/`is_end`/`next_page` envelope (checked 2026-10-10;
+  page 2 of a live query walked correctly). `page_size` in the response is
+  the value the plan actually applied, not the requested one — the walker
+  counts pages, never assumes 20.
 - `internal/scite`: the `/tallies` request body must be a **bare JSON array**
   of DOIs (`{"dois": [...]}` is rejected with 400); the response uses the
   `{"tallies": {...}}` envelope — the parser handles all known variants.

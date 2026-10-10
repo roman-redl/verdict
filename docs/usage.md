@@ -8,8 +8,8 @@ internally see [how-it-works.md](how-it-works.md).
 
 | Scenario | What you do |
 |---|---|
-| **Research something new** (the comfortable way) | Open a Claude Code session **in this repo**, say: `/research <your problem or question>`. The agent runs the [research skill](../.claude/skills/research/SKILL.md): hands you 1-3 Consensus queries → you paste the results back (scroll each list to the end) → it runs the pipeline and explains the report in plain language. |
-| **Research something new** (hands-on, no agent) | `bin/verdict web -q "<question>"` → run the question at consensus.app, scroll to the end, copy the list → `pbpaste \| bin/verdict resolve > dois.txt` → `bin/verdict run --topic <topic> --dois dois.txt -q "<full question>"` → read `runs/<topic>/<run>/report.md`. |
+| **Research something new** (the comfortable way) | Open a Claude Code session **in this repo**, say: `/research <your problem or question>`. The agent runs the [research skill](../.claude/skills/research/SKILL.md): with `CONSENSUS_API_KEY` set it runs semantic discovery through the Consensus API itself and you just wait for the report; without a key it hands you 1-3 Consensus queries, you paste the results back, and it runs the pipeline. Either way it explains the report in plain language. |
+| **Research something new** (hands-on, no agent) | With a key: `bin/verdict run --topic <topic> -q "<full question>"` — done, discovery included. Without: `bin/verdict web -q "<question>"` → run the question at consensus.app, scroll to the end, copy the list → `pbpaste \| bin/verdict resolve > dois.txt` → `bin/verdict run --topic <topic> --dois dois.txt -q "<full question>"` → read `runs/<topic>/<run>/report.md`. |
 | **Ask questions over finished research** | Terminal: `bin/verdict ask --run-dir runs/<topic>` (whole topic) or `.../runs/<topic>/<run>` (one run). Or just ask the agent: `/research answer questions about topic <topic> using runs/<topic>`. |
 | **Challenge a conclusion / add papers** | Tell the agent (it assembles the corrected DOI list, re-runs in the same topic, compares verdicts) — or build the union DOI list yourself and `run --topic <same topic>` again. |
 | **A messy life problem, not a question** | `/research <your story>` (the agent triages it via `brief`) — or yourself: `bin/verdict brief problem.txt`. |
@@ -36,7 +36,8 @@ agent can check and which need the evidence pipeline.
 Related: `bin/verdict pico -q "<question>"` normalizes a question into the
 PICO frame (population / intervention / comparison / outcome) and prints
 ready queries for both search flavors — the PubMed-style keywords for mode
-A and 1-3 natural-language queries for mode C's free Consensus web UI.
+A and 1-3 natural-language queries for the Consensus side (mode B:
+`run --queries`, or mode C's free web UI).
 
 ### 1. Plain CLI: run it — get the report
 
@@ -83,9 +84,38 @@ No need to spawn subagents for Q&A: the parallel work already happens
 inside the pipeline (critics fan out); one agent with the context is
 enough for questioning.
 
-## Discovery: mode C (semantic, free) is the default
+## Discovery: mode B (semantic, automatic) with an API key
 
-The default workflow — semantic search quality without paying:
+Set `CONSENSUS_API_KEY` in `.env` (consensus.app → API & MCP dashboard) and
+a bare `run -q` does semantic discovery by itself:
+
+```bash
+bin/verdict run --topic keratosis-uvb -q "is topical adapalene effective for keratosis pilaris?"
+```
+
+The Consensus API returns papers with DOIs, abstracts and study-design tags
+ready — no title→DOI resolving, no paste. Recall still comes from
+**reformulations**: run `bin/verdict pico -q "<question>"` and pass its 1-3
+semantic queries:
+
+```bash
+bin/verdict run --topic keratosis-uvb -q "<full question>" \
+    --queries "<reformulation 1>" --queries "<reformulation 2>"
+```
+
+Quota math: each results page is one API use; the walk stops at
+`CONSENSUS_PAGES` (default 3) pages per query or at the ranking's end —
+whichever first — so a run costs ≤3 uses per query (500/mo on the Pro
+$12/mo tier). Tune per run with `--consensus-pages`, globally with
+`CONSENSUS_PAGES`. Provenance (engine, queries, pages spent, truncation) is
+recorded in `1-discovery.json` under `discovery`, and the run log prints
+the per-query and total page counts. A Consensus failure (bad key, quota)
+fails the run loudly with the mode C escape hatch in the error — never a
+silent keyword fallback.
+
+## Discovery: mode C (semantic, free) — the path without a key
+
+No key, still semantic: you become the search engine's proxy.
 
 1. The agent hands you 1-3 ready queries for the **free Consensus web UI**
    (`bin/verdict web -q "..."` prints the question and opens consensus.app).
@@ -110,13 +140,11 @@ text does not contain the query terms — e.g. NB-UVB studies on related
 follicular disorders. Keyword search structurally cannot. **Never silently
 replace this step with keyword curation.**
 
-Fallbacks — only when you explicitly opt out of the manual step:
+Fallback — only when you explicitly opt out of semantic search:
 
 - **Mode A**: `run -q "<2-4 keywords>"` — free, fully automatic,
-  keyword-based.
-- **Mode B** (planned): fully automatic semantic discovery through the
-  Consensus API/MCP (Pro $12/mo, 500 uses/mo) — not wired into `run` yet;
-  see the roadmap. Until then mode C is the semantic path.
+  keyword-based. With `CONSENSUS_API_KEY` set, force it with
+  `--engine openalex` (a bare `-q` would go through Consensus).
 
 **Mode A query tip (verified live):** OpenAlex search is keyword-based —
 long natural-language questions dilute relevance and pull in tangential
@@ -169,6 +197,12 @@ run from the last completed stage without paying twice.
 --stop-after 2           # only the deterministic stages (no LLM)
 --dois dois.txt          # input as a DOI list (whole list runs; above the
                          #   default you get a cost warning; --max-papers caps)
+--queries "<semantic q>" # mode B: repeatable discovery reformulations
+                         #   (defaults to -q; feed from `verdict pico`)
+--engine consensus       # force the engine: consensus | openalex
+                         #   (default: consensus when CONSENSUS_API_KEY is set)
+--consensus-pages 3      # max Consensus pages per query — each page is one
+                         #   API use (defaults to CONSENSUS_PAGES, 3)
 --max-papers 25          # discovery limit / DOI-list cap
 --llm-command claude-zai # LLM wrapper for this run (default comes from .env)
 --llm-model <exact name> # model for both LLM stages (aliases do not resolve)
@@ -188,7 +222,7 @@ run from the last completed stage without paying twice.
 
 | Component | Default | Paid option |
 |---|---|---|
-| Discovery | mode C — Consensus web + your paste: $0 | Consensus Pro $12/mo (API & MCP, 500 uses/mo — integration pending); mode A keyword search — free |
+| Discovery | no key: mode C web paste / mode A keyword — $0 | mode B: Consensus API, ≤3 uses × ≤3 queries per run (Pro $12/mo, 500 uses/mo) |
 | Scite | free (tallies without a key, 1 batched request per run) | Pro $50/mo — not needed at this volume |
 | LLM | the Claude Code tariff | direct API ≈ $0.3–0.5/run (estimate) |
 
@@ -200,7 +234,9 @@ bucket of a GLM Coding Plan quota (15,000 credits per 5 hours).
 `bin/verdictd --addr localhost:8080` exposes the same pipeline over HTTP —
 handy for driving runs from other tools. One run executes at a time (the
 LLM concurrency budget lives inside the stages); artifacts land in `runs/`
-exactly as with the CLI.
+exactly as with the CLI. Mode B discovery works here too (the key comes
+from `.env`); the engine/queries selection is not yet exposed over the
+request body — a follow-up.
 
 ```
 POST /runs   {"question": "...", "topic": "...", "max_papers": 15,

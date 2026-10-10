@@ -34,34 +34,50 @@ modes A/B/C are a different thing — see docs/usage.md.)
    with 2-4 keyword queries to learn the field's vocabulary and collect
    candidate DOIs. Use what you learn to sharpen the Consensus queries in
    the next step.
-3. **Hand the user 1-3 ready Consensus queries** (full natural-language
-   questions; consensus.app, free). Draft them with
-   `bin/verdict pico -q "<question>"` (PICO normalization: population,
-   intervention, comparison, outcome → ready queries), adjusted by what the
-   recon taught you. The Consensus UI caps the visible list at ~50 rows
-   ("Load more" stops there), so recall comes from 2-3 reformulations of
-   the question — different populations or angles — not from scrolling
-   one list deeper. WAIT for the pasted results: ask the user to scroll
-   every list to the end before copying; a raw page copy is fine, titles
-   are enough. Do not let Consensus's own short answer frame which papers
-   matter — select by relevance to the question. If a Consensus MCP tool
-   is configured in this session, run the queries yourself through it
-   instead of asking the user.
-4. **Resolve the paste**: the Consensus web copy carries titles (plus
+3. **Semantic discovery — mode B when `CONSENSUS_API_KEY` is set (the
+   default), mode C paste otherwise.**
+   - **3a (mode B, automatic).** Draft 1-3 queries with
+     `bin/verdict pico -q "<question>"` (PICO normalization: population,
+     intervention, comparison, outcome → ready queries), adjusted by what the
+     recon taught you. Recall comes from 2-3 reformulations of the question —
+     different populations or angles. Then
+     `bin/verdict run --topic <topic> -q "<full question>" --queries "<q1>"
+     --queries "<q2>" --stop-after 1` — discovery only, ≤3 pages per query;
+     tell the user the run spends Consensus quota (~3-9 uses). Read the
+     run's `1-discovery.json`: papers arrive with DOIs, abstracts and
+     design tags — no paste, no resolving. Do not let Consensus's own
+     takeaways frame which papers matter — the pipeline judges papers
+     itself.
+   - **3b (mode C, no key).** Hand the user the 1-3 ready queries (full
+     natural-language questions; consensus.app, free). The UI caps the
+     visible list at ~50 rows ("Load more" stops there), so recall comes
+     from the reformulations, not from scrolling one list deeper. WAIT for
+     the pasted results: ask the user to scroll every list to the end
+     before copying; a raw page copy is fine, titles are enough. Do not
+     let Consensus's own short answer frame which papers matter — select
+     by relevance to the question.
+4. **Resolve the paste (mode C only)**: the web copy carries titles (plus
    study type, year, takeaways) but no DOIs — `bin/verdict resolve` is
    the default path (each line prints the DOI and the matched title —
    check the matches are the same paper); if the paste carries DOIs
    (a CSV export), `bin/verdict dois` instead. Merge with on-topic recon
-   candidates and dedupe by DOI.
-5. **Snowball check (you, free, one command).** Run
-   `bin/verdict snowball dois.txt`: it lists works connected to several
+   candidates and dedupe by DOI. In mode B skip this — the discovery
+   artifact already carries DOIs.
+5. **Snowball check (you, free, one command).** Seeds: the mode-C dois.txt
+   or, in mode B, the DOIs from `1-discovery.json`. Run
+   `bin/verdict snowball <seeds>`: it lists works connected to several
    seed papers at once (cited by them or citing them). **You curate**: add
    only candidates clearly on-topic for the question (read their titles;
    typically 0-5), then tell the user what you added and why. Never add
    candidates blindly — a shared-citation count is a signal, not a
    relevance verdict.
-6. **Run**: `bin/verdict run --topic <topic> --dois dois.txt -q "<full
-   question>"` (one topic for the whole problem).
+6. **Run the pipeline**:
+   - mode B, no snowball additions: continue the discovery run —
+     `bin/verdict run --run-dir <discovery run dir> --resume` (stages 2-4
+     pick up from the artifacts);
+   - mode B with additions, or mode C: `bin/verdict run --topic <topic>
+     --dois dois.txt -q "<full question>"` over the merged corpus (one
+     topic for the whole problem).
 7. **Explain**: read `report.md` and `context.md`, then tell the user the
    verdict and consensus in plain words — which DOIs and designs carry
    them, where the direct studies' findings point (the direction tally:
@@ -80,9 +96,10 @@ modes A/B/C are a different thing — see docs/usage.md.)
    `{"vision_notes":[{"doi":"...","findings":["..."]}]}`, then
    `bin/verdict run --run-dir <dir> --resume` — the judge weighs them.
 
-If the user explicitly refuses the manual Consensus step: build the corpus
-from the recon candidates alone — and say clearly that discovery was
-keyword-based, not semantic.
+If the user refuses the Consensus step entirely (no API spend, no paste):
+run mode A — `bin/verdict run --engine openalex -q "<2-4 keywords>"` — or
+build the corpus from the recon candidates alone; either way say clearly
+that discovery was keyword-based, not semantic.
 
 ## Scenario 2 — the user asks questions about an existing topic
 
