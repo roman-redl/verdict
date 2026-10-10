@@ -229,6 +229,34 @@ run from the last completed stage without paying twice.
 An average run over 15 papers = 16 LLM calls of 2–4k tokens — a drop in the
 bucket of a GLM Coding Plan quota (15,000 credits per 5 hours).
 
+### Quota economy: lean vs fat runs (learned 2026-10-11)
+
+The two cost multipliers are **corpus size** and **full text**. A measured fat
+run: 3 queries × 3 pages → 113 papers × full-text critique ≈ 115 calls with
+10–20k-token prompts — millions of tokens in one run, a weekly-quota hazard.
+
+The lean profile is the **default for agent-launched runs** unless the user
+explicitly asks for depth:
+
+```bash
+bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
+    --max-papers 15 --fulltext=false --consensus-pages 2
+```
+
+- ≈16 abstract-only calls of 2–4k tokens per run.
+- `MAX_PAPERS` from `.env` now truncates the discovered corpus hard (it used
+  to be a warning-only soft cap — the 113-paper run slipped through it).
+- `--fulltext` (ON by default) is for deep single questions by deliberate
+  choice only; it multiplies prompt size 5–10×.
+
+### Known failure mode: hollow "insufficient"
+
+If a synthesis-stage JSON retry drops the study payload, the report lands a
+hollow `insufficient` whose rationale literally says *"no per-study input data
+was received"*. The critiques are intact. Fix for 1 LLM call: delete
+`4-synthesis.json`, `report.md`, `matrix.csv` in the run dir and
+`run --run-dir runs/<...> --resume` — synthesis re-runs on the kept critiques.
+
 ## verdictd (the HTTP wrapper)
 
 `bin/verdictd --addr localhost:8080` exposes the same pipeline over HTTP —

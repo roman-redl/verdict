@@ -358,12 +358,11 @@ func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Option
 		maxPages = 50
 	}
 	lim := orDefault(opts.MaxPapers, p.cfg.MaxPapers)
-	hardStop := opts.MaxPapers > 0
 	info := &DiscoveryInfo{Engine: "consensus", Queries: queries}
 	seen := map[string]bool{}
 	var papers []model.Paper
 	for _, q := range queries {
-		if hardStop && len(papers) >= opts.MaxPapers {
+		if len(papers) >= lim {
 			break
 		}
 		pages := 0
@@ -391,7 +390,7 @@ func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Option
 			if pg.IsEnd || len(pg.Results) == 0 {
 				break
 			}
-			if hardStop && len(papers) >= opts.MaxPapers {
+			if len(papers) >= lim {
 				break
 			}
 			if page == maxPages-1 {
@@ -413,13 +412,11 @@ func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Option
 				"(bin/verdict pico) or fall back to mode C (`verdict web` + --dois)")
 	}
 	info.PapersFound = len(papers)
-	if hardStop && len(papers) > opts.MaxPapers {
-		p.log.Warn("truncating the consensus corpus to --max-papers", "have", len(papers), "keep", opts.MaxPapers)
-		papers = papers[:opts.MaxPapers]
-	} else if len(papers) > lim {
-		st.Warnings = append(st.Warnings, fmt.Sprintf(
-			"%d papers discovered (above the %d default): expect ~%d critique LLM calls + 1 synthesis; pass --max-papers to cap it",
-			len(papers), lim, len(papers)))
+	if len(papers) > lim {
+		p.log.Warn("truncating the consensus corpus to the paper cap",
+			"have", len(papers), "keep", lim,
+			"hint", "raise --max-papers (or MAX_PAPERS) for a fatter, costlier corpus")
+		papers = papers[:lim]
 	}
 	st.Papers = papers
 	st.Discovery = info
