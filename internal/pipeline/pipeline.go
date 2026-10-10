@@ -19,6 +19,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/roman-redl/verdict/internal/config"
+	"github.com/roman-redl/verdict/internal/consensus"
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
@@ -39,6 +40,11 @@ type Options struct {
 	Concurrency    int
 	LLMConcurrency int // LLM stage parallelism
 
+	// Discovery controls.
+	Queries        []string // semantic queries for mode B (repeatable --queries); defaults to -q
+	Engine         string   // "" (auto: consensus when the key is present, else openalex) | consensus | openalex
+	ConsensusPages int      // max Consensus pages per query (defaults to CONSENSUS_PAGES, 3)
+
 	LLMCommand     string // claude-cli wrapper override for this run
 	LLMModel       string // exact model name for both LLM stages
 	ModelCritique  string // critique-stage model override
@@ -54,12 +60,13 @@ type Options struct {
 }
 
 type Clients struct {
-	Scite    *scite.Client
-	OpenAlex *openalex.Client
-	Crossref *crossref.Client
-	S2       *s2.Client      // second metadata source: TLDRs, abstracts OpenAlex misses, OA PDFs
-	PubPeer  *pubpeer.Client // post-publication commentary (behind PUBPEER_DEVKEY)
-	LLM      llm.Completer
+	Scite     *scite.Client
+	OpenAlex  *openalex.Client
+	Crossref  *crossref.Client
+	S2        *s2.Client        // second metadata source: TLDRs, abstracts OpenAlex misses, OA PDFs
+	PubPeer   *pubpeer.Client   // post-publication commentary (behind PUBPEER_DEVKEY)
+	Consensus *consensus.Client // mode B: semantic discovery (behind CONSENSUS_API_KEY)
+	LLM       llm.Completer
 	// LLMSynthesis overrides the judge model when set (cheap critic + strong
 	// judge); empty = the same backend as LLM.
 	LLMSynthesis llm.Completer
@@ -69,12 +76,26 @@ type Clients struct {
 type State struct {
 	Question      string                `json:"question"`
 	ChallengeNote string                `json:"challenge_note,omitempty"`
+	Discovery     *DiscoveryInfo        `json:"discovery,omitempty"`
 	Warnings      []string              `json:"warnings,omitempty"`
 	Papers        []model.Paper         `json:"papers"`
 	Enriched      []model.EnrichedPaper `json:"enriched,omitempty"`
 	Critiques     []model.Critique      `json:"critiques,omitempty"`
 	VisionNotes   []model.VisionNote    `json:"vision_notes,omitempty"`
 	Report        *model.Report         `json:"report,omitempty"`
+}
+
+// DiscoveryInfo records where the corpus came from — the audit trail for
+// "which engine, which queries, at what cost" (nil on pre-mode-B artifacts).
+type DiscoveryInfo struct {
+	Engine  string   `json:"engine"`            // consensus | openalex | dois
+	Queries []string `json:"queries,omitempty"` // the queries as actually run
+	// PagesFetched counts successful Consensus pages — each plausibly one
+	// API use spent (NOT "uses billed": retries and rejected pages differ).
+	PagesFetched int  `json:"pages_fetched,omitempty"`
+	PapersFound  int  `json:"papers_found,omitempty"` // after DOI-drop + dedup, before the --max-papers cut
+	DroppedNoDOI int  `json:"dropped_no_doi,omitempty"`
+	Truncated    bool `json:"truncated,omitempty"` // page cap hit before the ranking ended
 }
 
 type Pipeline struct {
@@ -238,23 +259,44 @@ func LoadRuns(dir string) ([]RunState, error) {
 func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error {
 	if opts.DOIFile != "" {
 		st.Question = firstNonEmpty(opts.Question, "Evidence assessment over a given DOI list")
+		st.Discovery = &DiscoveryInfo{Engine: "dois"}
 		return p.discoverByDOIs(ctx, st, opts)
 	}
 	if opts.Question == "" {
 		return fmt.Errorf("--question or --dois is required")
 	}
-	// Semantic discovery (Consensus) happens outside this binary — the
-	// corpus arrives via --dois (mode C paste, resolved to DOIs). Bare -q
-	// is the free keyword fallback. See docs/how-it-works.md §2.2 for how
-	// the discovery engine was chosen.
-	p.log.Warn("bare -q: keyword search via OpenAlex; for semantic discovery use mode C (--dois)")
-	papers, err := p.clients.OpenAlex.Search(ctx, opts.Question, orDefault(opts.MaxPapers, p.cfg.MaxPapers))
-	if err != nil {
-		return err
-	}
 	st.Question = opts.Question
-	st.Papers = papers
-	return nil
+	engine := opts.Engine
+	if engine == "" {
+		engine = "openalex"
+		if p.clients.Consensus != nil && p.clients.Consensus.HasKey() {
+			engine = "consensus"
+		}
+	}
+	queries := opts.Queries
+	if len(queries) == 0 {
+		queries = []string{opts.Question}
+	}
+	switch engine {
+	case "consensus":
+		return p.discoverConsensus(ctx, st, opts, queries)
+	case "openalex":
+		// The auto path lands here only when no key is configured; an
+		// explicit --engine openalex is a deliberate keyword opt-out.
+		if opts.Engine == "" {
+			p.log.Warn("CONSENSUS_API_KEY not set: keyword search via OpenAlex (mode A); for " +
+				"semantic discovery set CONSENSUS_API_KEY (mode B) or use the free web bridge: " +
+				"`verdict web` + `run --dois` (mode C)")
+		}
+		papers, err := p.clients.OpenAlex.Search(ctx, opts.Question, orDefault(opts.MaxPapers, p.cfg.MaxPapers))
+		if err != nil {
+			return err
+		}
+		st.Discovery = &DiscoveryInfo{Engine: "openalex", Queries: queries}
+		st.Papers = papers
+		return nil
+	}
+	return fmt.Errorf("unknown --engine %q (want consensus | openalex)", opts.Engine)
 }
 
 // discoverByDOIs is the manual-corpus mode: metadata comes from OpenAlex;
@@ -299,6 +341,91 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, st *State, opts Options) 
 	}
 	_ = g.Wait()
 	st.Papers = papers
+	return nil
+}
+
+// discoverConsensus is mode B: semantic search through the Consensus API.
+// Every request plausibly spends one of the plan's monthly uses, so the walk
+// is page-capped and the count is recorded in Discovery (and logged). Corpus
+// sizing follows the mode C convention: above the default it warns and keeps
+// everything — recall comes from query reformulations — and only an explicit
+// --max-papers truncates. An API error fails the stage loudly: silently
+// replacing semantic search with keyword search is what the engine bake-off
+// forbids (docs/how-it-works.md §2.2).
+func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Options, queries []string) error {
+	maxPages := orDefault(opts.ConsensusPages, p.cfg.ConsensusPages)
+	if maxPages > 50 { // (page+1)*page_size <= 1000: page 49 is the last legal one
+		maxPages = 50
+	}
+	lim := orDefault(opts.MaxPapers, p.cfg.MaxPapers)
+	hardStop := opts.MaxPapers > 0
+	info := &DiscoveryInfo{Engine: "consensus", Queries: queries}
+	seen := map[string]bool{}
+	var papers []model.Paper
+	for _, q := range queries {
+		if hardStop && len(papers) >= opts.MaxPapers {
+			break
+		}
+		pages := 0
+		for page := 0; page < maxPages; page++ {
+			pg, err := p.clients.Consensus.SearchPage(ctx, consensus.SearchParams{Query: q, Page: page})
+			if err != nil {
+				return fmt.Errorf("consensus search (query %q, page %d): %w — no automatic fallback "+
+					"to keyword search; escape hatch: `verdict web` + `run --dois` (mode C, free)", q, page, err)
+			}
+			info.PagesFetched++
+			pages++
+			for _, r := range pg.Results {
+				doi := model.NormalizeDOI(r.DOI)
+				if doi == "" {
+					info.DroppedNoDOI++ // the pipeline keys papers by DOI
+					continue
+				}
+				if seen[doi] {
+					continue
+				}
+				seen[doi] = true
+				papers = append(papers, r.ToPaper())
+			}
+			// An empty page is the backend's honest "no more", not an error.
+			if pg.IsEnd || len(pg.Results) == 0 {
+				break
+			}
+			if hardStop && len(papers) >= opts.MaxPapers {
+				break
+			}
+			if page == maxPages-1 {
+				info.Truncated = true // page cap hit before the ranking ended
+			}
+		}
+		p.log.Info("consensus query done", "query", q, "pages", pages, "papers", len(papers))
+	}
+	if info.DroppedNoDOI > 0 {
+		st.Warnings = append(st.Warnings, fmt.Sprintf(
+			"consensus: %d result(s) without a DOI dropped — the pipeline needs DOIs for enrichment",
+			info.DroppedNoDOI))
+	}
+	if len(papers) == 0 {
+		// A null answer is data, not failure: the verdict path handles an
+		// empty corpus honestly.
+		st.Warnings = append(st.Warnings,
+			"consensus returned no papers for the query(ies) — an honest null answer; reformulate "+
+				"(bin/verdict pico) or fall back to mode C (`verdict web` + --dois)")
+	}
+	info.PapersFound = len(papers)
+	if hardStop && len(papers) > opts.MaxPapers {
+		p.log.Warn("truncating the consensus corpus to --max-papers", "have", len(papers), "keep", opts.MaxPapers)
+		papers = papers[:opts.MaxPapers]
+	} else if len(papers) > lim {
+		st.Warnings = append(st.Warnings, fmt.Sprintf(
+			"%d papers discovered (above the %d default): expect ~%d critique LLM calls + 1 synthesis; pass --max-papers to cap it",
+			len(papers), lim, len(papers)))
+	}
+	st.Papers = papers
+	st.Discovery = info
+	p.log.Info("consensus discovery done", "queries", len(queries), "pages", info.PagesFetched,
+		"api_uses", info.PagesFetched, "papers", len(papers),
+		"dropped_no_doi", info.DroppedNoDOI, "truncated", info.Truncated)
 	return nil
 }
 

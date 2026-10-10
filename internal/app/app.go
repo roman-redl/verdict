@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/roman-redl/verdict/internal/config"
+	"github.com/roman-redl/verdict/internal/consensus"
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/openalex"
@@ -83,11 +84,12 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 		}
 	}
 	clients := pipeline.Clients{
-		Scite:        scite.New(cfg.SciteAPIKey),      // key is optional
-		OpenAlex:     openalex.New(cfg.OpenAlexEmail), // no key needed
-		Crossref:     crossref.New(cfg.OpenAlexEmail), // no key needed
-		S2:           s2.New(cfg.S2APIKey),            // key optional
-		PubPeer:      pubpeer.New(cfg.PubPeerDevKey),  // behind a devkey
+		Scite:        scite.New(cfg.SciteAPIKey),         // key is optional
+		OpenAlex:     openalex.New(cfg.OpenAlexEmail),    // no key needed
+		Crossref:     crossref.New(cfg.OpenAlexEmail),    // no key needed
+		S2:           s2.New(cfg.S2APIKey),               // key optional
+		PubPeer:      pubpeer.New(cfg.PubPeerDevKey),     // behind a devkey
+		Consensus:    consensus.New(cfg.ConsensusAPIKey), // mode B; key optional, HasKey gates discovery
 		LLM:          crit,
 		LLMSynthesis: synth,
 	}

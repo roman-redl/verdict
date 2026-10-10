@@ -20,10 +20,19 @@ type Paper struct {
 	SampleSize   int      `json:"sample_size,omitempty"`  // filled at the critique stage (from the abstract)
 	OALink       string   `json:"oa_link,omitempty"`
 	CitedByCount int      `json:"cited_by_count,omitempty"`
+	// SJRQuartile is the journal's best SCImago quartile at discovery
+	// ("Q1".."Q4", from Consensus) — context for the reader, not a quality
+	// verdict.
+	SJRQuartile string `json:"sjr_quartile,omitempty"`
+	// Takeaway is Consensus's AI-generated one-line summary of the study. It
+	// is for the human reading the artifacts ONLY — never fed to the critic
+	// or the judge as evidence: the pipeline judges papers from abstracts
+	// and full texts (critiquePaper sends an explicit field allowlist).
+	Takeaway string `json:"takeaway,omitempty"`
 	// Retracted is known already at discovery when the source was OpenAlex
 	// (the enrichment stage then skips re-querying it).
 	Retracted bool   `json:"retracted,omitempty"`
-	Source    string `json:"source"` // openalex | manual
+	Source    string `json:"source"` // openalex | consensus | manual
 }
 
 // CitationTally is a paper's Scite smart-citation breakdown.

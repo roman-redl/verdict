@@ -11,8 +11,8 @@ import (
 // PICO is a research question normalized through the evidence-medicine
 // frame (Population, Intervention, Comparison, Outcome). Sharpening a
 // messy question into PICO before discovery improves every search mode —
-// and both query flavors (keyword for mode A, natural language for mode C)
-// come out ready to run.
+// and both query flavors (keyword for mode A, natural language for mode
+// B/C) come out ready to run.
 type PICO struct {
 	Question        string   `json:"question"`
 	Population      string   `json:"population,omitempty"`
@@ -20,7 +20,7 @@ type PICO struct {
 	Comparison      string   `json:"comparison,omitempty"`
 	Outcome         string   `json:"outcome,omitempty"`
 	KeywordQuery    string   `json:"keyword_query"`    // mode A: 2-4 keywords, PubMed-style
-	SemanticQueries []string `json:"semantic_queries"` // mode C: 1-3 semantic queries (Consensus)
+	SemanticQueries []string `json:"semantic_queries"` // mode B/C: 1-3 semantic queries (Consensus API or web UI)
 	Notes           string   `json:"notes,omitempty"`
 }
 
@@ -30,7 +30,7 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 - question: the question restated as one self-contained, unambiguous English sentence
 - population, intervention, comparison, outcome: the four PICO components (comparison may be empty when there is none)
 - keyword_query: a PubMed-style query — 2-4 keywords, no stopwords, no full sentences (keyword engines match words, not meaning)
-- semantic_queries: 1-3 full natural-language queries for semantic search (consensus.app) covering the meaningful variants of the question (different populations or formulations) so they can be run in the free web UI
+- semantic_queries: 1-3 full natural-language queries for semantic search (consensus.app) covering the meaningful variants of the question (different populations or formulations) so they can be run through the Consensus API (verdict run --queries) or the free web UI
 - notes: ambiguities or sub-questions that deserve separate runs, empty if none
 
 All human-readable text in English.`
@@ -54,10 +54,11 @@ func RenderPICO(p *PICO) string {
 	fmt.Fprintf(&sb, "- Comparison: %s\n", orDash(p.Comparison))
 	fmt.Fprintf(&sb, "- Outcome: %s\n", orDash(p.Outcome))
 	fmt.Fprintf(&sb, "\nKeyword query (mode A): `%s`\n", orDash(p.KeywordQuery))
-	sb.WriteString("\nSemantic queries (mode C, free Consensus web UI):\n")
+	sb.WriteString("\nSemantic queries (mode B/C — Consensus API or free web UI):\n")
 	for _, q := range p.SemanticQueries {
 		fmt.Fprintf(&sb, "  - %s\n", q)
 	}
+	sb.WriteString("\nRun them (mode B): bin/verdict run -q \"<question>\" --queries \"<q1>\" --queries \"<q2>\"\n")
 	if p.Notes != "" {
 		fmt.Fprintf(&sb, "\nNotes: %s\n", p.Notes)
 	}

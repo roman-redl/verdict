@@ -17,6 +17,7 @@ type Config struct {
 	AnthropicModel  string
 	S2APIKey        string // optional: raises Semantic Scholar's free anonymous limits
 	PubPeerDevKey   string // optional: enables the PubPeer commentary check
+	ConsensusAPIKey string // optional: mode B — semantic discovery via the Consensus API
 
 	// LLM backend for the analytical stages.
 	LLMBackend        string // "" (auto) | anthropic | claude-cli | openai-compat
@@ -33,6 +34,10 @@ type Config struct {
 
 	MaxPapers   int
 	Concurrency int
+	// ConsensusPages caps the Consensus search pages fetched per discovery
+	// query (quota: each HTTP request plausibly consumes one of the plan's
+	// monthly uses).
+	ConsensusPages int
 	// EnrichCacheTTLDays is the freshness window of the per-topic DOI
 	// enrichment cache (OpenAlex/Crossref lookups); 0 disables the cache.
 	EnrichCacheTTLDays int
@@ -47,6 +52,7 @@ func Load() *Config {
 		AnthropicModel:     getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
 		S2APIKey:           os.Getenv("S2_API_KEY"),
 		PubPeerDevKey:      os.Getenv("PUBPEER_DEVKEY"),
+		ConsensusAPIKey:    os.Getenv("CONSENSUS_API_KEY"),
 		LLMBackend:         os.Getenv("LLM_BACKEND"),
 		LLMCommand:         getenv("LLM_COMMAND", "claude-zai"),
 		LLMModel:           os.Getenv("LLM_MODEL"),
@@ -58,6 +64,7 @@ func Load() *Config {
 		OpenAIKey:          os.Getenv("OPENAI_API_KEY"),
 		MaxPapers:          getint("MAX_PAPERS", 15),
 		Concurrency:        getint("CONCURRENCY", 4),
+		ConsensusPages:     getint("CONSENSUS_PAGES", 3),
 		EnrichCacheTTLDays: getint("ENRICH_CACHE_TTL_DAYS", 30),
 	}
 }

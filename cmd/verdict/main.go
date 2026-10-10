@@ -1,6 +1,6 @@
 // verdict — an orchestrator for evidence assessment of scientific claims:
-// discovery (Consensus paste / OpenAlex) → smart citations and retraction
-// checks (Scite/OpenAlex) → LLM verdict with an evidence matrix.
+// discovery (Consensus API / paste, OpenAlex) → smart citations and
+// retraction checks (Scite/OpenAlex) → LLM verdict with an evidence matrix.
 package main
 
 import (
@@ -62,6 +62,12 @@ func main() {
 		"research question, e.g.: does creatine improve cognitive performance")
 	runCmd.Flags().StringVar(&opts.DOIFile, "dois", "",
 		"file with a list of DOIs (one per line) — the manual-corpus mode")
+	runCmd.Flags().StringArrayVar(&opts.Queries, "queries", nil,
+		"semantic discovery queries, repeatable (mode B; defaults to -q) — e.g. from `verdict pico`")
+	runCmd.Flags().StringVar(&opts.Engine, "engine", "",
+		"discovery engine: consensus | openalex (default: consensus when CONSENSUS_API_KEY is set, else openalex)")
+	runCmd.Flags().IntVar(&opts.ConsensusPages, "consensus-pages", 0,
+		"max Consensus pages per query; each page is one API use (defaults to CONSENSUS_PAGES, 3)")
 	runCmd.Flags().StringVar(&opts.Topic, "topic", "",
 		"group the run under runs/<topic>/ (one topic per research problem)")
 	runCmd.Flags().StringVar(&opts.RunDir, "run-dir", "",
@@ -101,12 +107,13 @@ func main() {
 
 // webCmd — discovery mode C (the free bridge): open the Consensus web UI
 // with the question ready to paste, pick papers by hand (scroll to the end
-// of the list), copy them and feed the pipeline via dois/resolve.
+// of the list), copy them and feed the pipeline via dois/resolve. The
+// semantic path with an API key is mode B (`run -q` does it automatically).
 func webCmd() *cobra.Command {
 	var question string
 	cmd := &cobra.Command{
 		Use:   "web",
-		Short: "Open the Consensus web UI with the question ready to paste (free: manual paper selection)",
+		Short: "Open the Consensus web UI with the question ready to paste (free manual selection — the semantic path without an API key)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if question == "" {
 				return fmt.Errorf("--question/-q is required")
@@ -458,7 +465,8 @@ func indexCmd() *cobra.Command {
 
 // picoCmd — question normalization before discovery: a messy question
 // becomes PICO components plus ready-to-run queries — a PubMed-style
-// keyword query (mode A) and 1-3 semantic queries (mode C, Consensus).
+// keyword query (mode A) and 1-3 semantic queries (mode B/C: run through
+// the Consensus API via `run --queries`, or the free web UI).
 func picoCmd() *cobra.Command {
 	var question string
 	cmd := &cobra.Command{
@@ -523,12 +531,13 @@ func briefCmd() *cobra.Command {
 			}
 			fmt.Printf("Brief: %s\n", briefPath)
 			if len(b.Questions) > 0 {
-				fmt.Println("\nSuggested evidence questions (discovery default = mode C: pick papers in the free Consensus web UI):")
+				fmt.Println("\nSuggested evidence questions (discovery default = mode B: run -q searches Consensus itself):")
 				for _, q := range b.Questions {
-					fmt.Printf("  # %s\n  bin/verdict web -q %q\n", orDashQ(q.Priority), q.Question)
+					fmt.Printf("  # %s\n  bin/verdict run -q %q\n", orDashQ(q.Priority), q.Question)
 				}
-				fmt.Println(`  after picking papers in the browser:
-    pbpaste | bin/verdict dois > dois.txt && bin/verdict run --dois dois.txt -q "<question>"`)
+				fmt.Println(`  no CONSENSUS_API_KEY? mode C (free): pick papers in the browser —
+    bin/verdict web -q "<question>"; pbpaste | bin/verdict dois > dois.txt &&
+    bin/verdict run --dois dois.txt -q "<question>"`)
 			}
 			return nil
 		},
