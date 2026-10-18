@@ -6,6 +6,7 @@ package app
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/roman-redl/verdict/internal/config"
@@ -52,7 +53,7 @@ func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Com
 		}
 		return llm.NewOpenAICompat(cfg.OpenAIBaseURL, cfg.OpenAIKey, m), nil
 	case "claude-cli":
-		if cfg.LLMCommand == "claude-zai" {
+		if strings.HasPrefix(cfg.LLMCommand, "claude-zai") {
 			log.Warn("claude-zai: the very first request blocks the corporate gateway " +
 				"for hours (one-way cooldown) — make sure corporate models are not needed soon")
 		}
@@ -66,20 +67,33 @@ func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Com
 }
 
 // BuildClients assembles the pipeline's clients from the config and the
-// run options (per-run LLM command/model overrides included).
+// run options (per-run LLM command/model overrides included). The judge
+// backend defaults to the critic's; a per-stage command or model override
+// (LLM_COMMAND_SYNTHESIS / LLM_MODEL_SYNTHESIS) rebuilds it separately —
+// the cheap-critic + strong-judge split.
 func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (pipeline.Clients, error) {
 	cfgRun := *cfg
 	if opts.LLMCommand != "" {
 		cfgRun.LLMCommand = opts.LLMCommand
 	}
-	crit, err := BuildCompleter(&cfgRun, log,
+	cfgCrit := cfgRun
+	if cfgRun.LLMCommandCritique != "" {
+		cfgCrit.LLMCommand = cfgRun.LLMCommandCritique
+	}
+	crit, err := BuildCompleter(&cfgCrit, log,
 		FirstNonEmpty(opts.ModelCritique, cfgRun.LLMModelCritique, opts.LLMModel))
 	if err != nil {
 		return pipeline.Clients{}, err
 	}
 	synth := crit
-	if m := FirstNonEmpty(opts.ModelSynthesis, cfgRun.LLMModelSynthesis, opts.LLMModel); m != "" {
-		if synth, err = BuildCompleter(&cfgRun, log, m); err != nil {
+	if cfgRun.LLMCommandSynthesis != "" || opts.ModelSynthesis != "" || cfgRun.LLMModelSynthesis != "" {
+		cfgSynth := cfgRun
+		if cfgRun.LLMCommandSynthesis != "" {
+			cfgSynth.LLMCommand = cfgRun.LLMCommandSynthesis
+		}
+		synth, err = BuildCompleter(&cfgSynth, log,
+			FirstNonEmpty(opts.ModelSynthesis, cfgRun.LLMModelSynthesis, opts.LLMModel))
+		if err != nil {
 			return pipeline.Clients{}, err
 		}
 	}

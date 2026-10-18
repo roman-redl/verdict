@@ -39,6 +39,7 @@ type Options struct {
 	MaxPapers      int
 	Concurrency    int
 	LLMConcurrency int // LLM stage parallelism
+	LLMChunk       int // studies per critique call (0 = LLM_CHUNK/config; 1 = one call per study)
 
 	// Discovery controls.
 	Queries        []string // semantic queries for mode B (repeatable --queries); defaults to -q
@@ -83,6 +84,47 @@ type State struct {
 	Critiques     []model.Critique      `json:"critiques,omitempty"`
 	VisionNotes   []model.VisionNote    `json:"vision_notes,omitempty"`
 	Report        *model.Report         `json:"report,omitempty"`
+	// Cost is the run's LLM token accounting, as reported by the backend —
+	// the audit trail for quota-economy decisions. Nil on backends that
+	// report no usage and on pre-measurement artifacts.
+	Cost *CostReport `json:"cost,omitempty"`
+}
+
+// CostReport splits the run's LLM usage by stage.
+type CostReport struct {
+	Critique  *StageCost `json:"critique,omitempty"`
+	Synthesis *StageCost `json:"synthesis,omitempty"`
+}
+
+// StageCost is the accumulated usage of one LLM stage.
+type StageCost struct {
+	Calls        int `json:"calls"`
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+func (s *StageCost) add(u llm.Usage) {
+	s.Calls++
+	s.InputTokens += u.InputTokens
+	s.OutputTokens += u.OutputTokens
+}
+
+// Markdown renders the usage footer for report.md.
+func (c *CostReport) Markdown() string {
+	if c == nil || (c.Critique == nil && c.Synthesis == nil) {
+		return ""
+	}
+	var parts []string
+	for name, s := range map[string]*StageCost{"critique": c.Critique, "synthesis": c.Synthesis} {
+		if s != nil && (s.Calls > 0 || s.InputTokens > 0 || s.OutputTokens > 0) {
+			parts = append(parts, fmt.Sprintf("%s: %d calls, %d in / %d out tokens",
+				name, s.Calls, s.InputTokens, s.OutputTokens))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "LLM usage — " + strings.Join(parts, "; ")
 }
 
 // DiscoveryInfo records where the corpus came from — the audit trail for
@@ -643,32 +685,7 @@ func (p *Pipeline) fetchS2Papers(ctx context.Context, papers []model.Paper) map[
 	return out
 }
 
-// --- stage 3: critique (map) ---
-
-// critique: parallel per-paper methodology review. A failure on one paper
-// does not kill the stage — it goes into Critique.Error.
-func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error {
-	if p.clients.LLM == nil {
-		st.Warnings = append(st.Warnings,
-			"no LLM backend configured: per-paper critique skipped, the verdict will rely on counters only")
-		return nil
-	}
-	critiques := make([]model.Critique, len(st.Enriched))
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(orDefault(opts.LLMConcurrency, p.cfg.LLMConcurrency))
-	for i, e := range st.Enriched {
-		g.Go(func() error {
-			critiques[i] = critiquePaper(gctx, p.clients.LLM, e, st.Question)
-			if critiques[i].Error != "" {
-				p.log.Warn("critique failed", "doi", e.DOI, "err", critiques[i].Error)
-			}
-			return nil
-		})
-	}
-	_ = g.Wait()
-	st.Critiques = critiques
-	return nil
-}
+// --- stage 3: critique (map) — implemented in critique.go ---
 
 // --- stage 4: synthesis (reduce) ---
 
@@ -690,9 +707,15 @@ func (p *Pipeline) synthesize(ctx context.Context, st *State, _ Options) error {
 			"\nWeigh this counterargument explicitly in verdict_rationale and answer it. It is an argument, not data: it does not override the collected evidence."
 	}
 	var jr synthesisResult
-	if err := llm.AskJSON(ctx, judge, synthesisSystemPrompt, user, &jr, 8000); err != nil {
+	usage, err := llm.AskJSON(ctx, judge, synthesisSystemPrompt, user, &jr, 8000)
+	if err != nil {
 		return fmt.Errorf("LLM synthesis: %w", err)
 	}
+	if st.Cost == nil {
+		st.Cost = &CostReport{}
+	}
+	st.Cost.Synthesis = &StageCost{Calls: 1, InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens}
+	p.log.Info("synthesis llm usage", "in", usage.InputTokens, "out", usage.OutputTokens)
 	r := model.Report{
 		Question:         st.Question,
 		GeneratedAt:      time.Now().UTC(),

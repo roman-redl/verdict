@@ -82,6 +82,8 @@ func main() {
 		"enrichment parallelism (defaults to CONCURRENCY from env)")
 	runCmd.Flags().IntVar(&opts.LLMConcurrency, "llm-concurrency", 0,
 		"LLM stage parallelism (defaults to LLM_CONCURRENCY from env)")
+	runCmd.Flags().IntVar(&opts.LLMChunk, "llm-chunk", 0,
+		"studies per critique call — the call count, not the payload, dominates the cost (0 = LLM_CHUNK from env, 5; 1 = one call per study)")
 	runCmd.Flags().StringVar(&opts.LLMCommand, "llm-command", "",
 		"claude-cli wrapper for this run (default comes from .env)")
 	runCmd.Flags().StringVar(&opts.LLMModel, "llm-model", "",
@@ -297,10 +299,11 @@ func askCmd() *cobra.Command {
 				fmt.Printf("  - %s (%d papers) — %s\n", r.Name, paperCount(r.State), shorten(r.State.Question, 80))
 			}
 			if question != "" {
-				ans, err := completer.Complete(cmd.Context(), system, question, llm.Options{})
+				ans, u, err := completer.Complete(cmd.Context(), system, question, llm.Options{})
 				if err != nil {
 					return err
 				}
+				log.Info("ask llm usage", "in", u.InputTokens, "out", u.OutputTokens)
 				fmt.Println(renderAnswer(ans))
 				return nil
 			}
@@ -328,12 +331,13 @@ func askCmd() *cobra.Command {
 				}
 				user := transcript + "\n\nQuestion: " + q
 				fmt.Println("…thinking (up to a couple of minutes)…")
-				ans, err := completer.Complete(cmd.Context(), system, user, llm.Options{})
+				ans, u, err := completer.Complete(cmd.Context(), system, user, llm.Options{})
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "call failed:", err)
 					fmt.Fprintln(os.Stderr, "continuing — please repeat the question")
 					continue
 				}
+				log.Info("ask llm usage", "in", u.InputTokens, "out", u.OutputTokens)
 				fmt.Println("\n" + renderAnswer(ans) + "\n")
 				transcript = user + "\nAnswer: " + ans
 				// the dialogue history is carried into the next questions;

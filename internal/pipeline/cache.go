@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/roman-redl/verdict/internal/model"
 )
 
 // EnrichCache memoizes per-DOI deterministic lookups (OpenAlex metadata,
@@ -72,6 +74,71 @@ func enrichCachePath(opts Options) string {
 		return filepath.Join(filepath.Dir(opts.RunDir), "cache.json")
 	case opts.Topic != "":
 		return filepath.Join("runs", topicSlug(opts.Topic), "cache.json")
+	}
+	return ""
+}
+
+// CritiqueCache memoizes per-study critiques across runs of one topic: a
+// critique is a pure function of (study data, question), so challenge
+// re-runs (same corpus, same question verbatim) and crash resumes reuse it
+// instead of paying the LLM again. Key: normalized DOI + "\x00" + question.
+// The tradeoff is bounded by the TTL: citation tallies drift over time, and
+// a months-old critique may lag the current enrichment.
+type CritiqueCache map[string]CritiqueCacheEntry
+
+// CritiqueCacheEntry is the cached critique of one (study, question) pair.
+type CritiqueCacheEntry struct {
+	CheckedAt time.Time      `json:"checked_at"`
+	Critique  model.Critique `json:"critique"`
+}
+
+// LoadCritiqueCache reads the cache and drops entries older than ttl
+// (ttl <= 0 disables the cache entirely). A missing file is an empty cache.
+func LoadCritiqueCache(path string, ttl time.Duration) CritiqueCache {
+	out := CritiqueCache{}
+	if path == "" || ttl <= 0 {
+		return out
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	var c CritiqueCache
+	if json.Unmarshal(b, &c) != nil {
+		return out // a corrupt cache is a cold cache
+	}
+	cutoff := time.Now().Add(-ttl)
+	for k, e := range c {
+		if e.CheckedAt.After(cutoff) {
+			out[k] = e
+		}
+	}
+	return out
+}
+
+// Save writes the cache (creating the topic directory when needed).
+func (c CritiqueCache) Save(path string) error {
+	if path == "" || len(c) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
+// critiqueCachePath places the cache next to the runs of a topic, mirroring
+// enrichCachePath.
+func critiqueCachePath(opts Options) string {
+	switch {
+	case opts.RunDir != "":
+		return filepath.Join(filepath.Dir(opts.RunDir), "critique-cache.json")
+	case opts.Topic != "":
+		return filepath.Join("runs", topicSlug(opts.Topic), "critique-cache.json")
 	}
 	return ""
 }

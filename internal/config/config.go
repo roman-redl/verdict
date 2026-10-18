@@ -20,13 +20,16 @@ type Config struct {
 	ConsensusAPIKey string // optional: mode B — semantic discovery via the Consensus API
 
 	// LLM backend for the analytical stages.
-	LLMBackend        string // "" (auto) | anthropic | claude-cli | openai-compat
-	LLMCommand        string // claude-cli: wrapper from ~/.zshrc (claude-zai, claude, ...)
-	LLMModel          string // exact model name (aliases do not resolve in claude-cli)
-	LLMModelCritique  string // per-stage override: cheap critic + strong judge
-	LLMModelSynthesis string // (empty = LLM_MODEL)
-	LLMTimeoutSec     int
-	LLMConcurrency    int // LLM stage parallelism
+	LLMBackend          string // "" (auto) | anthropic | claude-cli | openai-compat
+	LLMCommand          string // claude-cli: wrapper from ~/.zshrc (claude-zai, claude, ...)
+	LLMCommandCritique  string // per-stage wrapper override (e.g. claude-zai-flash: cheap critic)
+	LLMCommandSynthesis string // (empty = LLM_COMMAND)
+	LLMModel            string // exact model name (aliases do not resolve in claude-cli)
+	LLMModelCritique    string // per-stage override: cheap critic + strong judge
+	LLMModelSynthesis   string // (empty = LLM_MODEL)
+	LLMTimeoutSec       int
+	LLMConcurrency      int // LLM stage parallelism
+	LLMChunk            int // studies per critique call (1 = one call per study)
 
 	// OpenAI-compatible backend (OpenRouter/DeepSeek/...).
 	OpenAIBaseURL string
@@ -41,31 +44,38 @@ type Config struct {
 	// EnrichCacheTTLDays is the freshness window of the per-topic DOI
 	// enrichment cache (OpenAlex/Crossref lookups); 0 disables the cache.
 	EnrichCacheTTLDays int
+	// CritiqueCacheTTLDays is the freshness window of the per-topic critique
+	// cache ((study, question) → critique); 0 disables the cache.
+	CritiqueCacheTTLDays int
 }
 
 func Load() *Config {
 	loadDotEnv(".env")
 	return &Config{
-		SciteAPIKey:        os.Getenv("SCITE_API_KEY"),
-		OpenAlexEmail:      os.Getenv("OPENALEX_EMAIL"),
-		AnthropicAPIKey:    os.Getenv("ANTHROPIC_API_KEY"),
-		AnthropicModel:     getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
-		S2APIKey:           os.Getenv("S2_API_KEY"),
-		PubPeerDevKey:      os.Getenv("PUBPEER_DEVKEY"),
-		ConsensusAPIKey:    os.Getenv("CONSENSUS_API_KEY"),
-		LLMBackend:         os.Getenv("LLM_BACKEND"),
-		LLMCommand:         getenv("LLM_COMMAND", "claude-zai"),
-		LLMModel:           os.Getenv("LLM_MODEL"),
-		LLMModelCritique:   os.Getenv("LLM_MODEL_CRITIQUE"),
-		LLMModelSynthesis:  os.Getenv("LLM_MODEL_SYNTHESIS"),
-		LLMTimeoutSec:      getint("LLM_TIMEOUT", 600),
-		LLMConcurrency:     getint("LLM_CONCURRENCY", 4),
-		OpenAIBaseURL:      os.Getenv("OPENAI_BASE_URL"),
-		OpenAIKey:          os.Getenv("OPENAI_API_KEY"),
-		MaxPapers:          getint("MAX_PAPERS", 15),
-		Concurrency:        getint("CONCURRENCY", 4),
-		ConsensusPages:     getint("CONSENSUS_PAGES", 3),
-		EnrichCacheTTLDays: getint("ENRICH_CACHE_TTL_DAYS", 30),
+		SciteAPIKey:          os.Getenv("SCITE_API_KEY"),
+		OpenAlexEmail:        os.Getenv("OPENALEX_EMAIL"),
+		AnthropicAPIKey:      os.Getenv("ANTHROPIC_API_KEY"),
+		AnthropicModel:       getenv("ANTHROPIC_MODEL", "claude-sonnet-5"),
+		S2APIKey:             os.Getenv("S2_API_KEY"),
+		PubPeerDevKey:        os.Getenv("PUBPEER_DEVKEY"),
+		ConsensusAPIKey:      os.Getenv("CONSENSUS_API_KEY"),
+		LLMBackend:           os.Getenv("LLM_BACKEND"),
+		LLMCommand:           getenv("LLM_COMMAND", "claude-zai"),
+		LLMCommandCritique:   os.Getenv("LLM_COMMAND_CRITIQUE"),
+		LLMCommandSynthesis:  os.Getenv("LLM_COMMAND_SYNTHESIS"),
+		LLMModel:             os.Getenv("LLM_MODEL"),
+		LLMModelCritique:     os.Getenv("LLM_MODEL_CRITIQUE"),
+		LLMModelSynthesis:    os.Getenv("LLM_MODEL_SYNTHESIS"),
+		LLMTimeoutSec:        getint("LLM_TIMEOUT", 600),
+		LLMConcurrency:       getint("LLM_CONCURRENCY", 4),
+		LLMChunk:             getint("LLM_CHUNK", 5),
+		OpenAIBaseURL:        os.Getenv("OPENAI_BASE_URL"),
+		OpenAIKey:            os.Getenv("OPENAI_API_KEY"),
+		MaxPapers:            getint("MAX_PAPERS", 15),
+		Concurrency:          getint("CONCURRENCY", 4),
+		ConsensusPages:       getint("CONSENSUS_PAGES", 3),
+		EnrichCacheTTLDays:   getint("ENRICH_CACHE_TTL_DAYS", 30),
+		CritiqueCacheTTLDays: getint("CRITIQUE_CACHE_TTL_DAYS", 30),
 	}
 }
 

@@ -53,7 +53,7 @@ All human-readable text in English.`
 // BriefFromText runs the triage over a problem description.
 func BriefFromText(ctx context.Context, client llm.Completer, text string) (*Brief, error) {
 	var b Brief
-	if err := llm.AskJSON(ctx, client, briefSystemPrompt, truncate(text, 24000), &b, 4000); err != nil {
+	if _, err := llm.AskJSON(ctx, client, briefSystemPrompt, truncate(text, 24000), &b, 4000); err != nil {
 		return nil, err
 	}
 	return &b, nil

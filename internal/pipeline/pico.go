@@ -38,7 +38,7 @@ All human-readable text in English.`
 // PICOFromQuestion normalizes a (possibly messy) question into PICO.
 func PICOFromQuestion(ctx context.Context, client llm.Completer, question string) (*PICO, error) {
 	var p PICO
-	if err := llm.AskJSON(ctx, client, picoSystemPrompt, truncate(question, 2000), &p, 1500); err != nil {
+	if _, err := llm.AskJSON(ctx, client, picoSystemPrompt, truncate(question, 2000), &p, 1500); err != nil {
 		return nil, err
 	}
 	return &p, nil

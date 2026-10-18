@@ -11,8 +11,8 @@ import (
 type fakeCompleter struct{ answer string }
 
 func (f *fakeCompleter) Name() string { return "fake" }
-func (f *fakeCompleter) Complete(_ context.Context, _, _ string, _ llm.Options) (string, error) {
-	return f.answer, nil
+func (f *fakeCompleter) Complete(_ context.Context, _, _ string, _ llm.Options) (string, llm.Usage, error) {
+	return f.answer, llm.Usage{}, nil
 }
 
 func TestPICOFromQuestion(t *testing.T) {

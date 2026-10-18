@@ -19,35 +19,66 @@ type Options struct {
 	MaxTokens int
 }
 
+// Usage is the token accounting of one call, when the backend reports it.
+// InputTokens counts everything the model ingested — fresh input plus cached
+// reads — which is the honest "what did this call cost" number. Zero fields
+// mean the backend did not report usage.
+type Usage struct {
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+}
+
+// Add returns the element-wise sum (for accumulating a stage).
+func (u Usage) Add(o Usage) Usage {
+	return Usage{
+		InputTokens:  u.InputTokens + o.InputTokens,
+		OutputTokens: u.OutputTokens + o.OutputTokens,
+	}
+}
+
 // Completer is the common backend contract.
 type Completer interface {
 	Name() string
-	Complete(ctx context.Context, system, user string, opts Options) (string, error)
+	Complete(ctx context.Context, system, user string, opts Options) (string, Usage, error)
 }
 
 const jsonInstruct = "\n\nRespond with a single valid JSON object and nothing else."
 
 // AskJSON is Complete with a hard JSON requirement; when the answer is not
 // valid JSON (wrapped in a markdown fence or broken syntax), it retries once.
-func AskJSON(ctx context.Context, c Completer, system, user string, out any, maxTokens int) error {
+// The retry resends the original task together with the broken answer: the
+// backends are stateless, so a bare "fix your previous reply" reaches a model
+// that has never seen it.
+func AskJSON(ctx context.Context, c Completer, system, user string, out any, maxTokens int) (Usage, error) {
 	opts := Options{MaxTokens: maxTokens}
-	text, err := c.Complete(ctx, system, user+jsonInstruct, opts)
+	text, usage, err := c.Complete(ctx, system, user+jsonInstruct, opts)
 	if err != nil {
-		return err
+		return usage, err
 	}
 	if err := json.Unmarshal(stripFences(text), out); err == nil {
-		return nil
+		return usage, nil
 	}
-	text, err = c.Complete(ctx, system,
-		"Your previous answer was not valid JSON. Return ONLY the corrected JSON object, nothing else.",
-		opts)
+	retry := user + jsonInstruct +
+		"\n\nYour previous answer was not valid JSON:\n" + capText(text, 4000) +
+		"\n\nReturn ONLY the corrected JSON object, nothing else."
+	text, u2, err := c.Complete(ctx, system, retry, opts)
+	usage = usage.Add(u2)
 	if err != nil {
-		return err
+		return usage, err
 	}
 	if err := json.Unmarshal(stripFences(text), out); err != nil {
-		return fmt.Errorf("%s: invalid JSON after retry: %w", c.Name(), err)
+		return usage, fmt.Errorf("%s: invalid JSON after retry: %w", c.Name(), err)
 	}
-	return nil
+	return usage, nil
+}
+
+// capText hard-caps a string at n runes.
+func capText(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 // stripFences removes ```json ... ``` around the answer if the model added it.

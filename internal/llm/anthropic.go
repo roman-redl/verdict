@@ -46,12 +46,16 @@ type response struct {
 		Text string `json:"text"`
 	} `json:"content"`
 	StopReason string `json:"stop_reason"`
+	Usage      struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
 }
 
 func (a *Anthropic) Name() string { return "anthropic:" + a.model }
 
 // Complete performs one model call; returns the concatenated text blocks.
-func (a *Anthropic) Complete(ctx context.Context, system, user string, opts Options) (string, error) {
+func (a *Anthropic) Complete(ctx context.Context, system, user string, opts Options) (string, Usage, error) {
 	maxTokens := opts.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 4096
@@ -68,7 +72,7 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, opts Opti
 		"anthropic-version": anthropicVer,
 	}
 	if err := a.http.DoJSON(ctx, http.MethodPost, a.base+anthropicPath, req, &resp, headers); err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 	var sb strings.Builder
 	for _, b := range resp.Content {
@@ -77,7 +81,7 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, opts Opti
 		}
 	}
 	if sb.Len() == 0 {
-		return "", fmt.Errorf("anthropic: empty response (stop_reason=%s)", resp.StopReason)
+		return "", Usage{}, fmt.Errorf("anthropic: empty response (stop_reason=%s)", resp.StopReason)
 	}
-	return sb.String(), nil
+	return sb.String(), Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}, nil
 }

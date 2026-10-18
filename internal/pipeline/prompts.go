@@ -1,74 +1,15 @@
 package pipeline
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
-// critiqueSystemPrompt — the map step: a strict methodologist reviewing one
-// paper. Data comes only from what is provided; the sample size is reported
-// only when it is actually stated in the abstract (otherwise the LLM
-// invents one).
-const critiqueSystemPrompt = `You are a rigorous methodologist and peer reviewer. You assess a single study's evidential value for a specific research question, based ONLY on the data provided (title, abstract or full text, design tags, citation tallies). Never invent facts; if data is missing, use the "unknown"/"unclear" values. Report sample size only if it is explicitly stated. When full_text is provided, it supersedes the abstract: read the methods and results sections, and report concerns invisible in the abstract (statistical issues, endpoint switching, dropout handling, unreported exclusions).
-
-Respond with a single JSON object, no markdown, with exactly these fields:
-doi (string, copy verbatim), title (string, original),
-design_quality: "high" | "moderate" | "low" | "unknown",
-sample_adequacy: "adequate" | "small" | "very_small" | "unclear" | "na",
-sample_size_reported (integer, 0 if not stated),
-relevance: "direct" | "indirect" | "tangential" | "unknown",
-result_direction: "positive" | "null" | "negative" | "mixed" | "unclear" — the direction of THIS study's own findings relative to the research question (positive = supports the claim, null = no effect found, negative = opposite effect, mixed = inconsistent outcomes, unclear = not determinable from the abstract); judge from the reported results only, never from the title's framing,
-strengths (array of short strings),
-concerns (array of short strings).
-
-Design quality guidance: meta-analysis / systematic review of RCTs = high; RCT = high; large prospective cohort = moderate; small cohort / case-control = low; case report / narrative review / animal or in-vitro only = low.`
-
-// critiquePaper reviews a single paper; a call failure does not panic — it
-// is returned in Critique.Error and the stage keeps working on the rest.
-func critiquePaper(ctx context.Context, client llm.Completer, e model.EnrichedPaper, question string) model.Critique {
-	c := model.Critique{
-		DOI:             e.DOI,
-		Title:           e.Title,
-		DesignQuality:   "unknown",
-		SampleAdequacy:  "unclear",
-		Relevance:       "unknown",
-		ResultDirection: "unclear",
-	}
-	input := map[string]any{
-		"question":           question,
-		"doi":                e.DOI,
-		"title":              e.Title,
-		"year":               e.Year,
-		"authors":            cappedAuthors(e.Authors, 15),
-		"venue":              e.Venue,
-		"study_design":       e.StudyDesign,
-		"cited_by_count":     e.CitedByCount,
-		"abstract":           truncate(e.Abstract, 3500),
-		"full_text":          truncate(e.FullText, 12000),
-		"tldr":               e.TLDR, // when no abstract exists at all
-		"scite_tally":        e.Tally,
-		"contradicting_dois": e.ContradictingDOIs,
-		"red_flags":          e.Flags,
-	}
-	b, _ := json.Marshal(input)
-	var out model.Critique
-	if err := llm.AskJSON(ctx, client, critiqueSystemPrompt, "Assess this study:\n\n"+string(b), &out, 2000); err != nil {
-		c.Error = err.Error()
-		return c
-	}
-	out.DOI = firstNonEmpty(out.DOI, e.DOI)
-	out.Title = firstNonEmpty(out.Title, e.Title)
-	out.DesignQuality = firstNonEmpty(out.DesignQuality, "unknown")
-	out.SampleAdequacy = firstNonEmpty(out.SampleAdequacy, "unclear")
-	out.Relevance = firstNonEmpty(out.Relevance, "unknown")
-	out.ResultDirection = firstNonEmpty(out.ResultDirection, "unclear")
-	return out
-}
+// critiqueSystemPrompt and critiquePaper (the critic stage) live in
+// critique.go: the stage is batched, with the single-study form as fallback.
 
 // synthesisSystemPrompt — the reduce step: aggregation into a verdict along
 // a GRADE-style rubric. Key anti-illusions are baked into the rules: the
@@ -81,7 +22,7 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 - verdict_rationale (string): the chain of reasoning; MUST reference concrete DOIs that drive the verdict
 - consensus_status: "broad_agreement" | "contested" | "emerging" | "no_consensus" | "insufficient_data"
 - consensus (string): WHAT the field's majority position actually IS (direction, not strength) — 1-3 sentences with DOI examples; if contested, state both camps briefly
-- matrix_notes (object: doi → short note): one note per input study — red flags or the essence of what this study contributes to the question; every study gets a note, even weak or failed ones (note the failure)
+- matrix_notes (object: doi → short note): one note per DIRECT study — red flags or the essence of what this study contributes to the question; weak or failed direct studies get a note too (note the failure). Non-direct studies need no note: the pipeline auto-generates one from the critique concerns.
 - contradictions (array of strings): unresolved conflicts, with DOIs; contradicting_dois in the input lists the papers Scite found citing a study as refuted — ground "who exactly is against" in them when present
 - gaps (array of strings): what is missing to judge (no data, single study, few citations, publication-bias risk, ...)
 
@@ -102,7 +43,7 @@ Hard rules:
 1. The numeric evidence matrix is assembled by the pipeline from the input; never recompute or invent numbers anywhere in your answer.
 2. Absence of contradicting citations is NOT confirmation: Scite classifies only citations from full texts it has; recent papers naturally accumulate few citations.
 3. Retracted papers (retracted=true) must be excluded from supporting evidence and mentioned in contradictions.
-4. Give every input study a matrix note, even weak or failed ones (note the failure).
+4. Give every DIRECT study a matrix note, even weak or failed ones (note the failure); the pipeline fills in notes for the rest.
 5. All human-readable text in English.
 6. Build consensus ONLY from studies with relevance "direct", grounded in their structured result_direction fields: tally them first (e.g. "of 12 direct studies: 7 positive, 3 null, 2 negative"), then state where the field leans. Do not duplicate: verdict says how PROVEN it is, consensus_status/consensus say WHERE the field leans.
 7. Compare author lists across studies: several studies from the same research group are ONE line of evidence, not independent replications — weigh them accordingly and note any group overlap in contradictions or gaps.`
@@ -177,6 +118,10 @@ func hasCritique(c model.Critique) bool {
 }
 
 // synthesisUserPrompt compacts enriched papers + critiques into one dataset.
+// Abstracts ride along only where the verdict is actually argued — direct
+// studies, and studies whose critique is missing or failed (the abstract is
+// then all the judge has). Everywhere else the critique already carries what
+// the abstract said; resending the text would pay twice for the same read.
 func synthesisUserPrompt(st *State) string {
 	type item struct {
 		DOI                  string               `json:"doi"`
@@ -204,7 +149,6 @@ func synthesisUserPrompt(st *State) string {
 			Authors:              cappedAuthors(e.Authors, 15),
 			Design:               e.StudyDesign,
 			SampleSize:           e.SampleSize,
-			Abstract:             truncate(e.Abstract, 2500),
 			CitedBy:              e.CitedByCount,
 			TLDR:                 e.TLDR,
 			Tally:                e.Tally,
@@ -218,6 +162,11 @@ func synthesisUserPrompt(st *State) string {
 			if it.SampleSize == 0 {
 				it.SampleSize = cc.SampleSizeReported
 			}
+			if cc.Error != "" || cc.Relevance == "direct" {
+				it.Abstract = truncate(e.Abstract, 1200)
+			}
+		} else {
+			it.Abstract = truncate(e.Abstract, 1200)
 		}
 		items = append(items, it)
 	}

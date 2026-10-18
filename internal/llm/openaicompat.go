@@ -27,7 +27,7 @@ func NewOpenAICompat(base, key, model string) *OpenAICompat {
 
 func (o *OpenAICompat) Name() string { return "openai-compat:" + o.model }
 
-func (o *OpenAICompat) Complete(ctx context.Context, system, user string, opts Options) (string, error) {
+func (o *OpenAICompat) Complete(ctx context.Context, system, user string, opts Options) (string, Usage, error) {
 	maxTokens := opts.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 4096
@@ -47,13 +47,18 @@ func (o *OpenAICompat) Complete(ctx context.Context, system, user string, opts O
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+		} `json:"usage"`
 	}
 	headers := map[string]string{"Authorization": "Bearer " + o.key}
 	if err := o.http.DoJSON(ctx, http.MethodPost, o.base+"/chat/completions", req, &resp, headers); err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 	if len(resp.Choices) == 0 || resp.Choices[0].Message.Content == "" {
-		return "", fmt.Errorf("%s: empty response", o.Name())
+		return "", Usage{}, fmt.Errorf("%s: empty response", o.Name())
 	}
-	return resp.Choices[0].Message.Content, nil
+	u := Usage{InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens}
+	return resp.Choices[0].Message.Content, u, nil
 }
