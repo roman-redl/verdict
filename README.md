@@ -228,3 +228,19 @@ v1–v3 are all implemented in this codebase:
   `cmd/verdictd`); the SQLite run index (`runs/verdict.db`, `verdict
   index`); the per-topic enrichment cache; PICO normalization (`verdict
   pico`).
+- **v4 — token economy (2026-10-18)**: the measured problem was the
+  per-call session overhead of the claude-cli backend — ~74k input tokens
+  per call for 1–2k of useful payload (a default `-p` session loads the
+  whole harness), 16 calls ≈ 1.24M tokens per lean run. The fix, measured
+  end-to-end on the same corpus (1.24M → ~144k input tokens, 8.5×):
+  per-call usage recording (`cost` in the stage artifacts, an "LLM usage"
+  footer in report.md); lean CLI invocation (custom `--system-prompt-file`,
+  no CLAUDE.md/memory/MCP/skills per call); batched critique (`LLM_CHUNK=5`
+  studies per call, single-study fallback for what a batch drops); the
+  per-topic critique cache keyed by (study, question, content fingerprint —
+  a dropped PDF re-critiques, an unchanged corpus rides free, so a
+  challenge re-run costs one synthesis call); the judge payload diet
+  (abstracts re-read only for direct studies, matrix notes required only
+  for them); per-stage LLM wrappers (`LLM_COMMAND_CRITIQUE=claude-zai-flash`
+  for the routine critique, the strong default for the judge); and the
+  stateless JSON retry fixed to resend the payload it is asking to correct.

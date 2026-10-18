@@ -208,11 +208,10 @@ run from the last completed stage without paying twice.
 --llm-model <exact name> # model for both LLM stages (aliases do not resolve)
 --model-critique <name>  # cheap critic + strong judge (per-stage overrides)
 --model-synthesis <name>
+--llm-chunk 5            # studies per critique call (LLM_CHUNK in .env; 1 =
+                         #   one call per study). The per-call session
+                         #   overhead dominates the cost — see Costs below.
 --challenge-note "..."   # a counterargument the judge must weigh and answer
---fulltext               # ON BY DEFAULT: download OA PDFs for full-text critique
-                         #   (+ chart checks); --fulltext=false to skip
-                         #   (a PDF you drop into <run>/fulltext/<doi>.pdf is
-                         #   always used, flag or not — the paywall workaround)
 # bin/verdict addpdf ~/Downloads/paper.pdf --run-dir runs/<topic>/<run>
 #   drops a downloaded PDF into the run; the DOI is read from the PDF itself
 --llm-concurrency 4      # LLM stage parallelism
@@ -226,28 +225,56 @@ run from the last completed stage without paying twice.
 | Scite | free (tallies without a key, 1 batched request per run) | Pro $50/mo — not needed at this volume |
 | LLM | the Claude Code tariff | direct API ≈ $0.3–0.5/run (estimate) |
 
-An average run over 15 papers = 16 LLM calls of 2–4k tokens — a drop in the
-bucket of a GLM Coding Plan quota (15,000 credits per 5 hours).
+### Quota economy: lean vs fat runs
 
-### Quota economy: lean vs fat runs (learned 2026-10-11)
+The dominant cost is not the payload but the **per-call session overhead**:
+every claude-cli call is a fresh session, and a default `-p` session loads
+the whole Claude Code harness — ~74k input tokens per call measured
+(2026-10-18), against 1–2k of useful critique payload. The pipeline attacks
+this on three fronts:
 
-The two cost multipliers are **corpus size** and **full text**. A measured fat
-run: 3 queries × 3 pages → 113 papers × full-text critique ≈ 115 calls with
-10–20k-token prompts — millions of tokens in one run, a weekly-quota hazard.
+- **Lean invocation**: each call runs with a custom `--system-prompt-file`
+  (the built-in prompt, CLAUDE.md and memory auto-load are skipped),
+  `--strict-mcp-config` with an empty config and `--disable-slash-commands`.
+  The payload becomes (almost) the whole prompt.
+- **Batched critique**: one call assesses `LLM_CHUNK` (default 5) studies,
+  each in its own JSON object, independently; studies a batch drops fall
+  back to single-study calls. 15 papers = 3 calls instead of 15.
+- **Per-stage models**: `LLM_COMMAND_CRITIQUE=claude-zai-flash` (routine
+  abstract extraction) vs the strong default for the judge call.
 
-The lean profile is the **default for agent-launched runs** unless the user
-explicitly asks for depth:
+Two more levers cut the bill without touching quality:
+
+- **Critique cache** (`runs/<topic>/critique-cache.json`): a critique is a
+  pure function of (study data, question), so challenge re-runs with the
+  question verbatim and crash resumes reuse it — a challenge re-run costs 1
+  synthesis call. `CRITIQUE_CACHE_TTL_DAYS` (30; 0 disables) bounds the
+  staleness tradeoff.
+- **Judge payload diet**: the synthesis call re-reads an abstract only for
+  `direct` studies (and studies whose critique failed); matrix notes are
+  required for direct studies only — the pipeline auto-notes the rest from
+  the critique concerns.
+
+A measured fat run (2026-10-11, pre-optimization): 3 queries × 3 pages →
+113 papers × full-text critique ≈ 115 calls — millions of tokens, a
+weekly-quota hazard. The lean profile is the **default for agent-launched
+runs** unless the user explicitly asks for depth:
 
 ```bash
 bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
     --max-papers 15 --fulltext=false --consensus-pages 2
 ```
 
-- ≈16 abstract-only calls of 2–4k tokens per run.
-- `MAX_PAPERS` from `.env` now truncates the discovered corpus hard (it used
-  to be a warning-only soft cap — the 113-paper run slipped through it).
-- `--fulltext` (ON by default) is for deep single questions by deliberate
-  choice only; it multiplies prompt size 5–10×.
+- The two cost multipliers remain **corpus size** and **full text**:
+  `MAX_PAPERS` truncates the discovered corpus hard (it used to be a
+  warning-only soft cap — the 113-paper run slipped through it);
+  `--fulltext` (ON by default) multiplies prompt size 5–10× and is for deep
+  single questions by deliberate choice only.
+- With batching + lean invocation a 50-paper corpus is back in the
+  affordable range — the marginal cost per extra paper is its abstract, not
+  a fresh 74k-token session.
+- Every run records the actual spend in the artifacts (`cost` in the stage
+  JSONs, an "LLM usage" line at the bottom of `report.md`).
 
 ### Known failure mode: hollow "insufficient"
 
