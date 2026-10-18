@@ -8,7 +8,7 @@ Docs: README.md, docs/how-it-works.md (design), docs/usage.md (usage),
 ## Rules
 
 - **File changes — Write/Edit tools only**, never `cat >`/python heredocs in Bash: diffs must be visible in the CLI and go through approval. Exception — programmatic transformation of large generated files: announce it explicitly and show a change summary (what and how much was replaced). (2026-09-09)
-- **Commit messages: English, text only** — no auto-added trailers (`Co-Authored-By: …`, "Generated with …").
+- **Commit messages: conventional prefixes + English, text only** — `feat:` / `fix:` / `docs:` / `chore:` / `test:` / `refactor:` / … ; no auto-added trailers (`Co-Authored-By: …`, "Generated with …"). (2026-10-18)
 - **Write only inside this repository** — never touch files or configs outside it.
 - **Paid APIs and LLM calls — only on an explicit user request** (tests run on httptest, not live APIs). Read-only curl checks against free public APIs (OpenAlex, Crossref, Semantic Scholar, PubPeer) to verify response shapes are allowed without asking (approved 2026-09-07).
 - `claude-zai` blocks the corporate gateway for hours after the first request — never launch it without an explicit user request.
