@@ -43,7 +43,7 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 		}
 	})
 	defer srv.Close()
-	p := New(&config.Config{ConsensusPages: 3}, Clients{
+	p := New(&config.Config{ConsensusPages: 3, MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 
@@ -79,7 +79,7 @@ func TestDiscoverConsensusPagesCapTruncates(t *testing.T) {
 			strconv.Itoa(page+1) + `}`
 	})
 	defer srv.Close()
-	p := New(&config.Config{}, Clients{
+	p := New(&config.Config{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 
@@ -104,7 +104,7 @@ func TestDiscoverConsensusStopsAtMaxPapers(t *testing.T) {
 			result("10.1/c", "C") + `],"page_size":20,"is_end":false}`
 	})
 	defer srv.Close()
-	p := New(&config.Config{}, Clients{
+	p := New(&config.Config{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 
@@ -136,7 +136,7 @@ func TestDiscoverConsensusDedupesAndDropsNoDOI(t *testing.T) {
 			"page_size":20,"is_end":true}`
 	})
 	defer srv.Close()
-	p := New(&config.Config{}, Clients{
+	p := New(&config.Config{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 
@@ -169,7 +169,7 @@ func TestDiscoverDefaultsToConsensusWhenKeyPresent(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[]}`))
 	}))
 	defer oa.Close()
-	p := New(&config.Config{}, Clients{
+	p := New(&config.Config{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(cs.URL, "k"),
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
@@ -195,7 +195,7 @@ func TestDiscoverFallsBackToOpenAlexWithoutKey(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[]}`))
 	}))
 	defer oa.Close()
-	p := New(&config.Config{}, Clients{
+	p := New(&config.Config{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase("http://127.0.0.1:1", ""), // present but keyless
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
@@ -224,7 +224,7 @@ func TestDiscoverEngineOverride(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[]}`))
 	}))
 	defer oa.Close()
-	p := New(&config.Config{}, Clients{
+	p := New(&config.Config{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(cs.URL, "k"),
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
@@ -256,7 +256,7 @@ func TestDiscoverConsensusErrorIsLoud(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[]}`))
 	}))
 	defer oa.Close()
-	p := New(&config.Config{}, Clients{
+	p := New(&config.Config{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(cs.URL, "k"),
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
