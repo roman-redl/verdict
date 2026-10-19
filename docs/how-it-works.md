@@ -339,9 +339,12 @@ status); the Rationale (which DOIs drive the conclusion); the matrix
 "everyone agrees"); Gaps; Data warnings (what could not be collected).
 
 **What the tool honestly cannot do:**
-- it does not read full texts (yet): critique runs on abstracts; hidden
-  methodology yields an honest "unclear"; full texts and chart analysis
-  are v2;
+- full texts only where a legal copy exists: `--text-mode lean` runs on
+  abstracts alone, the default `hybrid` reads full texts for the pivotal
+  studies the verdict rests on, `full` for everybody with an OA copy — a
+  paywalled paper still gets an abstracts-only critique (drop its PDF into
+  `fulltext/` yourself); hidden methodology otherwise yields an honest
+  "unclear";
 - it knows no more than Scite: recent papers have almost no data; absence
   of refutations ≠ confirmation — the rule is baked into the judge, but
   keep it in mind yourself;

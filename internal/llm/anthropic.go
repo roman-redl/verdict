@@ -83,5 +83,5 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, opts Opti
 	if sb.Len() == 0 {
 		return "", Usage{}, fmt.Errorf("anthropic: empty response (stop_reason=%s)", resp.StopReason)
 	}
-	return sb.String(), Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}, nil
+	return sb.String(), Usage{Calls: 1, InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}, nil
 }

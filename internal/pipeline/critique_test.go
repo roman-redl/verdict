@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -141,6 +142,51 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	}
 	if s3.calls == 0 {
 		t.Fatal("added full text must re-critique, not serve the cached abstract critique")
+	}
+}
+
+// PDFs dropped into the run directory after enrichment (the addpdf recipe, a
+// resume whose stage-2 artifact survived) enter at critique time and
+// re-critique: the cache key includes the full text (regression: the pickup
+// lived exclusively in stage 2, which resume skips).
+func TestCritiquePicksUpDroppedPDF(t *testing.T) {
+	restore := pdfTextExtractor
+	pdfTextExtractor = func(b []byte, max int) (string, error) {
+		return "DROPPED PDF FULL TEXT", nil
+	}
+	defer func() { pdfTextExtractor = restore }()
+
+	tmp := t.TempDir()
+	runDir := filepath.Join(tmp, "run")
+	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runDir, "fulltext", "10.1_a.pdf"),
+		[]byte("%PDF-1.4 stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(tmp, "critique-cache.json")
+	seeded := CritiqueCache{
+		critiqueCacheKey(ep("10.1/a"), "q?"): {CheckedAt: time.Now(), Critique: crit("10.1/a", "high", "direct", "positive")},
+	}
+	if err := seeded.Save(cachePath); err != nil {
+		t.Fatal(err)
+	}
+
+	batch := `{"critiques":[{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"}]}`
+	s := &scriptCompleter{replies: []string{batch}}
+	p := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30},
+		Clients{LLM: s}, quietLog())
+	p.dir = runDir
+	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep("10.1/a")}} // no FullText yet
+	if err := p.critique(context.Background(), st, Options{RunDir: runDir}); err != nil {
+		t.Fatal(err)
+	}
+	if s.calls != 1 {
+		t.Fatalf("the picked-up PDF must re-critique (cache miss): %d calls", s.calls)
+	}
+	if !strings.Contains(s.prompts[0], "DROPPED PDF FULL TEXT") {
+		t.Error("the critique prompt must carry the picked-up full text")
 	}
 }
 

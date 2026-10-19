@@ -110,6 +110,7 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 		return "", Usage{}, fmt.Errorf("%s: empty response (stderr: %s)", c.Name(), snip(stderr.String()))
 	}
 	u := Usage{
+		Calls:        1,
 		InputTokens:  env.Usage.InputTokens + env.Usage.CacheCreationInputTokens + env.Usage.CacheReadInputTokens,
 		OutputTokens: env.Usage.OutputTokens,
 	}

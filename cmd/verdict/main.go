@@ -94,8 +94,8 @@ func main() {
 		"synthesis-stage model override, exact name")
 	runCmd.Flags().StringVar(&opts.ChallengeNote, "challenge-note", "",
 		"counterargument to weigh and answer in the verdict rationale (not data)")
-	runCmd.Flags().BoolVar(&opts.FullText, "fulltext", true,
-		"download OA PDFs so the critic reads full texts where a legal copy exists (on by default; --fulltext=false to skip)")
+	runCmd.Flags().StringVar(&opts.TextMode, "text-mode", "",
+		"what the critic reads: lean (abstracts only) | hybrid (abstracts, then full texts for the pivotal studies — default) | full (full texts for all) (defaults to TEXT_MODE from env)")
 
 	root := &cobra.Command{
 		Use:   "verdict",

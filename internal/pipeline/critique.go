@@ -194,8 +194,18 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 	if st.Cost == nil {
 		st.Cost = &CostReport{}
 	}
-	cost := &StageCost{}
-	st.Cost.Critique = cost
+	// Accumulate across re-invocations (the hybrid deepening pass re-enters
+	// this stage) instead of overwriting the first pass's accounting.
+	cost := st.Cost.Critique
+	if cost == nil {
+		cost = &StageCost{}
+		st.Cost.Critique = cost
+	}
+
+	// PDFs that landed in fulltext/ after enrichment (the addpdf recipe, a
+	// resume that skipped stage 2) enter here, before the cache checks: the
+	// cache key includes the full text, so exactly those studies re-critique.
+	p.pickupFullTexts(st)
 
 	cachePath := critiqueCachePath(opts)
 	cache := LoadCritiqueCache(cachePath, time.Duration(p.cfg.CritiqueCacheTTLDays)*24*time.Hour)

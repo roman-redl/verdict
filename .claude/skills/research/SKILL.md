@@ -71,7 +71,10 @@ modes A/B/C are a different thing — see docs/usage.md.)
    typically 0-5), then tell the user what you added and why. Never add
    candidates blindly — a shared-citation count is a signal, not a
    relevance verdict.
-6. **Run the pipeline** (lean by default — see the cost note at the bottom):
+6. **Run the pipeline** (default text mode is hybrid — abstracts pass, then
+   OA full texts for the pivotal studies + re-synthesis; pass
+   `--text-mode lean` when the user wants the cheap abstracts-only run —
+   see the cost note at the bottom):
    - mode B, no snowball additions: continue the discovery run —
      `bin/verdict run --run-dir <discovery run dir> --resume` (stages 2-4
      pick up from the artifacts);
@@ -85,21 +88,23 @@ modes A/B/C are a different thing — see docs/usage.md.)
    use, every claim labeled by evidence kind (a clinician survey shows
    what doctors prescribe, not what works), contradictions and gaps
    stated honestly.
-8. **Deep mode — only when the user asks for depth** ("с полными текстами",
-   "глубокий разбор", "посмотри сами статьи"). Two addressable steps, in
-   order of cost:
-   - **Selective full text**: find the 2-5 DOIs the verdict rests on (the
-     rationale names them), fetch their OA PDFs or take files the user
-     provides, drop them into `runs/<run>/fulltext/<doi>.pdf` (the
-     `bin/verdict addpdf <file> --run-dir ...` command reads the DOI from
-     the PDF itself), delete `3-critique.json` + `4-synthesis.json` +
-     `report.md` + `matrix.csv`, then `run --run-dir ... --resume`. The
-     critique cache re-critiques ONLY the studies whose inputs changed
-     (a dropped PDF changes the cache key) — the rest come from the cache.
-   - **Whole-corpus full text**: re-run discovery with `--fulltext` and no
-     `--fulltext=false` — OA PDFs are downloaded for every paper that has
-     one; multiplies the cost 5-10x, so propose it only for a question the
-     user explicitly wants exhaustively covered.
+8. **Deep mode — extra depth beyond the default run.** The default
+   `--text-mode hybrid` already reads full texts for the pivotal studies
+   (direct + highest design quality, capped by `HYBRID_PIVOTAL_MAX`, 5) and
+   re-synthesizes. What is left when the user asks for more ("со всеми
+   текстами", "исчерпывающе"):
+   - **A paywalled pivotal paper** the hybrid pass could not download: take
+     the file from the user, `bin/verdict addpdf <file> --run-dir ...` (the
+     DOI is read from the PDF itself), delete `3-critique.json` +
+     `4-synthesis.json` + `report.md` + `matrix.csv`, then
+     `run --run-dir ... --resume`. The critique cache re-critiques ONLY the
+     studies whose inputs changed (a dropped PDF changes the cache key) —
+     the rest come from the cache. A PDF dropped into `fulltext/` is read in
+     every text mode.
+   - **Whole-corpus full text**: `--text-mode full` — OA PDFs are
+     downloaded for every paper that has one; multiplies the cost 5-10x, so
+     propose it only for a question the user explicitly wants
+     exhaustively covered.
    - **Optional: chart check** (worth it when the verdict hinges on a few
      key papers whose PDFs are in `runs/<run>/fulltext/`). Render the pages
      (`pdftoppm -png -r 100 <pdf> <prefix>`, or `sips -s format png <pdf>
@@ -146,8 +151,10 @@ that discovery was keyword-based, not semantic.
    run directory (only correct runs stay, no archive pile) — delete only
    after the user confirms.
 
-A lean run costs ~3 batched critique calls (5 studies per call) plus one
-synthesis call; the real token spend is recorded in the run's artifacts and
-at the bottom of report.md. Full-text critique (lean profile passes
-`--fulltext=false`) and the chart check are deep-mode extras — run them when
-the user asks for depth, not by default (CLAUDE.md quota rule).
+A `--text-mode lean` run costs ~3 batched critique calls (5 studies per
+call) plus one synthesis call; the default hybrid adds one deepening pass
+(OA full texts for the pivotal studies → re-critique + re-synthesis). The
+real token spend is recorded in the run's artifacts and at the bottom of
+report.md. Whole-corpus `--text-mode full` and the chart check are deep-mode
+extras — run them when the user asks for depth, not by default (CLAUDE.md
+quota rule).

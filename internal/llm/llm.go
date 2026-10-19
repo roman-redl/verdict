@@ -21,9 +21,11 @@ type Options struct {
 
 // Usage is the token accounting of one call, when the backend reports it.
 // InputTokens counts everything the model ingested — fresh input plus cached
-// reads — which is the honest "what did this call cost" number. Zero fields
-// mean the backend did not report usage.
+// reads — which is the honest "what did this call cost" number. Calls counts
+// the Complete invocations behind this Usage (an AskJSON retry adds up to 2).
+// Zero fields mean the backend did not report usage.
 type Usage struct {
+	Calls        int `json:"calls,omitempty"`
 	InputTokens  int `json:"input_tokens,omitempty"`
 	OutputTokens int `json:"output_tokens,omitempty"`
 }
@@ -31,6 +33,7 @@ type Usage struct {
 // Add returns the element-wise sum (for accumulating a stage).
 func (u Usage) Add(o Usage) Usage {
 	return Usage{
+		Calls:        u.Calls + o.Calls,
 		InputTokens:  u.InputTokens + o.InputTokens,
 		OutputTokens: u.OutputTokens + o.OutputTokens,
 	}

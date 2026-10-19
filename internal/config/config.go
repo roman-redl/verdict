@@ -37,6 +37,13 @@ type Config struct {
 
 	MaxPapers   int
 	Concurrency int
+	// TextMode selects what the critic reads: lean (abstracts only), hybrid
+	// (abstracts first, then OA full texts for the pivotal studies — the
+	// default), full (OA full texts for every paper).
+	TextMode string // lean | hybrid | full
+	// HybridPivotalMax caps how many pivotal studies the hybrid mode deepens
+	// with full texts after the first synthesis.
+	HybridPivotalMax int
 	// ConsensusPages caps the Consensus search pages fetched per discovery
 	// query (quota: each HTTP request plausibly consumes one of the plan's
 	// monthly uses).
@@ -73,6 +80,8 @@ func Load() *Config {
 		OpenAIKey:            os.Getenv("OPENAI_API_KEY"),
 		MaxPapers:            getint("MAX_PAPERS", 15),
 		Concurrency:          getint("CONCURRENCY", 4),
+		TextMode:             getenv("TEXT_MODE", "hybrid"),
+		HybridPivotalMax:     getint("HYBRID_PIVOTAL_MAX", 5),
 		ConsensusPages:       getint("CONSENSUS_PAGES", 3),
 		EnrichCacheTTLDays:   getint("ENRICH_CACHE_TTL_DAYS", 30),
 		CritiqueCacheTTLDays: getint("CRITIQUE_CACHE_TTL_DAYS", 30),

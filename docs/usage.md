@@ -182,7 +182,7 @@ Keep only correct runs: when a run is superseded or broken, delete it
 | `4-synthesis.json` | the final report JSON |
 | `report.md` / `matrix.csv` | human-readable report / matrix as a table (numbers assembled deterministically, never LLM-copied) |
 | `context.md` | digest for `ask` and interactive agents |
-| `fulltext/*.pdf` | paper PDFs: open-access ones (downloaded by default) or ones you drop in yourself (`<doi>.pdf`) — full-text critique + chart checks |
+| `fulltext/*.pdf` | paper PDFs: ones you drop in yourself (`<doi>.pdf`, always read in every mode — `verdict addpdf`) plus OA downloads in `full` mode or for the pivotal studies the hybrid pass deepens — kept for full-text critique + chart checks |
 | `3b-vision.json` | optional agent-written chart critique (via the vision MCP); the synthesis stage weighs it |
 
 Every `N-*.json` is a full state snapshot: `--resume` continues a failed
@@ -204,6 +204,13 @@ run from the last completed stage without paying twice.
 --consensus-pages 3      # max Consensus pages per query — each page is one
                          #   API use (defaults to CONSENSUS_PAGES, 3)
 --max-papers 25          # discovery limit / DOI-list cap
+--text-mode lean         # what the critic reads: lean | hybrid | full
+                         #   (defaults to TEXT_MODE from env, hybrid).
+                         #   lean — abstracts only; hybrid — abstracts, then
+                         #   OA full texts for the pivotal studies after the
+                         #   first verdict (one deepening pass); full — OA
+                         #   full texts for every paper. A PDF dropped into
+                         #   fulltext/ is read in every mode.
 --llm-command claude-zai # LLM wrapper for this run (default comes from .env)
 --llm-model <exact name> # model for both LLM stages (aliases do not resolve)
 --model-critique <name>  # cheap critic + strong judge (per-stage overrides)
@@ -262,14 +269,16 @@ runs** unless the user explicitly asks for depth:
 
 ```bash
 bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
-    --max-papers 15 --fulltext=false --consensus-pages 2
+    --max-papers 15 --text-mode lean --consensus-pages 2
 ```
 
 - The two cost multipliers remain **corpus size** and **full text**:
   `MAX_PAPERS` truncates the discovered corpus hard (it used to be a
   warning-only soft cap — the 113-paper run slipped through it);
-  `--fulltext` (ON by default) multiplies prompt size 5–10× and is for deep
-  single questions by deliberate choice only.
+  `--text-mode full` multiplies prompt size 5–10× and is for deep single
+  questions by deliberate choice only. The default `hybrid` adds one
+  deepening pass (OA full texts for up to `HYBRID_PIVOTAL_MAX`, default 5,
+  pivotal studies → re-critique those + one re-synthesis).
 - With batching + lean invocation a 50-paper corpus is back in the
   affordable range — the marginal cost per extra paper is its abstract, not
   a fresh 74k-token session.
@@ -295,7 +304,7 @@ request body — a follow-up.
 
 ```
 POST /runs   {"question": "...", "topic": "...", "max_papers": 15,
-              "fulltext": true, "stop_after": "2"}        # or "dois": [...]
+              "text_mode": "hybrid", "stop_after": "2"}     # or "dois": [...]
 GET  /runs                                                # jobs with status
 GET  /runs/{id}                                           # one job + verdict
 GET  /runs/{id}/{artifact}                                # report.md, context.md, N-*.json, ...

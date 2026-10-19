@@ -272,3 +272,53 @@ func TestDiscoverConsensusErrorIsLoud(t *testing.T) {
 		t.Errorf("error must point at the mode C escape hatch, got: %v", err)
 	}
 }
+
+// Page 0 of every query is fetched before page 1 of any, and the corpus cap
+// trims the pooled lists fairly — the second reformulation is never crowded
+// out by the first (regression: queries after the cap-filler never ran).
+func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
+	mkResults := func(prefix string) string {
+		parts := make([]string, 20)
+		for i := range parts {
+			parts[i] = result("10.1/"+prefix+strconv.Itoa(i), strings.ToUpper(prefix)+strconv.Itoa(i))
+		}
+		return `{"results":[` + strings.Join(parts, ",") + `],"page_size":20,"is_end":false}`
+	}
+	var hits int32
+	srv := consensusServer(t, &hits, func(q string, page int) string {
+		if strings.HasPrefix(q, "second") {
+			return mkResults("s")
+		}
+		return mkResults("f")
+	})
+	defer srv.Close()
+	p := New(&config.Config{ConsensusPages: 3, MaxPapers: 10}, Clients{
+		Consensus: consensus.NewWithBase(srv.URL, "k"),
+	}, quietLog())
+
+	st := &State{}
+	if err := p.discover(context.Background(), st, Options{Question: "main", Queries: []string{"first q", "second q"}}); err != nil {
+		t.Fatal(err)
+	}
+	if hits != 2 {
+		t.Errorf("HTTP hits: got %d, want 2 (page 0 of each query; deeper pages skipped)", hits)
+	}
+	if len(st.Papers) != 10 {
+		t.Fatalf("papers: got %d, want 10 (the cap)", len(st.Papers))
+	}
+	f, s := 0, 0
+	for _, pp := range st.Papers {
+		switch {
+		case strings.HasPrefix(pp.DOI, "10.1/f"):
+			f++
+		case strings.HasPrefix(pp.DOI, "10.1/s"):
+			s++
+		}
+	}
+	if f != 5 || s != 5 {
+		t.Errorf("fair share: got %d first-query / %d second-query papers, want 5/5", f, s)
+	}
+	if st.Discovery.PapersFound != 40 {
+		t.Errorf("PapersFound must keep the pooled dedup count: got %d, want 40", st.Discovery.PapersFound)
+	}
+}

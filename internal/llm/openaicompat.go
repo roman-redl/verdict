@@ -59,6 +59,6 @@ func (o *OpenAICompat) Complete(ctx context.Context, system, user string, opts O
 	if len(resp.Choices) == 0 || resp.Choices[0].Message.Content == "" {
 		return "", Usage{}, fmt.Errorf("%s: empty response", o.Name())
 	}
-	u := Usage{InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens}
+	u := Usage{Calls: 1, InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens}
 	return resp.Choices[0].Message.Content, u, nil
 }

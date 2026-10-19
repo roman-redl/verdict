@@ -100,7 +100,7 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 		DOIs      []string `json:"dois"`
 		Topic     string   `json:"topic"`
 		MaxPapers int      `json:"max_papers"`
-		FullText  bool     `json:"fulltext"`
+		TextMode  string   `json:"text_mode"`  // lean | hybrid (default) | full
 		StopAfter string   `json:"stop_after"` // e.g. "2" — deterministic stages only
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -115,7 +115,7 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 		Question:  req.Question,
 		Topic:     req.Topic,
 		MaxPapers: req.MaxPapers,
-		FullText:  req.FullText,
+		TextMode:  req.TextMode,
 		StopAfter: req.StopAfter,
 	}
 	if len(req.DOIs) > 0 {

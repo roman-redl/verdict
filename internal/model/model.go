@@ -67,7 +67,8 @@ type EnrichedPaper struct {
 	// ContradictingDOIs is the Scite drill-down (paid scope): who cited this
 	// paper as contradicted — grounds "who exactly is against".
 	ContradictingDOIs []string `json:"contradicting_dois,omitempty"`
-	// FullText is the extracted text of the open-access PDF (--fulltext);
+	// FullText is the extracted text of the paper's PDF (full text mode, the
+	// hybrid deepening pass, or a file dropped into fulltext/).
 	// the critic reads it instead of the abstract when present. The PDF
 	// itself sits in <run>/fulltext/<doi>.pdf for the vision stage.
 	FullText string `json:"full_text,omitempty"`

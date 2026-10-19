@@ -7,9 +7,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/crossref"
@@ -129,5 +132,62 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 	}
 	if len(st.Papers) != 2 {
 		t.Fatalf("explicit cap: want 2 papers, got %d", len(st.Papers))
+	}
+}
+
+// A cached enrichment must not skip the full-text pickup: a PDF pre-placed
+// in the run directory is read whatever the cache knows, and no OA download
+// happens outside full mode (regression: the cache-hit branch used to
+// return before fetchFullText, silently disabling full texts).
+func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
+	restore := pdfTextExtractor
+	pdfTextExtractor = func(b []byte, max int) (string, error) {
+		return "FULL TEXT OF THE CACHED STUDY", nil
+	}
+	defer func() { pdfTextExtractor = restore }()
+
+	var oaHits int32
+	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&oaHits, 1)
+		_, _ = w.Write([]byte(`{"doi":"https://doi.org/10.1/cached"}`))
+	}))
+	defer oa.Close()
+	sc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"tallies":{}}`))
+	}))
+	defer sc.Close()
+
+	tmp := t.TempDir()
+	runDir := filepath.Join(tmp, "run")
+	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pdf := filepath.Join(runDir, "fulltext", "10.1_cached.pdf")
+	if err := os.WriteFile(pdf, []byte("%PDF-1.4 stub"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seeded := EnrichCache{"10.1/cached": {CheckedAt: time.Now(), Abstract: "cached abstract"}}
+	if err := seeded.Save(filepath.Join(tmp, "cache.json")); err != nil { // Dir(RunDir)/cache.json
+		t.Fatal(err)
+	}
+
+	p := New(&config.Config{Concurrency: 4, EnrichCacheTTLDays: 30}, Clients{
+		Scite:    scite.NewWithBase(sc.URL, ""),
+		OpenAlex: openalex.NewWithBase(oa.URL, ""),
+	}, quietLog())
+	p.dir = runDir
+	st := &State{Papers: []model.Paper{{DOI: "10.1/cached", Source: "manual"}}}
+	if err := p.enrich(context.Background(), st, Options{RunDir: runDir}); err != nil {
+		t.Fatal(err)
+	}
+	if atomic.LoadInt32(&oaHits) != 0 {
+		t.Errorf("cached paper re-queried OpenAlex %d times, want 0", oaHits)
+	}
+	e := st.Enriched[0]
+	if e.Abstract != "cached abstract" {
+		t.Errorf("cached abstract lost: %q", e.Abstract)
+	}
+	if !strings.Contains(e.FullText, "FULL TEXT OF THE CACHED STUDY") {
+		t.Errorf("pre-placed PDF not picked up on the cache-hit path: %q", e.FullText)
 	}
 }

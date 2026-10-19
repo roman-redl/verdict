@@ -55,9 +55,13 @@ type Options struct {
 	// data, but the judge must weigh and answer it explicitly.
 	ChallengeNote string
 
-	// FullText downloads OA PDFs at enrichment; the critic then reads the
-	// full text instead of the abstract where available.
-	FullText bool
+	// TextMode selects what the critic reads: lean | hybrid | full
+	// ("" = TEXT_MODE from the environment, default hybrid). lean — abstracts
+	// only; hybrid — abstracts first, then OA full texts for the pivotal
+	// studies after the first synthesis (one deepening pass); full — OA full
+	// texts for every paper at enrichment. A PDF pre-placed in the run's
+	// fulltext/ is read in every mode: an explicit user action beats the mode.
+	TextMode string
 }
 
 type Clients struct {
@@ -84,6 +88,9 @@ type State struct {
 	Critiques     []model.Critique      `json:"critiques,omitempty"`
 	VisionNotes   []model.VisionNote    `json:"vision_notes,omitempty"`
 	Report        *model.Report         `json:"report,omitempty"`
+	// HybridDone records that the hybrid deepening pass has already run for
+	// this state (resume must not repeat it).
+	HybridDone bool `json:"hybrid_done,omitempty"`
 	// Cost is the run's LLM token accounting, as reported by the backend —
 	// the audit trail for quota-economy decisions. Nil on backends that
 	// report no usage and on pre-measurement artifacts.
@@ -104,7 +111,11 @@ type StageCost struct {
 }
 
 func (s *StageCost) add(u llm.Usage) {
-	s.Calls++
+	calls := u.Calls
+	if calls == 0 {
+		calls = 1 // a backend that reports no usage still made this one call
+	}
+	s.Calls += calls
 	s.InputTokens += u.InputTokens
 	s.OutputTokens += u.OutputTokens
 }
@@ -151,6 +162,17 @@ func New(cfg *config.Config, clients Clients, log *slog.Logger) *Pipeline {
 	return &Pipeline{cfg: cfg, clients: clients, log: log}
 }
 
+// resolveTextMode settles the effective text mode: the run's flag, else the
+// config's, else hybrid — validated so a typo fails loudly, never silently.
+func resolveTextMode(opt, cfg string) (string, error) {
+	m := strings.ToLower(strings.TrimSpace(firstNonEmpty(opt, cfg, "hybrid")))
+	switch m {
+	case "lean", "hybrid", "full":
+		return m, nil
+	}
+	return "", fmt.Errorf("unknown --text-mode %q (want lean | hybrid | full)", m)
+}
+
 // Run executes all stages; returns the final state and the artifact directory.
 func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error) {
 	dir, err := p.prepareDir(opts)
@@ -158,6 +180,11 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 		return nil, "", err
 	}
 	p.dir = dir
+	mode, err := resolveTextMode(opts.TextMode, p.cfg.TextMode)
+	if err != nil {
+		return nil, dir, err
+	}
+	opts.TextMode = mode
 	// The raw input is part of the run's audit trail: the paste/DOI list the
 	// corpus came from must be traceable from the artifacts alone.
 	if opts.DOIFile != "" {
@@ -170,6 +197,7 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 		}
 	}
 	st := &State{ChallengeNote: opts.ChallengeNote}
+	synthesisRanFresh := false // hybrid deepens only after a synthesis this run
 	stages := []struct {
 		name string
 		fn   func(context.Context, *State, Options) error
@@ -190,6 +218,7 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 		}
 		if s.name == "4-synthesis" {
 			loadVisionNotes(dir, st) // optional agent-written chart critique
+			synthesisRanFresh = true
 		}
 		if err := s.fn(ctx, st, opts); err != nil {
 			return nil, dir, fmt.Errorf("stage %s: %w", s.name, err)
@@ -201,6 +230,21 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 		if opts.StopAfter != "" && (s.name == opts.StopAfter || strings.HasPrefix(s.name, opts.StopAfter)) {
 			p.log.Info("stopping after --stop-after", "stage", s.name)
 			break
+		}
+	}
+	// The hybrid second half: after a fresh first-verdict pass, fetch OA full
+	// texts for the pivotal studies, re-critique exactly those (the cache keys
+	// changed) and re-synthesize. One pass per state — resume does not repeat
+	// it; a --stop-after before synthesis skips it (st.Report is nil then).
+	if st.Report != nil && opts.TextMode == "hybrid" && !st.HybridDone && synthesisRanFresh {
+		if err := p.hybridDeepen(ctx, st, opts); err != nil {
+			return nil, dir, fmt.Errorf("hybrid deepening: %w", err)
+		}
+		st.HybridDone = true
+		for _, name := range []string{"3-critique.json", "4-synthesis.json"} {
+			if err := saveJSON(filepath.Join(dir, name), st); err != nil {
+				return nil, dir, fmt.Errorf("saving %s: %w", name, err)
+			}
 		}
 	}
 	if st.Report != nil {
@@ -401,45 +445,76 @@ func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Option
 	}
 	lim := orDefault(opts.MaxPapers, p.cfg.MaxPapers)
 	info := &DiscoveryInfo{Engine: "consensus", Queries: queries}
+	// Papers pooled per query, deduped by DOI across queries. Recall comes
+	// from the reformulations, so page 0 of EVERY query is fetched before
+	// page 1 of any — no query may be crowded out of the corpus by another
+	// filling the cap first — and the cap then trims the pool fairly
+	// (round-robin over the per-query lists), not by query order.
+	perQuery := make([][]model.Paper, len(queries))
 	seen := map[string]bool{}
-	var papers []model.Paper
-	for _, q := range queries {
-		if len(papers) >= lim {
-			break
+	pooled := 0
+	addResults := func(qi int, results []consensus.QueryResult) {
+		for _, r := range results {
+			doi := model.NormalizeDOI(r.DOI)
+			if doi == "" {
+				info.DroppedNoDOI++ // the pipeline keys papers by DOI
+				continue
+			}
+			if seen[doi] {
+				continue
+			}
+			seen[doi] = true
+			perQuery[qi] = append(perQuery[qi], r.ToPaper())
+			pooled++
 		}
-		pages := 0
-		for page := 0; page < maxPages; page++ {
-			pg, err := p.clients.Consensus.SearchPage(ctx, consensus.SearchParams{Query: q, Page: page})
+	}
+	active := make([]int, 0, len(queries))
+	for i := range queries {
+		active = append(active, i)
+	}
+	for page := 0; page < maxPages && len(active) > 0; page++ {
+		var next []int
+		for _, qi := range active {
+			// Every query gets its page 0 unconditionally; deeper pages
+			// stop once the pool can fill the corpus cap.
+			if page > 0 && pooled >= lim {
+				break
+			}
+			pg, err := p.clients.Consensus.SearchPage(ctx, consensus.SearchParams{Query: queries[qi], Page: page})
 			if err != nil {
 				return fmt.Errorf("consensus search (query %q, page %d): %w — no automatic fallback "+
-					"to keyword search; escape hatch: `verdict web` + `run --dois` (mode C, free)", q, page, err)
+					"to keyword search; escape hatch: `verdict web` + `run --dois` (mode C, free)", queries[qi], page, err)
 			}
 			info.PagesFetched++
-			pages++
-			for _, r := range pg.Results {
-				doi := model.NormalizeDOI(r.DOI)
-				if doi == "" {
-					info.DroppedNoDOI++ // the pipeline keys papers by DOI
-					continue
-				}
-				if seen[doi] {
-					continue
-				}
-				seen[doi] = true
-				papers = append(papers, r.ToPaper())
-			}
+			addResults(qi, pg.Results)
+			p.log.Info("consensus page done", "query", queries[qi], "page", page, "pool", pooled)
 			// An empty page is the backend's honest "no more", not an error.
 			if pg.IsEnd || len(pg.Results) == 0 {
-				break
+				continue // this query is exhausted
 			}
-			if len(papers) >= lim {
-				break
-			}
-			if page == maxPages-1 {
-				info.Truncated = true // page cap hit before the ranking ended
+			next = append(next, qi)
+		}
+		active = next
+	}
+	// Queries still live when the page cap stopped the walk — the corpus may
+	// be thinner than the ranking (a corpus-cap cut is logged separately).
+	if len(active) > 0 && pooled < lim {
+		info.Truncated = true
+	}
+	// Fair trim: one paper per query per round until the cap — every query
+	// keeps representation in the final corpus.
+	var papers []model.Paper
+	for round := 0; len(papers) < lim; round++ {
+		progressed := false
+		for _, list := range perQuery {
+			if round < len(list) && len(papers) < lim {
+				papers = append(papers, list[round])
+				progressed = true
 			}
 		}
-		p.log.Info("consensus query done", "query", q, "pages", pages, "papers", len(papers))
+		if !progressed {
+			break
+		}
 	}
 	if info.DroppedNoDOI > 0 {
 		st.Warnings = append(st.Warnings, fmt.Sprintf(
@@ -453,12 +528,11 @@ func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Option
 			"consensus returned no papers for the query(ies) — an honest null answer; reformulate "+
 				"(bin/verdict pico) or fall back to mode C (`verdict web` + --dois)")
 	}
-	info.PapersFound = len(papers)
-	if len(papers) > lim {
-		p.log.Warn("truncating the consensus corpus to the paper cap",
-			"have", len(papers), "keep", lim,
+	info.PapersFound = pooled
+	if pooled > lim {
+		p.log.Warn("truncating the consensus corpus to the paper cap (fair share per query)",
+			"have", pooled, "keep", lim,
 			"hint", "raise --max-papers (or MAX_PAPERS) for a fatter, costlier corpus")
-		papers = papers[:lim]
 	}
 	st.Papers = papers
 	st.Discovery = info
@@ -487,6 +561,10 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 		entry CacheEntry
 	}
 	updates := make([]cacheUpdate, len(st.Papers))
+	// OA downloads happen in full mode only (hybrid fetches its full texts
+	// after the first synthesis, lean never); a pre-placed PDF is read in
+	// every mode — see fetchFullText.
+	download := opts.TextMode == "full"
 
 	enriched := make([]model.EnrichedPaper, len(st.Papers))
 	g, gctx := errgroup.WithContext(ctx)
@@ -511,6 +589,12 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 					e.OALink = cached.OALink
 				}
 				e.Flags.Notes = append(e.Flags.Notes, cached.Notes...)
+				// The full-text pickup must not depend on the cache: a
+				// pre-placed PDF is always read, and full mode still
+				// downloads (cached papers used to skip the pickup entirely).
+				if txt := p.fetchFullText(gctx, &e, download); txt != "" {
+					e.FullText = txt
+				}
 				enriched[i] = e
 				return nil
 			}
@@ -578,9 +662,9 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 				e.InfluentialCitations = s2p.InfluentialCitations
 			}
 			// Full texts: a PDF pre-placed in the run directory is always
-			// used; OA PDFs are downloaded with --fulltext. The critic then
+			// used; OA PDFs are downloaded in full mode. The critic then
 			// reads the whole paper, and the PDF stays for the vision stage.
-			if txt := p.fetchFullText(gctx, &e, opts.FullText); txt != "" {
+			if txt := p.fetchFullText(gctx, &e, download); txt != "" {
 				e.FullText = txt
 			}
 			// PubPeer commentary (soft signal, behind a devkey).
@@ -714,7 +798,10 @@ func (p *Pipeline) synthesize(ctx context.Context, st *State, _ Options) error {
 	if st.Cost == nil {
 		st.Cost = &CostReport{}
 	}
-	st.Cost.Synthesis = &StageCost{Calls: 1, InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens}
+	if st.Cost.Synthesis == nil {
+		st.Cost.Synthesis = &StageCost{}
+	}
+	st.Cost.Synthesis.add(usage) // accumulates: a hybrid re-synthesis adds its call
 	p.log.Info("synthesis llm usage", "in", usage.InputTokens, "out", usage.OutputTokens)
 	r := model.Report{
 		Question:         st.Question,

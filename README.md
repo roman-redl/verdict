@@ -244,3 +244,11 @@ v1–v3 are all implemented in this codebase:
   for them); per-stage LLM wrappers (`LLM_COMMAND_CRITIQUE=claude-zai-flash`
   for the routine critique, the strong default for the judge); and the
   stateless JSON retry fixed to resend the payload it is asking to correct.
+- **v4.1 — text modes + pickup fixes (2026-10-19)**: one `--text-mode lean |
+  hybrid | full` flag instead of the bool `--fulltext` (hybrid — abstracts
+  pass, then OA full texts for the pivotal studies + re-synthesis — is the
+  default); the full-text pickup no longer dies on a warm enrichment cache
+  or a resume (PDFs in `fulltext/` always enter, at critique time if stage
+  2 was skipped); multi-query discovery fetches page 0 of every query
+  before page 1 of any and trims the corpus fairly across the
+  reformulations.

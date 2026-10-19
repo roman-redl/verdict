@@ -52,7 +52,8 @@ func pdfText(b []byte, maxChars int) (string, error) {
 // fetchFullText supplies the paper's full text. A PDF already sitting in
 // the run directory (runs/<run>/fulltext/<doi>.pdf — the user can drop one
 // for a paywalled paper or two) ALWAYS wins, regardless of flags; otherwise
-// the OA link is downloaded, and only with --fulltext.
+// the OA link is downloaded, and only where the caller allows it (full text
+// mode at enrichment, the hybrid deepening pass for pivotal studies).
 func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, download bool) string {
 	if p.dir == "" {
 		return ""
@@ -98,6 +99,28 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 		return ""
 	}
 	return text
+}
+
+// pickupFullTexts loads PDFs sitting in the run's fulltext/ directory into
+// papers that have no full text yet. This is the entry point the resume path
+// needs: stage 2 (where the pickup used to live exclusively) is skipped when
+// its artifact is on disk, so a PDF dropped afterwards (the addpdf recipe)
+// enters the pipeline here, at critique time — the critique cache key
+// includes the full text, so exactly those studies re-critique. Only ever
+// fills empty slots; no network.
+func (p *Pipeline) pickupFullTexts(st *State) {
+	if p.dir == "" {
+		return
+	}
+	for i := range st.Enriched {
+		e := &st.Enriched[i]
+		if e.FullText != "" || model.NormalizeDOI(e.DOI) == "" {
+			continue
+		}
+		if txt := p.fetchFullText(context.Background(), e, false); txt != "" {
+			e.FullText = txt
+		}
+	}
 }
 
 // PDFDOIs extracts the DOIs mentioned in a PDF (the leading pages carry
