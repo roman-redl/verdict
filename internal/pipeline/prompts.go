@@ -70,16 +70,17 @@ func buildMatrix(st *State, notes map[string]string) []model.MatrixRow {
 	}
 	crits := critiquesFor(st)
 	rows := make([]model.MatrixRow, len(st.Enriched))
-	for i, e := range st.Enriched {
+	for i := range st.Enriched {
+		e := &st.Enriched[i]
 		c := crits[i]
 		row := model.MatrixRow{
 			DOI:           e.DOI,
 			Title:         e.Title,
 			Year:          e.Year,
 			Design:        e.StudyDesign,
-			Direction:     firstNonEmpty(c.ResultDirection, "unclear"),
-			DesignQuality: firstNonEmpty(c.DesignQuality, "unknown"),
-			Relevance:     firstNonEmpty(c.Relevance, "unknown"),
+			Direction:     firstNonEmpty(c.ResultDirection, valueUnclear),
+			DesignQuality: firstNonEmpty(c.DesignQuality, valueUnknown),
+			Relevance:     firstNonEmpty(c.Relevance, valueUnknown),
 			Note:          noteFor(c, norm[model.NormalizeDOI(e.DOI)]),
 		}
 		if e.Tally != nil {
@@ -141,7 +142,8 @@ func synthesisUserPrompt(st *State) string {
 	}
 	crits := critiquesFor(st)
 	items := make([]item, 0, len(st.Enriched))
-	for i, e := range st.Enriched {
+	for i := range st.Enriched {
+		e := &st.Enriched[i]
 		it := item{
 			DOI:                  e.DOI,
 			Title:                e.Title,
@@ -162,7 +164,7 @@ func synthesisUserPrompt(st *State) string {
 			if it.SampleSize == 0 {
 				it.SampleSize = cc.SampleSizeReported
 			}
-			if cc.Error != "" || cc.Relevance == "direct" {
+			if cc.Error != "" || cc.Relevance == relevanceDirect {
 				it.Abstract = truncate(e.Abstract, 1200)
 			}
 		} else {
@@ -224,8 +226,8 @@ func BuildAskSystem(runs []RunState) string {
 	sb.WriteString(AskPreamble)
 	seen := map[string]bool{}
 	markSeen := func(st *State) {
-		for _, e := range st.Enriched {
-			if d := model.NormalizeDOI(e.DOI); d != "" {
+		for i := range st.Enriched {
+			if d := model.NormalizeDOI(st.Enriched[i].DOI); d != "" {
 				seen[d] = true
 			}
 		}
@@ -262,7 +264,8 @@ func renderContextCompact(st *State, skip map[string]bool) string {
 	crits := critiquesFor(st)
 	skipped := 0
 	fmt.Fprintf(&b, "## Papers (%d)\n", len(st.Enriched))
-	for i, e := range st.Enriched {
+	for i := range st.Enriched {
+		e := &st.Enriched[i]
 		if d := model.NormalizeDOI(e.DOI); d != "" && skip[d] {
 			skipped++
 			continue

@@ -14,18 +14,18 @@ func TestBuildAskSystemCompactOlderRuns(t *testing.T) {
 	newRun := &State{
 		Question: "new question",
 		Enriched: []model.EnrichedPaper{
-			{Paper: model.Paper{DOI: "10.1/shared", Title: "Shared paper", Abstract: abstract}},
+			{Paper: model.Paper{DOI: doiShared, Title: "Shared paper", Abstract: abstract}},
 		},
 	}
 	oldRun := &State{
 		Question: "old question",
 		Enriched: []model.EnrichedPaper{
-			{Paper: model.Paper{DOI: "10.1/shared", Title: "Shared paper", Abstract: abstract}},
+			{Paper: model.Paper{DOI: doiShared, Title: "Shared paper", Abstract: abstract}},
 			{Paper: model.Paper{DOI: "10.1/old-only", Title: "Old-only paper", Abstract: "old abstract"}},
 		},
 		Critiques: []model.Critique{
-			{DOI: "10.1/shared", DesignQuality: "high", Relevance: "direct", ResultDirection: "positive"},
-			{DOI: "10.1/old-only", DesignQuality: "low", Relevance: "indirect", ResultDirection: "null"},
+			{DOI: doiShared, DesignQuality: qualityHigh, Relevance: relevanceDirect, ResultDirection: directionPositive},
+			{DOI: "10.1/old-only", DesignQuality: qualityLow, Relevance: relevanceIndirect, ResultDirection: directionNull},
 		},
 	}
 
@@ -34,14 +34,18 @@ func TestBuildAskSystemCompactOlderRuns(t *testing.T) {
 	if n := strings.Count(sys, abstract); n != 1 {
 		t.Errorf("abstract appears %d times, want 1 (newest run only)", n)
 	}
-	if !strings.Contains(sys, "newest, full context") || !strings.Contains(sys, "older, compact") {
+	compactAt := strings.Index(sys, "older, compact")
+	if !strings.Contains(sys, "newest, full context") || compactAt < 0 {
 		t.Errorf("run headers must label the digest tier:\n%s", sys)
 	}
 	if !strings.Contains(sys, "10.1/old-only") {
 		t.Errorf("a paper unique to the old run must stay listed")
 	}
-	old := sys[strings.Index(sys, "older, compact"):]
-	if strings.Contains(old, "Old-only paper") && strings.Count(old, "10.1/shared") > 0 {
+	var old string
+	if compactAt >= 0 { // заголовок есть — берём хвост от него
+		old = sys[compactAt:]
+	}
+	if strings.Contains(old, "Old-only paper") && strings.Count(old, doiShared) > 0 {
 		// the shared DOI may appear at most as the skip counter, not as a paper line
 		if strings.Contains(old, "- 10.1/shared") {
 			t.Errorf("paper shared with the newer run must be skipped in the old run's digest:\n%s", old)

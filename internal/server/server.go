@@ -48,7 +48,7 @@ type service struct {
 
 // New returns the HTTP handler and a drain function (call it on shutdown:
 // it stops taking jobs and waits for the running one to finish).
-func New(run Runner) (http.Handler, func()) {
+func New(run Runner) (handler http.Handler, drain func()) {
 	s := &service{
 		jobs:  map[string]*Job{},
 		queue: make(chan queuedJob, 100),
@@ -119,7 +119,7 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 		StopAfter: req.StopAfter,
 	}
 	if len(req.DOIs) > 0 {
-		if err := os.MkdirAll("runs", 0o755); err != nil {
+		if err := os.MkdirAll("runs", 0o750); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -129,9 +129,9 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, d := range req.DOIs {
-			fmt.Fprintln(f, d)
+			_, _ = fmt.Fprintln(f, d)
 		}
-		f.Close()
+		_ = f.Close()
 		opts.DOIFile = f.Name()
 	}
 
@@ -193,12 +193,14 @@ func (s *service) artifact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "artifact not served", http.StatusForbidden)
 		return
 	}
+	//nolint:gosec // имя файла прошло белый список артефактов, каталог — внутреннее состояние сервиса
 	b, err := os.ReadFile(filepath.Join(j.Dir, name))
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	w.Write(b)
+	//nolint:gosec // ответ — содержимое артефакта запуска с диска; имя прошло белый список
+	_, _ = w.Write(b)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -31,7 +31,8 @@ func RenderMarkdown(st *State) string {
 	b.WriteString("### Evidence matrix\n\n")
 	b.WriteString("| Study | Year | Design | N | Sup/Contra | Direction | Quality | Relevance | Note |\n")
 	b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
-	for _, m := range r.Matrix {
+	for i := range r.Matrix {
+		m := &r.Matrix[i]
 		cell := shortTitle(m.Title, 55)
 		if m.DOI != "" {
 			cell = fmt.Sprintf("[%s](https://doi.org/%s)", cell, m.DOI)
@@ -56,9 +57,12 @@ func RenderMarkdown(st *State) string {
 func RenderCSV(r *model.Report) string {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"doi", "title", "year", "design", "sample_size",
-		"supporting", "contradicting", "total_citations", "direction", "design_quality", "relevance", "note"})
-	for _, m := range r.Matrix {
+	_ = w.Write([]string{
+		"doi", "title", "year", "design", "sample_size",
+		"supporting", "contradicting", "total_citations", "direction", "design_quality", "relevance", "note",
+	})
+	for i := range r.Matrix {
+		m := &r.Matrix[i]
 		_ = w.Write([]string{
 			m.DOI, m.Title, fmt.Sprintf("%d", m.Year), m.Design, fmt.Sprintf("%d", m.SampleSize),
 			fmt.Sprintf("%d", m.Supporting), fmt.Sprintf("%d", m.Contradicting),
@@ -98,7 +102,8 @@ func RenderContext(st *State) string {
 	crits := critiquesFor(st)
 	if len(st.Enriched) > 0 {
 		fmt.Fprintf(&b, "## Papers (%d)\n", len(st.Enriched))
-		for i, e := range st.Enriched {
+		for i := range st.Enriched {
+			e := &st.Enriched[i]
 			sup, con, total := 0, 0, 0
 			if e.Tally != nil {
 				sup, con, total = e.Tally.Supporting, e.Tally.Contradicting, e.Tally.Total
@@ -135,7 +140,8 @@ func RenderContext(st *State) string {
 		}
 	} else if len(st.Papers) > 0 {
 		fmt.Fprintf(&b, "## Papers (%d)\n", len(st.Papers))
-		for _, p := range st.Papers {
+		for i := range st.Papers {
+			p := &st.Papers[i]
 			fmt.Fprintf(&b, "- %s — %s (%d)\n", orDash(p.DOI), p.Title, p.Year)
 		}
 	}
@@ -214,12 +220,12 @@ func orDash(s string) string {
 func directionTally(critiques []model.Critique) string {
 	var pos, null, neg, mixed, unclear int
 	direct := false
-	for _, c := range critiques {
-		if c.Relevance != "direct" {
+	for i := range critiques {
+		if critiques[i].Relevance != relevanceDirect {
 			continue
 		}
 		direct = true
-		switch strings.ToLower(c.ResultDirection) {
+		switch strings.ToLower(critiques[i].ResultDirection) {
 		case "positive":
 			pos++
 		case "null":
@@ -240,8 +246,11 @@ func directionTally(critiques []model.Critique) string {
 		n    int
 		name string
 	}{
-		{pos, "positive"}, {null, "null"}, {neg, "negative"},
-		{mixed, "mixed"}, {unclear, "unclear"},
+		{pos, "positive"},
+		{null, "null"},
+		{neg, "negative"},
+		{mixed, "mixed"},
+		{unclear, valueUnclear},
 	} {
 		if p.n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", p.n, p.name))

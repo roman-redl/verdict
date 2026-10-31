@@ -19,8 +19,8 @@ import (
 func TestResolveTextMode(t *testing.T) {
 	for _, tc := range []struct{ opt, cfg, want string }{
 		{"", "", "hybrid"},
-		{"", "lean", "lean"},
-		{"full", "lean", "full"},
+		{"", modeLean, modeLean},
+		{"full", modeLean, "full"},
 		{" HYBRID ", "", "hybrid"},
 	} {
 		got, err := resolveTextMode(tc.opt, tc.cfg)
@@ -42,21 +42,21 @@ func TestPivotalStudies(t *testing.T) {
 		doi, quality, relevance string
 		heat                    int
 	}{
-		{"10.1/a", "high", "direct", 3},
-		{"10.1/b", "moderate", "direct", 0},
-		{"10.1/c", "high", "indirect", 99}, // hot but not direct
-		{"10.1/d", "high", "direct", 10},   // outranks a on heat
-		{"10.1/e", "low", "direct", 0},
+		{doiA, qualityHigh, relevanceDirect, 3},
+		{doiB, qualityModerate, relevanceDirect, 0},
+		{"10.1/c", qualityHigh, relevanceIndirect, 99}, // hot but not direct
+		{"10.1/d", qualityHigh, relevanceDirect, 10},   // outranks a on heat
+		{"10.1/e", qualityLow, relevanceDirect, 0},
 	} {
 		e := ep(spec.doi)
 		if spec.heat > 0 {
 			e.Tally = &model.CitationTally{Supporting: spec.heat}
 		}
 		st.Enriched = append(st.Enriched, e)
-		st.Critiques = append(st.Critiques, crit(spec.doi, spec.quality, spec.relevance, "positive"))
+		st.Critiques = append(st.Critiques, crit(spec.doi, spec.quality, spec.relevance, directionPositive))
 	}
 	got := pivotalStudies(st, 3)
-	want := []string{"10.1/d", "10.1/a", "10.1/b"}
+	want := []string{"10.1/d", doiA, doiB}
 	if len(got) != len(want) {
 		t.Fatalf("pivotalStudies: got %v, want %v", got, want)
 	}
@@ -74,7 +74,7 @@ func TestPivotalStudies(t *testing.T) {
 // re-critiques the changed corpus, re-synthesizes, and accumulates the cost.
 func TestHybridDeepen(t *testing.T) {
 	restore := pdfTextExtractor
-	pdfTextExtractor = func(b []byte, max int) (string, error) {
+	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
 		return "FULL TEXT METHODS AND RESULTS", nil
 	}
 	defer func() { pdfTextExtractor = restore }()
@@ -86,13 +86,13 @@ func TestHybridDeepen(t *testing.T) {
 
 	tmp := t.TempDir()
 	runDir := filepath.Join(tmp, "run")
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
+	if err := os.MkdirAll(runDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 
-	a := ep("10.1/a") // direct, high — pivotal, OA link serves a PDF
+	a := ep(doiA) // direct, high — pivotal, OA link serves a PDF
 	a.OALink = pdfSrv.URL + "/a.pdf"
-	b := ep("10.1/b") // indirect — never fetched even though it has a link
+	b := ep(doiB) // indirect — never fetched even though it has a link
 	b.OALink = pdfSrv.URL + "/b.pdf"
 
 	batch := `{"critiques":[` +
@@ -104,9 +104,11 @@ func TestHybridDeepen(t *testing.T) {
 	p := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30, HybridPivotalMax: 2},
 		Clients{LLM: s}, quietLog())
 	p.dir = runDir
-	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{a, b},
-		Critiques: []model.Critique{crit("10.1/a", "high", "direct", "positive"), crit("10.1/b", "moderate", "indirect", "null")},
-		Cost:      &CostReport{}}
+	st := &State{
+		Question: "q?", Enriched: []model.EnrichedPaper{a, b},
+		Critiques: []model.Critique{crit(doiA, qualityHigh, relevanceDirect, directionPositive), crit(doiB, qualityModerate, relevanceIndirect, directionNull)},
+		Cost:      &CostReport{},
+	}
 
 	if err := p.hybridDeepen(context.Background(), st, Options{RunDir: runDir}); err != nil {
 		t.Fatal(err)
@@ -139,8 +141,10 @@ func TestHybridDeepenNoFullTextAvailable(t *testing.T) {
 	s := &scriptCompleter{}
 	p := New(&config.Config{LLMConcurrency: 1, HybridPivotalMax: 2}, Clients{LLM: s}, quietLog())
 	p.dir = tmp
-	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep("10.1/a")},
-		Critiques: []model.Critique{crit("10.1/a", "high", "direct", "positive")}, Cost: &CostReport{}}
+	st := &State{
+		Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)},
+		Critiques: []model.Critique{crit(doiA, qualityHigh, relevanceDirect, directionPositive)}, Cost: &CostReport{},
+	}
 	if err := p.hybridDeepen(context.Background(), st, Options{RunDir: tmp}); err != nil {
 		t.Fatal(err)
 	}

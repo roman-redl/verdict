@@ -15,7 +15,7 @@ import (
 
 func TestFetchFullText(t *testing.T) {
 	restore := pdfTextExtractor
-	pdfTextExtractor = func(b []byte, max int) (string, error) {
+	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
 		if !strings.HasPrefix(string(b), "%PDF-") {
 			t.Error("extractor called on non-PDF body")
 		}
@@ -89,7 +89,7 @@ func TestLoadVisionNotes(t *testing.T) {
 	}
 
 	broken := filepath.Join(dir, "3b-vision.json")
-	if err := os.WriteFile(broken, []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(broken, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	loadVisionNotes(dir, st)
@@ -98,7 +98,7 @@ func TestLoadVisionNotes(t *testing.T) {
 	}
 
 	good := `{"vision_notes":[{"doi":"10.1/x","findings":["y-axis truncated at 40% (fig 2)"]}]}`
-	if err := os.WriteFile(broken, []byte(good), 0o644); err != nil {
+	if err := os.WriteFile(broken, []byte(good), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	loadVisionNotes(dir, st)
@@ -112,7 +112,7 @@ func TestLoadVisionNotes(t *testing.T) {
 // --fulltext flag and without an OA link (the paywall workaround).
 func TestFetchFullTextPreplaced(t *testing.T) {
 	restore := pdfTextExtractor
-	pdfTextExtractor = func(b []byte, max int) (string, error) {
+	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
 		return "USER-SUPPLIED full text of a paywalled paper", nil
 	}
 	defer func() { pdfTextExtractor = restore }()
@@ -120,11 +120,11 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 	runDir := t.TempDir()
 	p := New(&config.Config{Concurrency: 4}, Clients{}, quietLog())
 	p.dir = runDir
-	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	pdf := filepath.Join(runDir, "fulltext", "10.1000_paywalled.pdf")
-	if err := os.WriteFile(pdf, []byte("%PDF-1.4 user-supplied"), 0o644); err != nil {
+	if err := os.WriteFile(pdf, []byte("%PDF-1.4 user-supplied"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

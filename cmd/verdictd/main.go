@@ -47,6 +47,7 @@ func main() {
 
 	log.Info("verdictd listening", "addr", *addr,
 		"endpoints", "POST /runs, GET /runs, GET /runs/{id}, GET /runs/{id}/{artifact}")
+	//nolint:gosec // личный локальный демон: таймауты сервера намеренно не заданы, чтобы не рубить долгие ответы и большие артефакты
 	if err := http.ListenAndServe(*addr, handler); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

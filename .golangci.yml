@@ -1,0 +1,60 @@
+version: "2"
+# Конфиг единого стандарта личных Go-проектов (тот же, что в erudit-bot).
+# Источник правил — заметка «Стандарт личных Go-проектов» в notes.
+formatters:
+  enable: [goimports, gofumpt]
+  settings:
+    goimports:
+      local-prefixes: [github.com/roman-redl/verdict]
+linters:
+  default: standard            # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - gocritic                 # diagnostic + style + performance, см. настройки ниже
+    - errorlint                # errors.Is/As и %w вместо == и %v
+    - gosec                    # безопасность: слабый рандом, права файлов, tainted input
+    - nilerr                   # return nil при err != nil
+    - nilnil                   # return nil, nil — «успех» без значения
+    - noctx                    # HTTP-запросы без контекста
+    - contextcheck             # потеря ctx: функция с ctx зовёт внутреннюю с context.Background/TODO
+    - bodyclose                # незакрытые resp.Body
+    - unparam                  # неиспользуемые/всегда одинаковые параметры — анти-мусор
+    - goconst                  # повторяющиеся строки → константы
+    - prealloc
+    - errname                  # sentinel-ошибки ErrFoo, типы FooError
+    - usestdlibvars            # http.StatusOK вместо 200
+    - nolintlint               # //nolint только явный, с объяснением — агент не глушит линтер молча
+    - recvcheck                # консистентность ресиверов (value vs pointer)
+    - modernize                # современный Go (ranges, min/max, slices.*)
+    - misspell
+    - unconvert
+    - whitespace
+    - nakedret
+    - predeclared              # затенение встроенных идентификаторов
+    - copyloopvar
+    - intrange
+    - maintidx                 # сложность функций
+    - depguard                 # запрет импортов между слоями (архитектура линтером)
+  settings:
+    gocritic:
+      enabled-tags: [diagnostic, style, performance]
+      disabled-checks:
+        - hugeParam
+    maintidx:
+      under: 15                # минимальный допустимый maintainability index
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    depguard:
+      rules:
+        # драйвер SQLite допустим только в пакете индекса запусков
+        sqlite-in-db:
+          files: ["**/internal/**"]
+          deny:
+            - pkg: "modernc.org/sqlite"
+              desc: "драйвер SQLite — только internal/db"
+  exclusions:
+    paths: ["vendor/"]
+    rules:
+      # internal/db — единственный internal-пакет с правом на драйвер БД
+      - linters: [depguard]
+        path: ^internal/db/

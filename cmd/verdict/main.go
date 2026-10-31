@@ -5,10 +5,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
-
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +51,7 @@ func main() {
 			if st.Report != nil {
 				fmt.Printf("Verdict: %s\nReport: %s/report.md\nMatrix: %s/matrix.csv\n",
 					st.Report.Verdict, dir, dir)
-				recordRun(dir, st, paperCount(st))
+				recordRun(cmd.Context(), dir, st, paperCount(st))
 			} else {
 				fmt.Printf("Stage artifacts: %s\n", dir)
 			}
@@ -128,7 +128,7 @@ func webCmd() *cobra.Command {
 			if runtime.GOOS == "darwin" {
 				opener = "open"
 			}
-			if err := exec.Command(opener, "https://consensus.app/").Start(); err != nil {
+			if err := exec.CommandContext(cmd.Context(), opener, "https://consensus.app/").Start(); err != nil {
 				fmt.Println("(the browser did not open — open consensus.app yourself)")
 			}
 			fmt.Println("Next steps:")
@@ -184,7 +184,7 @@ func resolveCmd() *cobra.Command {
 			oa := openalex.New(config.Load().OpenAlexEmail)
 			seen := map[string]bool{}
 			resolved := 0
-			for _, line := range strings.Split(string(input), "\n") {
+			for line := range strings.SplitSeq(string(input), "\n") {
 				line = stripBullet(line)
 				if line == "" || seen[line] {
 					continue
@@ -316,7 +316,7 @@ func askCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer rl.Close()
+			defer func() { _ = rl.Close() }()
 			for {
 				line, err := rl.Readline()
 				if err != nil { // Ctrl-D (io.EOF) or a reader failure
@@ -373,13 +373,13 @@ func orDash(s string) string {
 
 // recordRun indexes the finished run in the SQLite run database (best
 // effort — the stage artifacts on disk remain the source of truth).
-func recordRun(dir string, st *pipeline.State, papers int) {
-	d, err := db.Open(filepath.Join("runs", "verdict.db"))
+func recordRun(ctx context.Context, dir string, st *pipeline.State, papers int) {
+	d, err := db.Open(ctx, filepath.Join("runs", "verdict.db"))
 	if err != nil {
 		return
 	}
-	defer d.Close()
-	_ = d.Record(db.Row{
+	defer func() { _ = d.Close() }()
+	_ = d.Record(ctx, db.Row{
 		Topic:       filepath.Base(filepath.Dir(dir)),
 		Run:         filepath.Base(dir),
 		Dir:         dir,
@@ -402,10 +402,11 @@ func addpdfCmd() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := filepath.Join(runDir, "fulltext")
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
 				return err
 			}
 			for _, f := range args {
+				//nolint:gosec // путь — аргумент локального CLI, файл задаёт сам пользователь
 				b, err := os.ReadFile(f)
 				if err != nil {
 					return err
@@ -419,7 +420,8 @@ func addpdfCmd() *cobra.Command {
 				}
 				name := strings.ReplaceAll(model.NormalizeDOI(dois[0]), "/", "_") + ".pdf"
 				dst := filepath.Join(dir, name)
-				if err := os.WriteFile(dst, b, 0o644); err != nil {
+				//nolint:gosec // путь собран из флага --run-dir и DOI, вычитанного из самого PDF
+				if err := os.WriteFile(dst, b, 0o600); err != nil {
 					return err
 				}
 				fmt.Printf("%s -> %s (%s)\n", f, dst, dois[0])
@@ -444,12 +446,12 @@ func indexCmd() *cobra.Command {
 			if len(args) == 1 {
 				topic = args[0]
 			}
-			d, err := db.Open(filepath.Join("runs", "verdict.db"))
+			d, err := db.Open(cmd.Context(), filepath.Join("runs", "verdict.db"))
 			if err != nil {
 				return err
 			}
-			defer d.Close()
-			rows, err := d.Runs(topic)
+			defer func() { _ = d.Close() }()
+			rows, err := d.Runs(cmd.Context(), topic)
 			if err != nil {
 				return err
 			}
@@ -526,11 +528,11 @@ func briefCmd() *cobra.Command {
 				outDir = "briefs"
 			}
 			dir := filepath.Join(outDir, slugify(b.Problem)+"-"+time.Now().Format("20060102-150405"))
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
 				return err
 			}
 			briefPath := filepath.Join(dir, "brief.md")
-			if err := os.WriteFile(briefPath, []byte(pipeline.RenderBrief(b)), 0o644); err != nil {
+			if err := os.WriteFile(briefPath, []byte(pipeline.RenderBrief(b)), 0o600); err != nil {
 				return err
 			}
 			fmt.Printf("Brief: %s\n", briefPath)

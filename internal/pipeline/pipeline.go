@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -192,7 +193,8 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 		if err != nil {
 			return nil, dir, fmt.Errorf("reading %s: %w", opts.DOIFile, err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "0-input.txt"), raw, 0o644); err != nil {
+		//nolint:gosec // аудиторский след запуска: фиксированное имя в каталоге запуска, пишется копия входного файла
+		if err := os.WriteFile(filepath.Join(dir, "0-input.txt"), raw, 0o600); err != nil {
 			return nil, dir, err
 		}
 	}
@@ -248,16 +250,16 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 		}
 	}
 	if st.Report != nil {
-		if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte(RenderMarkdown(st)), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte(RenderMarkdown(st)), 0o600); err != nil {
 			return nil, dir, err
 		}
-		if err := os.WriteFile(filepath.Join(dir, "matrix.csv"), []byte(RenderCSV(st.Report)), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "matrix.csv"), []byte(RenderCSV(st.Report)), 0o600); err != nil {
 			return nil, dir, err
 		}
 	}
 	// The digest for Q&A (ask) and interactive agents — useful on a partial
 	// run too (e.g. after --stop-after 2).
-	if err := os.WriteFile(filepath.Join(dir, "context.md"), []byte(RenderContext(st)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "context.md"), []byte(RenderContext(st)), 0o600); err != nil {
 		return nil, dir, err
 	}
 	return st, dir, nil
@@ -342,6 +344,12 @@ func LoadRuns(dir string) ([]RunState, error) {
 
 // --- stage 1: discovery ---
 
+// Движки обнаружения (флаг --engine, DiscoveryInfo.Engine).
+const (
+	engineConsensus = "consensus"
+	engineOpenAlex  = "openalex"
+)
+
 func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error {
 	if opts.DOIFile != "" {
 		st.Question = firstNonEmpty(opts.Question, "Evidence assessment over a given DOI list")
@@ -354,9 +362,9 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 	st.Question = opts.Question
 	engine := opts.Engine
 	if engine == "" {
-		engine = "openalex"
+		engine = engineOpenAlex
 		if p.clients.Consensus != nil && p.clients.Consensus.HasKey() {
-			engine = "consensus"
+			engine = engineConsensus
 		}
 	}
 	queries := opts.Queries
@@ -364,9 +372,9 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 		queries = []string{opts.Question}
 	}
 	switch engine {
-	case "consensus":
+	case engineConsensus:
 		return p.discoverConsensus(ctx, st, opts, queries)
-	case "openalex":
+	case engineOpenAlex:
 		// The auto path lands here only when no key is configured; an
 		// explicit --engine openalex is a deliberate keyword opt-out.
 		if opts.Engine == "" {
@@ -378,7 +386,7 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 		if err != nil {
 			return err
 		}
-		st.Discovery = &DiscoveryInfo{Engine: "openalex", Queries: queries}
+		st.Discovery = &DiscoveryInfo{Engine: engineOpenAlex, Queries: queries}
 		st.Papers = papers
 		return nil
 	}
@@ -440,11 +448,9 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, st *State, opts Options) 
 // forbids (docs/how-it-works.md §2.2).
 func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Options, queries []string) error {
 	maxPages := orDefault(opts.ConsensusPages, p.cfg.ConsensusPages)
-	if maxPages > 50 { // (page+1)*page_size <= 1000: page 49 is the last legal one
-		maxPages = 50
-	}
+	maxPages = min(maxPages, 50) // (page+1)*page_size <= 1000: page 49 is the last legal one
 	lim := orDefault(opts.MaxPapers, p.cfg.MaxPapers)
-	info := &DiscoveryInfo{Engine: "consensus", Queries: queries}
+	info := &DiscoveryInfo{Engine: engineConsensus, Queries: queries}
 	// Papers pooled per query, deduped by DOI across queries. Recall comes
 	// from the reformulations, so page 0 of EVERY query is fetched before
 	// page 1 of any — no query may be crowded out of the corpus by another
@@ -454,7 +460,8 @@ func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Option
 	seen := map[string]bool{}
 	pooled := 0
 	addResults := func(qi int, results []consensus.QueryResult) {
-		for _, r := range results {
+		for i := range results {
+			r := results[i]
 			doi := model.NormalizeDOI(r.DOI)
 			if doi == "" {
 				info.DroppedNoDOI++ // the pipeline keys papers by DOI
@@ -569,7 +576,8 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 	enriched := make([]model.EnrichedPaper, len(st.Papers))
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(orDefault(opts.Concurrency, p.cfg.Concurrency))
-	for i, pp := range st.Papers {
+	for i := range st.Papers {
+		pp := st.Papers[i]
 		g.Go(func() error {
 			e := model.EnrichedPaper{Paper: pp}
 			if t, ok := tallies[model.NormalizeDOI(pp.DOI)]; ok {
@@ -712,14 +720,14 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 
 // fetchTallies: batches of 100 DOIs (the Scite limit is 500); a Scite
 // failure is not fatal.
-func (p *Pipeline) fetchTallies(ctx context.Context, papers []model.Paper) (map[string]model.CitationTally, []string) {
-	tallies := map[string]model.CitationTally{}
+func (p *Pipeline) fetchTallies(ctx context.Context, papers []model.Paper) (tallies map[string]model.CitationTally, warnings []string) {
+	tallies = map[string]model.CitationTally{}
 	if p.clients.Scite == nil {
 		return tallies, []string{"Scite client is not initialized"}
 	}
 	var dois []string
-	for _, pp := range papers {
-		if d := model.NormalizeDOI(pp.DOI); d != "" {
+	for i := range papers {
+		if d := model.NormalizeDOI(papers[i].DOI); d != "" {
 			dois = append(dois, d)
 		}
 	}
@@ -730,9 +738,7 @@ func (p *Pipeline) fetchTallies(ctx context.Context, papers []model.Paper) (map[
 			sciteErr = err
 			break
 		}
-		for k, v := range m {
-			tallies[k] = v
-		}
+		maps.Copy(tallies, m)
 	}
 	if sciteErr != nil {
 		p.log.Warn("scite unavailable: tallies skipped", "err", sciteErr)
@@ -750,8 +756,8 @@ func (p *Pipeline) fetchS2Papers(ctx context.Context, papers []model.Paper) map[
 		return out
 	}
 	var dois []string
-	for _, pp := range papers {
-		if d := model.NormalizeDOI(pp.DOI); d != "" {
+	for i := range papers {
+		if d := model.NormalizeDOI(papers[i].DOI); d != "" {
 			dois = append(dois, d)
 		}
 	}
@@ -850,7 +856,7 @@ func ExtractDOIs(text string) []string {
 
 func (p *Pipeline) prepareDir(opts Options) (string, error) {
 	if opts.RunDir != "" {
-		if err := os.MkdirAll(opts.RunDir, 0o755); err != nil {
+		if err := os.MkdirAll(opts.RunDir, 0o750); err != nil {
 			return "", err
 		}
 		return opts.RunDir, nil
@@ -868,7 +874,7 @@ func (p *Pipeline) prepareDir(opts Options) (string, error) {
 		parts = append(parts, topic)
 	}
 	dir := filepath.Join(append(parts, slug+"-"+time.Now().Format("20060102-150405"))...)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -890,13 +896,14 @@ func critiquesFor(st *State) []model.Critique {
 		return out
 	}
 	byDOI := map[string]model.Critique{}
-	for _, c := range st.Critiques {
+	for i := range st.Critiques {
+		c := st.Critiques[i]
 		if d := model.NormalizeDOI(c.DOI); d != "" {
 			byDOI[d] = c
 		}
 	}
-	for i, e := range st.Enriched {
-		if d := model.NormalizeDOI(e.DOI); d != "" {
+	for i := range st.Enriched {
+		if d := model.NormalizeDOI(st.Enriched[i].DOI); d != "" {
 			out[i] = byDOI[d]
 		}
 	}
@@ -908,10 +915,11 @@ func saveJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return os.WriteFile(path, b, 0o600)
 }
 
 func loadJSON(path string, v any) error {
+	//nolint:gosec // путь — внутренний артефакт запуска (state.json и т.п.), не внешний ввод
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -920,6 +928,7 @@ func loadJSON(path string, v any) error {
 }
 
 func readDOIFile(path string) ([]string, error) {
+	//nolint:gosec // путь задан флагом --dois локального CLI (файл самого пользователя)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

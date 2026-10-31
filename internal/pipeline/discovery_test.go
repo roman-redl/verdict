@@ -58,14 +58,14 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 		t.Fatalf("papers: got %d, want 3", len(st.Papers))
 	}
 	d := st.Discovery
-	if d == nil || d.Engine != "consensus" || d.PagesFetched != 2 || d.PapersFound != 3 || d.Truncated {
+	if d == nil || d.Engine != engineConsensus || d.PagesFetched != 2 || d.PapersFound != 3 || d.Truncated {
 		t.Errorf("discovery info: got %+v", d)
 	}
 	if len(d.Queries) != 1 || d.Queries[0] != "q" {
 		t.Errorf("queries not recorded: %v", d.Queries)
 	}
 	for _, pp := range st.Papers {
-		if pp.Source != "consensus" || pp.StudyDesign != "rct" {
+		if pp.Source != engineConsensus || pp.StudyDesign != "rct" {
 			t.Errorf("paper mapping: %+v", pp)
 		}
 	}
@@ -181,7 +181,7 @@ func TestDiscoverDefaultsToConsensusWhenKeyPresent(t *testing.T) {
 	if csHits == 0 || oaHits != 0 {
 		t.Errorf("hits: consensus=%d openalex=%d, want consensus>0 openalex=0", csHits, oaHits)
 	}
-	if st.Discovery.Engine != "consensus" {
+	if st.Discovery.Engine != engineConsensus {
 		t.Errorf("engine: got %q, want consensus", st.Discovery.Engine)
 	}
 }
@@ -207,7 +207,7 @@ func TestDiscoverFallsBackToOpenAlexWithoutKey(t *testing.T) {
 	if oaHits != 1 {
 		t.Errorf("openalex hits: got %d, want 1", oaHits)
 	}
-	if st.Discovery == nil || st.Discovery.Engine != "openalex" {
+	if st.Discovery == nil || st.Discovery.Engine != engineOpenAlex {
 		t.Errorf("engine: got %+v, want openalex", st.Discovery)
 	}
 }
@@ -230,7 +230,7 @@ func TestDiscoverEngineOverride(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st, Options{Question: "q", Engine: "openalex"}); err != nil {
+	if err := p.discover(context.Background(), st, Options{Question: "q", Engine: engineOpenAlex}); err != nil {
 		t.Fatal(err)
 	}
 	if oaHits != 1 || csHits != 0 {

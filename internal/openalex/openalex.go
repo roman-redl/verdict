@@ -69,7 +69,7 @@ func (c *Client) ByDOI(ctx context.Context, doi string) (*Work, error) {
 	err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &w, nil)
 	var se *httpx.StatusError
 	if errors.As(err, &se) && se.Status == http.StatusNotFound {
-		return nil, nil
+		return nil, nil //nolint:nilnil // контракт метода: «нет данных» — не ошибка, вызывающий проверяет nil
 	}
 	if err != nil {
 		return nil, err
@@ -125,7 +125,7 @@ func (c *Client) SearchTitle(ctx context.Context, title string) (*Work, error) {
 		return nil, err
 	}
 	if len(resp.Results) == 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // контракт метода: «нет данных» — не ошибка, вызывающий проверяет nil
 	}
 	return &resp.Results[0], nil
 }

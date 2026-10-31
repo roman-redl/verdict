@@ -62,9 +62,9 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 	if err != nil {
 		return "", Usage{}, fmt.Errorf("%s: system prompt tempfile: %w", c.Name(), err)
 	}
-	defer os.Remove(spFile.Name())
+	defer func() { _ = os.Remove(spFile.Name()) }()
 	if _, err := spFile.WriteString(system); err != nil {
-		spFile.Close()
+		_ = spFile.Close()
 		return "", Usage{}, fmt.Errorf("%s: system prompt tempfile: %w", c.Name(), err)
 	}
 	if err := spFile.Close(); err != nil {
@@ -78,6 +78,7 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 	if c.model != "" {
 		script += ` --model ` + c.model // exact name only: aliases do not resolve
 	}
+	//nolint:gosec // команда-обёртка приходит из доверенного конфига пользователя (.env), а не извне
 	cmd := exec.CommandContext(callCtx, "zsh", "-ic", script)
 	cmd.Stdin = strings.NewReader(user)
 	var stdout, stderr bytes.Buffer

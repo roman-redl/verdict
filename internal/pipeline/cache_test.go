@@ -31,8 +31,10 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 	tmp := t.TempDir()
 	cachePath := filepath.Join(tmp, "cache.json")
 	prewarmed := EnrichCache{
-		"10.1000/cached": {CheckedAt: time.Now(), Abstract: "cached abstract",
-			OALink: "https://x/cached.pdf", Retracted: false},
+		"10.1000/cached": {
+			CheckedAt: time.Now(), Abstract: cachedAbstract,
+			OALink: "https://x/cached.pdf", Retracted: false,
+		},
 	}
 	if err := prewarmed.Save(cachePath); err != nil {
 		t.Fatal(err)
@@ -44,15 +46,15 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 	}, quietLog())
 
 	st := &State{Papers: []model.Paper{
-		{DOI: "10.1000/cached", Source: "manual"},
-		{DOI: "10.1000/new", Source: "manual"},
+		{DOI: "10.1000/cached", Source: sourceManual},
+		{DOI: "10.1000/new", Source: sourceManual},
 	}}
 	opts := Options{RunDir: filepath.Join(tmp, "run-1")}
 	if err := p.enrich(context.Background(), st, opts); err != nil {
 		t.Fatal(err)
 	}
 
-	if got := st.Enriched[0].Abstract; got != "cached abstract" {
+	if got := st.Enriched[0].Abstract; got != cachedAbstract {
 		t.Errorf("cached abstract: got %q", got)
 	}
 	if st.Enriched[0].OALink != "https://x/cached.pdf" {

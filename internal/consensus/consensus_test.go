@@ -11,6 +11,9 @@ import (
 	"github.com/roman-redl/verdict/internal/httpx"
 )
 
+// studyTypeMetaAnalysis — повторяющееся значение фикстур (goconst).
+const studyTypeMetaAnalysis = "meta-analysis"
+
 // SearchPage must send the API key header and encode every set filter,
 // omitting the zero-valued ones entirely.
 func TestSearchPageSendsKeyAndParams(t *testing.T) {
@@ -30,7 +33,7 @@ func TestSearchPageSendsKeyAndParams(t *testing.T) {
 
 	if _, err := c.SearchPage(context.Background(), SearchParams{
 		Query: "does creatine improve cognition?", Page: 2, PageSize: 50,
-		YearMin: 2015, YearMax: 2024, StudyTypes: []string{"rct", "meta-analysis"},
+		YearMin: 2015, YearMax: 2024, StudyTypes: []string{"rct", studyTypeMetaAnalysis},
 		Human: true, SampleSizeMin: 30, ExcludePreprints: true,
 	}); err != nil {
 		t.Fatalf("SearchPage: %v", err)
@@ -51,8 +54,10 @@ func TestSearchPageSendsKeyAndParams(t *testing.T) {
 	if _, err := c.SearchPage(context.Background(), SearchParams{Query: "vitamin d"}); err != nil {
 		t.Fatalf("SearchPage (bare): %v", err)
 	}
-	for _, k := range []string{"page", "page_size", "year_min", "year_max",
-		"study_types", "human", "sample_size_min", "exclude_preprints"} {
+	for _, k := range []string{
+		"page", "page_size", "year_min", "year_max",
+		"study_types", "human", "sample_size_min", "exclude_preprints",
+	} {
 		if _, ok := gotQuery[k]; ok {
 			t.Errorf("zero-valued param %s should be absent, got %q", k, gotQuery[k])
 		}
@@ -96,14 +101,14 @@ func TestToPaper(t *testing.T) {
 	r := QueryResult{
 		Title: "T", Authors: []string{"A"}, DOI: "https://doi.org/10.1234/AB.CD",
 		Abstract: "abs", JournalName: "BMJ", PublishYear: 2020,
-		CitationCount: 42, StudyType: "meta-analysis", SampleSize: 900,
+		CitationCount: 42, StudyType: studyTypeMetaAnalysis, SampleSize: 900,
 		SJRQuartile: "Q1", Takeaway: "helps a bit", URL: "https://consensus.app/papers/t",
 	}
 	p := r.ToPaper()
 	if p.DOI != "10.1234/ab.cd" {
 		t.Errorf("doi: got %q, want normalized 10.1234/ab.cd", p.DOI)
 	}
-	if p.Source != "consensus" || p.StudyDesign != "meta-analysis" || p.SampleSize != 900 ||
+	if p.Source != "consensus" || p.StudyDesign != studyTypeMetaAnalysis || p.SampleSize != 900 ||
 		p.Venue != "BMJ" || p.CitedByCount != 42 || p.Year != 2020 ||
 		p.SJRQuartile != "Q1" || p.Takeaway != "helps a bit" {
 		t.Errorf("mapping: got %+v", p)

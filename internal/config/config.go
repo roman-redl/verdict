@@ -90,11 +90,12 @@ func Load() *Config {
 
 // loadDotEnv is a minimal .env loader (KEY=VALUE, '#' starts a comment).
 func loadDotEnv(path string) {
+	//nolint:gosec // путь фиксированный — .env в рабочем каталоге запуска
 	f, err := os.Open(path)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -107,7 +108,7 @@ func loadDotEnv(path string) {
 		}
 		k = strings.TrimSpace(k)
 		if _, exists := os.LookupEnv(k); !exists {
-			os.Setenv(k, strings.Trim(strings.TrimSpace(v), `"'`))
+			_ = os.Setenv(k, strings.Trim(strings.TrimSpace(v), `"'`))
 		}
 	}
 }

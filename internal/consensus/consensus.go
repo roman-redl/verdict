@@ -132,8 +132,10 @@ func (c *Client) SearchPage(ctx context.Context, p SearchParams) (*Page, error) 
 		map[string]string{"x-api-key": c.key}); err != nil {
 		return nil, err // *httpx.StatusError propagates: 401/403/422 fail loudly
 	}
-	return &Page{Results: resp.Results, PageSize: resp.PageSize,
-		IsEnd: resp.IsEnd, NextPage: resp.NextPage}, nil
+	return &Page{
+		Results: resp.Results, PageSize: resp.PageSize,
+		IsEnd: resp.IsEnd, NextPage: resp.NextPage,
+	}, nil
 }
 
 // ToPaper converts a result into the domain model. OALink stays empty on

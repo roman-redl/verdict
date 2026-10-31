@@ -63,7 +63,7 @@ func (c *Client) DoJSON(ctx context.Context, method, url string, body, out any, 
 		}
 	}
 	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
+	for attempt := range 4 {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -95,7 +95,7 @@ func (c *Client) DoJSON(ctx context.Context, method, url string, body, out any, 
 			continue
 		}
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			if out == nil {
 				return nil
@@ -118,6 +118,7 @@ func (c *Client) DoJSON(ctx context.Context, method, url string, body, out any, 
 }
 
 func backoff(attempt int) time.Duration {
+	//nolint:gosec // джиттер паузы между ретраями, не криптографическая случайность
 	return time.Duration(400<<attempt)*time.Millisecond + time.Duration(rand.Int64N(150))*time.Millisecond
 }
 
@@ -125,7 +126,7 @@ func backoff(attempt int) time.Duration {
 // (used for OA PDF downloads). maxBytes caps the response.
 func (c *Client) Get(ctx context.Context, url string, maxBytes int64) ([]byte, error) {
 	var lastErr error
-	for attempt := 0; attempt < 4; attempt++ {
+	for attempt := range 4 {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -136,7 +137,7 @@ func (c *Client) Get(ctx context.Context, url string, maxBytes int64) ([]byte, e
 		if err := c.rl.Wait(ctx); err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 		if err != nil {
 			return nil, err
 		}
@@ -147,7 +148,7 @@ func (c *Client) Get(ctx context.Context, url string, maxBytes int64) ([]byte, e
 			continue
 		}
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return data, nil
 		}

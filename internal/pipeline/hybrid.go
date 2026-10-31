@@ -14,8 +14,8 @@ import (
 // pivotalStudies ranks the studies the verdict rests on: direct relevance
 // only, then design quality (high > moderate > low > unknown), then Scite
 // support heat (supporting + contradicting citations). Returns indices into
-// st.Enriched / st.Critiques (they are parallel), at most max.
-func pivotalStudies(st *State, max int) []int {
+// st.Enriched / st.Critiques (they are parallel), at most maxStudies.
+func pivotalStudies(st *State, maxStudies int) []int {
 	type candidate struct {
 		idx  int
 		rank int
@@ -23,15 +23,15 @@ func pivotalStudies(st *State, max int) []int {
 	}
 	qualityRank := map[string]int{"high": 3, "moderate": 2, "low": 1} // unknown → 0
 	var out []candidate
-	for i, c := range st.Critiques {
-		if i >= len(st.Enriched) || c.Relevance != "direct" {
+	for i := range st.Critiques {
+		if i >= len(st.Enriched) || st.Critiques[i].Relevance != relevanceDirect {
 			continue
 		}
 		heat := 0
 		if t := st.Enriched[i].Tally; t != nil {
 			heat = t.Supporting + t.Contradicting
 		}
-		out = append(out, candidate{idx: i, rank: qualityRank[c.DesignQuality], heat: heat})
+		out = append(out, candidate{idx: i, rank: qualityRank[st.Critiques[i].DesignQuality], heat: heat})
 	}
 	sort.SliceStable(out, func(a, b int) bool {
 		if out[a].rank != out[b].rank {
@@ -39,8 +39,8 @@ func pivotalStudies(st *State, max int) []int {
 		}
 		return out[a].heat > out[b].heat
 	})
-	if len(out) > max {
-		out = out[:max]
+	if len(out) > maxStudies {
+		out = out[:maxStudies]
 	}
 	idxs := make([]int, 0, len(out))
 	for _, c := range out {
@@ -55,12 +55,12 @@ func pivotalStudies(st *State, max int) []int {
 // repeating the pass. When no pivotal study yields a full text, the pass is
 // a no-op — the abstracts-only verdict stands.
 func (p *Pipeline) hybridDeepen(ctx context.Context, st *State, opts Options) error {
-	max := p.cfg.HybridPivotalMax
-	if max <= 0 {
-		max = 5
+	maxStudies := p.cfg.HybridPivotalMax
+	if maxStudies <= 0 {
+		maxStudies = 5
 	}
 	got := 0
-	for _, i := range pivotalStudies(st, max) {
+	for _, i := range pivotalStudies(st, maxStudies) {
 		e := &st.Enriched[i]
 		if e.FullText != "" {
 			continue // already deep (a pre-placed PDF, or an earlier pass)

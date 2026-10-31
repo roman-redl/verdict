@@ -11,7 +11,7 @@ package pipeline
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // не криптография: отпечаток входа для ключа кэша критик
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -21,6 +21,14 @@ import (
 
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
+)
+
+// Значения словаря критик, общие для нескольких стадий (заполнение по
+// умолчанию, отбор ключевых исследований, подсчёт направлений).
+const (
+	valueUnknown    = "unknown" // design_quality / relevance — данных нет
+	valueUnclear    = "unclear" // sample_adequacy / result_direction — данных нет
+	relevanceDirect = "direct"  // релевантность: исследование прямо о вопросе
 )
 
 // critiqueSystemPrompt — the single-study form, used as the fallback for
@@ -84,10 +92,10 @@ func critiqueInput(e model.EnrichedPaper, question string) map[string]any {
 func normalizeCritique(c model.Critique, e model.EnrichedPaper) model.Critique {
 	c.DOI = firstNonEmpty(c.DOI, e.DOI)
 	c.Title = firstNonEmpty(c.Title, e.Title)
-	c.DesignQuality = firstNonEmpty(c.DesignQuality, "unknown")
-	c.SampleAdequacy = firstNonEmpty(c.SampleAdequacy, "unclear")
-	c.Relevance = firstNonEmpty(c.Relevance, "unknown")
-	c.ResultDirection = firstNonEmpty(c.ResultDirection, "unclear")
+	c.DesignQuality = firstNonEmpty(c.DesignQuality, valueUnknown)
+	c.SampleAdequacy = firstNonEmpty(c.SampleAdequacy, valueUnclear)
+	c.Relevance = firstNonEmpty(c.Relevance, valueUnknown)
+	c.ResultDirection = firstNonEmpty(c.ResultDirection, valueUnclear)
 	return c
 }
 
@@ -99,10 +107,10 @@ func critiquePaper(ctx context.Context, client llm.Completer, e model.EnrichedPa
 	c := model.Critique{
 		DOI:             e.DOI,
 		Title:           e.Title,
-		DesignQuality:   "unknown",
-		SampleAdequacy:  "unclear",
-		Relevance:       "unknown",
-		ResultDirection: "unclear",
+		DesignQuality:   valueUnknown,
+		SampleAdequacy:  valueUnclear,
+		Relevance:       valueUnknown,
+		ResultDirection: valueUnclear,
 	}
 	b, _ := json.Marshal(critiqueInput(e, question))
 	var out model.Critique
@@ -125,8 +133,8 @@ func critiqueBatch(ctx context.Context, client llm.Completer, papers []model.Enr
 		Studies  []map[string]any `json:"studies"`
 	}
 	p := payload{Question: question, Studies: make([]map[string]any, len(papers))}
-	for i, e := range papers {
-		p.Studies[i] = critiqueInput(e, question)
+	for i := range papers {
+		p.Studies[i] = critiqueInput(papers[i], question)
 	}
 	b, _ := json.Marshal(p)
 	var out struct {
@@ -141,8 +149,8 @@ func critiqueBatch(ctx context.Context, client llm.Completer, papers []model.Enr
 
 	slots := make([]*model.Critique, len(papers)) // matched critique per study
 	byDOI := map[string]int{}
-	for i, e := range papers {
-		if d := model.NormalizeDOI(e.DOI); d != "" {
+	for i := range papers {
+		if d := model.NormalizeDOI(papers[i].DOI); d != "" {
 			byDOI[d] = i
 		}
 	}
@@ -160,12 +168,12 @@ func critiqueBatch(ctx context.Context, client llm.Completer, papers []model.Enr
 		}
 	}
 	res := map[string]model.Critique{}
-	for i, e := range papers {
+	for i := range papers {
 		if slots[i] == nil {
 			continue
 		}
-		if d := model.NormalizeDOI(e.DOI); d != "" {
-			res[d] = normalizeCritique(*slots[i], e)
+		if d := model.NormalizeDOI(papers[i].DOI); d != "" {
+			res[d] = normalizeCritique(*slots[i], papers[i])
 		}
 	}
 	return res, usage
@@ -177,6 +185,7 @@ func critiqueBatch(ctx context.Context, client llm.Completer, papers []model.Enr
 // the cache; a PDF dropped into fulltext/, a changed abstract or design tag
 // misses it, so the study is re-critiqued instead of being served stale.
 func critiqueCacheKey(e model.EnrichedPaper, question string) string {
+	//nolint:gosec // некриптографический отпечаток входа в ключе кэша; смена алгоритма инвалидировала бы готовые кэши
 	h := sha1.Sum([]byte(e.Abstract + "\x1f" + truncate(e.FullText, 12000) + "\x1f" + e.StudyDesign))
 	return model.NormalizeDOI(e.DOI) + "\x00" + question + "\x00" + fmt.Sprintf("%x", h)[:12]
 }
@@ -205,14 +214,15 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 	// PDFs that landed in fulltext/ after enrichment (the addpdf recipe, a
 	// resume that skipped stage 2) enter here, before the cache checks: the
 	// cache key includes the full text, so exactly those studies re-critique.
-	p.pickupFullTexts(st)
+	p.pickupFullTexts(ctx, st)
 
 	cachePath := critiqueCachePath(opts)
 	cache := LoadCritiqueCache(cachePath, time.Duration(p.cfg.CritiqueCacheTTLDays)*24*time.Hour)
 
 	critiques := make([]model.Critique, len(st.Enriched))
 	var pending []int
-	for i, e := range st.Enriched {
+	for i := range st.Enriched {
+		e := st.Enriched[i]
 		if model.NormalizeDOI(e.DOI) != "" {
 			if c, ok := cache[critiqueCacheKey(e, st.Question)]; ok {
 				critiques[i] = c.Critique
@@ -222,10 +232,10 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 		critiques[i] = model.Critique{
 			DOI:             e.DOI,
 			Title:           e.Title,
-			DesignQuality:   "unknown",
-			SampleAdequacy:  "unclear",
-			Relevance:       "unknown",
-			ResultDirection: "unclear",
+			DesignQuality:   valueUnknown,
+			SampleAdequacy:  valueUnclear,
+			Relevance:       valueUnknown,
+			ResultDirection: valueUnclear,
 		}
 		pending = append(pending, i)
 	}
@@ -250,31 +260,31 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 		}
 		g.Go(func() error {
 			papers := make([]model.EnrichedPaper, len(chunk))
-			for i, j := range chunk {
-				papers[i] = j.paper
+			for i := range chunk {
+				papers[i] = chunk[i].paper
 			}
 			got, u := critiqueBatch(gctx, p.clients.LLM, papers, st.Question)
-			var singles []job
-			for _, j := range chunk {
-				if c, ok := got[model.NormalizeDOI(j.paper.DOI)]; ok {
-					critiques[j.idx] = c
+			var singles []int
+			for i := range chunk {
+				if c, ok := got[model.NormalizeDOI(chunk[i].paper.DOI)]; ok {
+					critiques[chunk[i].idx] = c
 					continue
 				}
-				singles = append(singles, j) // the batch dropped this study
+				singles = append(singles, i) // the batch dropped this study
 			}
-			for _, j := range singles {
-				c, u1 := critiquePaper(gctx, p.clients.LLM, j.paper, st.Question)
+			for _, i := range singles {
+				c, u1 := critiquePaper(gctx, p.clients.LLM, chunk[i].paper, st.Question)
 				u = u.Add(u1)
-				critiques[j.idx] = c
+				critiques[chunk[i].idx] = c
 				if c.Error != "" {
-					p.log.Warn("critique failed", "doi", j.paper.DOI, "err", c.Error)
+					p.log.Warn("critique failed", "doi", chunk[i].paper.DOI, "err", c.Error)
 				}
 			}
 			mu.Lock()
 			cost.add(u)
-			for _, j := range chunk {
-				if c := critiques[j.idx]; c.Error == "" && model.NormalizeDOI(j.paper.DOI) != "" {
-					cache[critiqueCacheKey(j.paper, st.Question)] = CritiqueCacheEntry{CheckedAt: time.Now(), Critique: c}
+			for i := range chunk {
+				if c := critiques[chunk[i].idx]; c.Error == "" && model.NormalizeDOI(chunk[i].paper.DOI) != "" {
+					cache[critiqueCacheKey(chunk[i].paper, st.Question)] = CritiqueCacheEntry{CheckedAt: time.Now(), Critique: c}
 					cacheDirty = true
 				}
 			}

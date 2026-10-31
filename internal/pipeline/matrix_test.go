@@ -11,17 +11,19 @@ func TestBuildMatrix(t *testing.T) {
 	st := &State{
 		Enriched: []model.EnrichedPaper{
 			{
-				Paper: model.Paper{DOI: "10.1/a", Title: "Trial A", Year: 2020, CitedByCount: 41},
+				Paper: model.Paper{DOI: doiA, Title: "Trial A", Year: 2020, CitedByCount: 41},
 				Tally: &model.CitationTally{Total: 39, Supporting: 5, Contradicting: 2},
 			},
 			{
-				Paper: model.Paper{DOI: "10.1/b", Title: "Trial B", Year: 2023, CitedByCount: 7},
+				Paper: model.Paper{DOI: doiB, Title: "Trial B", Year: 2023, CitedByCount: 7},
 			},
 		},
 		Critiques: []model.Critique{
-			{DOI: "10.1/a", DesignQuality: "high", Relevance: "direct", ResultDirection: "positive"},
-			{DOI: "10.1/b", SampleSizeReported: 60, DesignQuality: "low", Relevance: "direct",
-				ResultDirection: "null", Concerns: []string{"no control group", "4-week follow-up", "single center"}},
+			{DOI: doiA, DesignQuality: qualityHigh, Relevance: relevanceDirect, ResultDirection: directionPositive},
+			{
+				DOI: doiB, SampleSizeReported: 60, DesignQuality: qualityLow, Relevance: relevanceDirect,
+				ResultDirection: directionNull, Concerns: []string{"no control group", "4-week follow-up", "single center"},
+			},
 		},
 	}
 	notes := map[string]string{"https://doi.org/10.1/A": "LLM note for A"} // non-normalized key
@@ -37,7 +39,7 @@ func TestBuildMatrix(t *testing.T) {
 	if a.Note != "LLM note for A" {
 		t.Errorf("row A note: got %q, want the LLM note (DOI keys must normalize)", a.Note)
 	}
-	if a.Direction != "positive" {
+	if a.Direction != directionPositive {
 		t.Errorf("row A direction: got %q, want positive", a.Direction)
 	}
 	b := rows[1]
@@ -60,12 +62,12 @@ func TestCritiquesFor(t *testing.T) {
 			{Paper: model.Paper{Title: "No DOI two"}},
 		},
 		Critiques: []model.Critique{
-			{Title: "No DOI one", ResultDirection: "positive"},
-			{Title: "No DOI two", ResultDirection: "negative"},
+			{Title: "No DOI one", ResultDirection: directionPositive},
+			{Title: "No DOI two", ResultDirection: directionNegative},
 		},
 	}
 	crits := critiquesFor(st)
-	if crits[0].ResultDirection != "positive" || crits[1].ResultDirection != "negative" {
+	if crits[0].ResultDirection != directionPositive || crits[1].ResultDirection != directionNegative {
 		t.Fatalf("index alignment broken for DOI-less papers: %+v", crits)
 	}
 
@@ -76,12 +78,12 @@ func TestCritiquesFor(t *testing.T) {
 			{Paper: model.Paper{DOI: "10.1/y"}},
 		},
 		Critiques: []model.Critique{
-			{DOI: "", ResultDirection: "mixed"},
-			{DOI: "10.1/y", ResultDirection: "null"},
+			{DOI: "", ResultDirection: directionMixed},
+			{DOI: "10.1/y", ResultDirection: directionNull},
 		},
 	}
 	crits2 := critiquesFor(st2)
-	if crits2[1].ResultDirection != "null" {
+	if crits2[1].ResultDirection != directionNull {
 		t.Errorf("DOI fallback: got %+v, want y -> null", crits2)
 	}
 	if hasCritique(crits2[0]) {

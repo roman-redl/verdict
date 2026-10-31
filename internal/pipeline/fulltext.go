@@ -62,6 +62,7 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 	path := filepath.Join(p.dir, "fulltext", name)
 
 	var body []byte
+	//nolint:gosec // путь собран из каталога запуска и нормализованного DOI (файл, положенный самим пользователем)
 	if b, err := os.ReadFile(path); err == nil {
 		body = b // user-supplied: the paywall workaround for a specific paper
 	} else if !download || e.OALink == "" {
@@ -84,11 +85,12 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 		return ""
 	}
 	if !fileExists(path) { // keep downloaded PDFs on disk for the vision stage
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			e.Errors = append(e.Errors, "fulltext: "+err.Error())
 			return ""
 		}
-		if err := os.WriteFile(path, body, 0o644); err != nil {
+		//nolint:gosec // путь собран из каталога запуска и нормализованного DOI
+		if err := os.WriteFile(path, body, 0o600); err != nil {
 			e.Errors = append(e.Errors, "fulltext: "+err.Error())
 			return ""
 		}
@@ -108,7 +110,7 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 // enters the pipeline here, at critique time — the critique cache key
 // includes the full text, so exactly those studies re-critique. Only ever
 // fills empty slots; no network.
-func (p *Pipeline) pickupFullTexts(st *State) {
+func (p *Pipeline) pickupFullTexts(ctx context.Context, st *State) {
 	if p.dir == "" {
 		return
 	}
@@ -117,7 +119,7 @@ func (p *Pipeline) pickupFullTexts(st *State) {
 		if e.FullText != "" || model.NormalizeDOI(e.DOI) == "" {
 			continue
 		}
-		if txt := p.fetchFullText(context.Background(), e, false); txt != "" {
+		if txt := p.fetchFullText(ctx, e, false); txt != "" {
 			e.FullText = txt
 		}
 	}

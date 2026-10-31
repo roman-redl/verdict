@@ -34,6 +34,7 @@ func LoadEnrichCache(path string, ttl time.Duration) EnrichCache {
 	if path == "" {
 		return out
 	}
+	//nolint:gosec // путь кэша собран внутри пакета из runs/<topic>, не из внешнего ввода
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return out
@@ -56,14 +57,14 @@ func (c EnrichCache) Save(path string) error {
 	if path == "" || len(c) == 0 {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return os.WriteFile(path, b, 0o600)
 }
 
 // enrichCachePath places the cache next to the runs of a topic. No topic
@@ -99,6 +100,7 @@ func LoadCritiqueCache(path string, ttl time.Duration) CritiqueCache {
 	if path == "" || ttl <= 0 {
 		return out
 	}
+	//nolint:gosec // путь кэша собран внутри пакета из runs/<topic>, не из внешнего ввода
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return out
@@ -108,9 +110,9 @@ func LoadCritiqueCache(path string, ttl time.Duration) CritiqueCache {
 		return out // a corrupt cache is a cold cache
 	}
 	cutoff := time.Now().Add(-ttl)
-	for k, e := range c {
-		if e.CheckedAt.After(cutoff) {
-			out[k] = e
+	for k := range c {
+		if c[k].CheckedAt.After(cutoff) {
+			out[k] = c[k]
 		}
 	}
 	return out
@@ -121,14 +123,14 @@ func (c CritiqueCache) Save(path string) error {
 	if path == "" || len(c) == 0 {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return os.WriteFile(path, b, 0o600)
 }
 
 // critiqueCachePath places the cache next to the runs of a topic, mirroring

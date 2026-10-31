@@ -5,6 +5,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -16,12 +17,12 @@ type DB struct {
 	sql *sql.DB
 }
 
-func Open(path string) (*DB, error) {
+func Open(ctx context.Context, path string) (*DB, error) {
 	d, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := d.Exec(`CREATE TABLE IF NOT EXISTS runs (
+	if _, err := d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS runs (
 		id          INTEGER PRIMARY KEY AUTOINCREMENT,
 		topic       TEXT NOT NULL DEFAULT '',
 		run         TEXT NOT NULL,
@@ -33,7 +34,7 @@ func Open(path string) (*DB, error) {
 		generated_at TEXT NOT NULL DEFAULT '',
 		created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 	)`); err != nil {
-		d.Close()
+		_ = d.Close()
 		return nil, err
 	}
 	return &DB{sql: d}, nil
@@ -54,8 +55,8 @@ type Row struct {
 }
 
 // Record indexes a finished run (upsert keyed by the run directory).
-func (db *DB) Record(r Row) error {
-	_, err := db.sql.Exec(`INSERT INTO runs (topic, run, dir, question, verdict, consensus, papers, generated_at)
+func (db *DB) Record(ctx context.Context, r Row) error {
+	_, err := db.sql.ExecContext(ctx, `INSERT INTO runs (topic, run, dir, question, verdict, consensus, papers, generated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(dir) DO UPDATE SET
 			topic=excluded.topic, run=excluded.run, question=excluded.question,
@@ -66,7 +67,7 @@ func (db *DB) Record(r Row) error {
 }
 
 // Runs lists indexed runs, newest first; topic "" means all topics.
-func (db *DB) Runs(topic string) ([]Row, error) {
+func (db *DB) Runs(ctx context.Context, topic string) ([]Row, error) {
 	q := `SELECT topic, run, dir, question, verdict, consensus, papers, generated_at FROM runs`
 	args := []any{}
 	if topic != "" {
@@ -74,11 +75,11 @@ func (db *DB) Runs(topic string) ([]Row, error) {
 		args = append(args, topic)
 	}
 	q += ` ORDER BY id DESC`
-	rows, err := db.sql.Query(q, args...)
+	rows, err := db.sql.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Row
 	for rows.Next() {
 		var r Row

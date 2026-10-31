@@ -1,37 +1,40 @@
 package db
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestRecordAndRuns(t *testing.T) {
-	d, err := Open(filepath.Join(t.TempDir(), "verdict.db"))
+	d, err := Open(context.Background(), filepath.Join(t.TempDir(), "verdict.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 
 	base := Row{
 		Topic: "keratosis", Run: "kp-light-full", Dir: "runs/keratosis/kp-light-full",
 		Question: "does light therapy work", Verdict: "moderate", Consensus: "broad_agreement",
 		Papers: 10, GeneratedAt: stamp(time.Now()),
 	}
-	if err := d.Record(base); err != nil {
+	if err := d.Record(context.Background(), base); err != nil {
 		t.Fatal(err)
 	}
 	// a re-record of the same dir is an update, not a duplicate
 	base.Verdict = "weak"
-	if err := d.Record(base); err != nil {
+	if err := d.Record(context.Background(), base); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.Record(Row{Topic: "creatine", Run: "r2", Dir: "runs/creatine/r2",
-		Verdict: "strong", GeneratedAt: stamp(time.Now())}); err != nil {
+	if err := d.Record(context.Background(), Row{
+		Topic: "creatine", Run: "r2", Dir: "runs/creatine/r2",
+		Verdict: "strong", GeneratedAt: stamp(time.Now()),
+	}); err != nil {
 		t.Fatal(err)
 	}
 
-	all, err := d.Runs("")
+	all, err := d.Runs(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +45,7 @@ func TestRecordAndRuns(t *testing.T) {
 		t.Fatalf("newest first: %+v", all[0])
 	}
 
-	one, err := d.Runs("keratosis")
+	one, err := d.Runs(context.Background(), "keratosis")
 	if err != nil {
 		t.Fatal(err)
 	}
