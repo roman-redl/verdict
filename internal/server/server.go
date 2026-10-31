@@ -94,6 +94,19 @@ func (s *service) update(id string, fn func(*Job)) {
 	}
 }
 
+// snapshot returns a copy of the job taken under the mutex: the worker
+// mutates job fields concurrently, encoding or reading a *Job outside the
+// lock is a data race (torn JSON in responses).
+func (s *service) snapshot(id string) (Job, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j, ok := s.jobs[id]
+	if !ok {
+		return Job{}, false
+	}
+	return *j, true
+}
+
 func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Question  string   `json:"question"`
@@ -150,8 +163,9 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.update(id, func(j *Job) { j.Status, j.Error = "failed", "queue full" })
 	}
+	snap, _ := s.snapshot(id) // id только что записан — копия обязательна: воркер уже мог стартовать
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(s.jobs[id])
+	_ = json.NewEncoder(w).Encode(snap)
 }
 
 func (s *service) list(w http.ResponseWriter, _ *http.Request) {
@@ -165,9 +179,7 @@ func (s *service) list(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *service) get(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	j, ok := s.jobs[r.PathValue("id")]
-	s.mu.Unlock()
+	j, ok := s.snapshot(r.PathValue("id"))
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -181,9 +193,7 @@ var artifactWhitelist = regexp.MustCompile(
 	`^([1-4]-[a-z]+\.json|report\.md|matrix\.csv|context\.md|0-input\.txt|3b-vision\.json)$`)
 
 func (s *service) artifact(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	j, ok := s.jobs[r.PathValue("id")]
-	s.mu.Unlock()
+	j, ok := s.snapshot(r.PathValue("id"))
 	if !ok || j.Dir == "" {
 		http.NotFound(w, r)
 		return
