@@ -6,8 +6,9 @@ build:
 	go build -o $(BINARY) ./cmd/verdict
 	go build -o bin/verdictd ./cmd/verdictd
 
+# Тесты с гонками: сервер крутит воркер параллельно с HTTP-хендлерами.
 test:
-	go test ./...
+	go test -race ./...
 
 vet:
 	go vet ./...
