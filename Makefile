@@ -1,6 +1,6 @@
 BINARY := bin/verdict
 
-.PHONY: build test vet fmt check run web ask dois clean
+.PHONY: build test lint fmt vet check run web ask clean
 
 build:
 	go build -o $(BINARY) ./cmd/verdict
@@ -12,15 +12,14 @@ test:
 vet:
 	go vet ./...
 
-fmt:
-	gofmt -w .
+lint:
+	golangci-lint run
 
-# Full pre-commit gate: build + static analysis + tests + gofmt.
-check: build vet test
-	@out=$$(gofmt -l .); if [ -n "$$out" ]; then \
-		echo "gofmt: files not formatted:"; echo "$$out"; exit 1; \
-	fi
-	@echo "OK: build + vet + test + gofmt"
+fmt:
+	golangci-lint fmt
+
+# Полная проверка перед коммитом: сборка + статанализ + тесты + линтер.
+check: build vet test lint
 
 # Run a full assessment: make run QUESTION="does creatine improve cognition"
 run: build
