@@ -5,6 +5,19 @@ Go orchestrator for evidence assessment of scientific claims
 Docs: README.md, docs/how-it-works.md (design), docs/usage.md (usage),
 .claude/skills/research/SKILL.md (the agent research workflow).
 
+<!-- BEGIN go-standard -->
+Блок скопирован целиком из заметки «Программное обеспечение/Стандарт личных Go-проектов» (notes, SSOT). В репозитории не редактировать точечно — править заметку и обновлять блок целиком.
+
+- Точки входа в `cmd/<имя>/`, логика в `internal/`; пакеты узкие. Границы слоёв держит depguard в `.golangci.yml`, а не ревью.
+- `.golangci.yml` — единый набор линтеров стандарта (standard + ~20, maintidx<15). `//nolint` — только конкретный линтер и с объяснением; временных глушений не оставлять.
+- Makefile: `build`, `test` (с `-race`), `lint`, `fmt`, `vet`, `check` (= build+vet+test+lint). Перед сдачей — `make check`; самописные последовательности команд не собирать.
+- Тесты не ходят в сеть и не тратят деньги: внешние сервисы — рукописные фейки; тестконтейнеры не используем.
+- CI (GitHub Actions): линтер с пином версии + vet + `go test -race` + кросс-сборка `GOOS=windows`; триггеры push(main)+PR.
+- Конфиг — только env библиотекой caarlos0/env (теги `env:`/`required`/`envDefault`); самописные парсеры не писать. Секреты в `.env`, в репо — `.env.example`.
+- Коммиты: conventional prefixes, только текст, без автоподписей; по явной команде пользователя.
+- Документация и комментарии на русском, идентификаторы английские.
+<!-- END go-standard -->
+
 ## Rules
 
 - **File changes — Write/Edit tools only**, never `cat >`/python heredocs in Bash: diffs must be visible in the CLI and go through approval. Exception — programmatic transformation of large generated files: announce it explicitly and show a change summary (what and how much was replaced). (2026-09-09)
@@ -21,6 +34,6 @@ Docs: README.md, docs/how-it-works.md (design), docs/usage.md (usage),
 
 ## Verification
 
-`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + gofmt).
+`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint; локально нужен golangci-lint 2.13.2 — brew).
 
 Live-run verifications: Scite `/tallies` — done 2026-09-07 (request body is a bare JSON array; response uses the `{"tallies": ...}` envelope); clean stdout from `~/.zshrc` — done; Consensus `/v1/search` — done 2026-10-10 (`x-api-key` auth; the `page`/`page_size`/`is_end`/`next_page` envelope; `page_size` in the response is the plan-applied value).
