@@ -54,24 +54,30 @@ const jsonInstruct = "\n\nRespond with a single valid JSON object and nothing el
 // that has never seen it.
 func AskJSON(ctx context.Context, c Completer, system, user string, out any, maxTokens int) (Usage, error) {
 	opts := Options{MaxTokens: maxTokens}
+
 	text, usage, err := c.Complete(ctx, system, user+jsonInstruct, opts)
 	if err != nil {
 		return usage, err
 	}
+
 	if err := json.Unmarshal(stripFences(text), out); err == nil {
 		return usage, nil
 	}
+
 	retry := user + jsonInstruct +
 		"\n\nYour previous answer was not valid JSON:\n" + capText(text, 4000) +
 		"\n\nReturn ONLY the corrected JSON object, nothing else."
 	text, u2, err := c.Complete(ctx, system, retry, opts)
 	usage = usage.Add(u2)
+
 	if err != nil {
 		return usage, err
 	}
+
 	if err := json.Unmarshal(stripFences(text), out); err != nil {
 		return usage, fmt.Errorf("%s: invalid JSON after retry: %w", c.Name(), err)
 	}
+
 	return usage, nil
 }
 
@@ -81,6 +87,7 @@ func capText(s string, n int) string {
 	if len(r) <= n {
 		return s
 	}
+
 	return string(r[:n]) + "…"
 }
 
@@ -91,9 +98,11 @@ func stripFences(s string) []byte {
 		if i := strings.IndexByte(s, '\n'); i >= 0 {
 			s = s[i+1:]
 		}
+
 		if i := strings.LastIndex(s, "```"); i >= 0 {
 			s = s[:i]
 		}
 	}
+
 	return []byte(s)
 }

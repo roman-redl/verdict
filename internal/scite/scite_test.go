@@ -41,6 +41,7 @@ func TestTalliesFormats(t *testing.T) {
 				_ = json.NewEncoder(w).Encode(tt.body)
 			}))
 			defer srv.Close()
+
 			c := New("")
 			c.base = srv.URL
 
@@ -48,10 +49,12 @@ func TestTalliesFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
 			tl, ok := got[tt.wantDOI]
 			if !ok {
 				t.Fatalf("no tallies for %s: %+v", tt.wantDOI, got)
 			}
+
 			if tl.Total != tt.want[0] || tl.Contradicting != tt.want[1] {
 				t.Errorf("%s: got %+v, want total=%d contradicting=%d", tt.wantDOI, tl, tt.want[0], tt.want[1])
 			}

@@ -29,13 +29,16 @@ func TestPICOFromQuestion(t *testing.T) {
 		],
 		"notes": "sleep-deprived populations show larger effects — maybe a separate run"
 	}`}
+
 	p, err := PICOFromQuestion(context.Background(), c, "creatine for the brain??")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if p.Population != "healthy adults" || len(p.SemanticQueries) != 2 {
 		t.Fatalf("bad parse: %+v", p)
 	}
+
 	out := RenderPICO(p)
 	if !strings.Contains(out, "creatine cognition randomized") ||
 		!strings.Contains(out, "does creatine supplementation improve memory in healthy adults") {

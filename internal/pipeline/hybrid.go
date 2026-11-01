@@ -21,31 +21,41 @@ func pivotalStudies(st *State, maxStudies int) []int {
 		rank int
 		heat int
 	}
+
 	qualityRank := map[string]int{"high": 3, "moderate": 2, "low": 1} // unknown → 0
+
 	var out []candidate
+
 	for i := range st.Critiques {
 		if i >= len(st.Enriched) || st.Critiques[i].Relevance != relevanceDirect {
 			continue
 		}
+
 		heat := 0
 		if t := st.Enriched[i].Tally; t != nil {
 			heat = t.Supporting + t.Contradicting
 		}
+
 		out = append(out, candidate{idx: i, rank: qualityRank[st.Critiques[i].DesignQuality], heat: heat})
 	}
+
 	sort.SliceStable(out, func(a, b int) bool {
 		if out[a].rank != out[b].rank {
 			return out[a].rank > out[b].rank
 		}
+
 		return out[a].heat > out[b].heat
 	})
+
 	if len(out) > maxStudies {
 		out = out[:maxStudies]
 	}
+
 	idxs := make([]int, 0, len(out))
 	for _, c := range out {
 		idxs = append(idxs, c.idx)
 	}
+
 	return idxs
 }
 
@@ -59,24 +69,31 @@ func (p *Pipeline) hybridDeepen(ctx context.Context, st *State, opts Options) er
 	if maxStudies <= 0 {
 		maxStudies = 5
 	}
+
 	got := 0
+
 	for _, i := range pivotalStudies(st, maxStudies) {
 		e := &st.Enriched[i]
 		if e.FullText != "" {
 			continue // already deep (a pre-placed PDF, or an earlier pass)
 		}
+
 		if txt := p.fetchFullText(ctx, e, true); txt != "" {
 			e.FullText = txt
 			got++
 		}
 	}
+
 	if got == 0 {
 		p.log.Info("hybrid: no OA full text for the pivotal studies — keeping the abstracts verdict")
 		return nil
 	}
+
 	p.log.Info("hybrid: deepening pivotal studies with full texts", "studies", got)
+
 	if err := p.critique(ctx, st, opts); err != nil {
 		return err
 	}
+
 	return p.synthesize(ctx, st, opts)
 }

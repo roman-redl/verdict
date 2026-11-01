@@ -48,17 +48,21 @@ func (c *Client) Updates(ctx context.Context, doi string) ([]Update, error) {
 	if c.email != "" {
 		u += "?mailto=" + url.QueryEscape(c.email)
 	}
+
 	var resp struct {
 		Message struct {
 			UpdatedBy []Update `json:"updated-by"`
 		} `json:"message"`
 	}
+
 	if err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &resp, nil); err != nil {
 		var se *httpx.StatusError
 		if errors.As(err, &se) && se.Status == http.StatusNotFound {
 			return nil, nil // unknown DOI is "no data", not an error
 		}
+
 		return nil, err
 	}
+
 	return resp.Message.UpdatedBy, nil
 }

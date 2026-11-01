@@ -60,13 +60,16 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, opts Opti
 	if maxTokens <= 0 {
 		maxTokens = 4096
 	}
+
 	req := request{
 		Model:     a.model,
 		MaxTokens: maxTokens,
 		System:    system,
 		Messages:  []message{{Role: "user", Content: user}},
 	}
+
 	var resp response
+
 	headers := map[string]string{
 		"x-api-key":         a.key,
 		"anthropic-version": anthropicVer,
@@ -74,14 +77,18 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, opts Opti
 	if err := a.http.DoJSON(ctx, http.MethodPost, a.base+anthropicPath, req, &resp, headers); err != nil {
 		return "", Usage{}, err
 	}
+
 	var sb strings.Builder
+
 	for _, b := range resp.Content {
 		if b.Type == "text" {
 			sb.WriteString(b.Text)
 		}
 	}
+
 	if sb.Len() == 0 {
 		return "", Usage{}, fmt.Errorf("anthropic: empty response (stop_reason=%s)", resp.StopReason)
 	}
+
 	return sb.String(), Usage{Calls: 1, InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}, nil
 }

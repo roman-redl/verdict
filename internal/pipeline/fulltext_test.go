@@ -19,8 +19,10 @@ func TestFetchFullText(t *testing.T) {
 		if !strings.HasPrefix(string(b), "%PDF-") {
 			t.Error("extractor called on non-PDF body")
 		}
+
 		return "METHODS We randomized 240 patients. RESULTS No effect.", nil
 	}
+
 	defer func() { pdfTextExtractor = restore }()
 
 	pdfSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28,6 +30,7 @@ func TestFetchFullText(t *testing.T) {
 			_, _ = w.Write([]byte("<html>not a pdf</html>"))
 			return
 		}
+
 		_, _ = w.Write([]byte("%PDF-1.4 fake-but-sniffable"))
 	}))
 	defer pdfSrv.Close()
@@ -40,9 +43,11 @@ func TestFetchFullText(t *testing.T) {
 	if txt := p.fetchFullText(context.Background(), ok, true); txt == "" || !strings.Contains(txt, "240 patients") {
 		t.Fatalf("text not extracted: %q", txt)
 	}
+
 	if ok.FullText != "" { // the caller (enrich) assigns the field
 		t.Fatal("fetchFullText must not mutate FullText itself")
 	}
+
 	pdfPath := filepath.Join(runDir, "fulltext", "10.1000_a.pdf")
 	if _, err := os.Stat(pdfPath); err != nil {
 		t.Fatalf("PDF not saved for the vision stage: %v", err)
@@ -52,6 +57,7 @@ func TestFetchFullText(t *testing.T) {
 	if txt := p.fetchFullText(context.Background(), landing, true); txt != "" {
 		t.Fatalf("landing page must yield no text, got %q", txt)
 	}
+
 	if len(landing.Errors) == 0 {
 		t.Fatal("non-PDF link must be recorded as an error")
 	}
@@ -61,6 +67,7 @@ func TestFetchFullText(t *testing.T) {
 func TestPdfTextReal(t *testing.T) {
 	restore := pdfTextExtractor
 	pdfTextExtractor = pdfText // the production path
+
 	defer func() { pdfTextExtractor = restore }()
 
 	minimal := "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" +
@@ -69,10 +76,12 @@ func TestPdfTextReal(t *testing.T) {
 		"4 0 obj<</Length 60>>stream\nBT /F1 12 Tf 72 720 Td (Hello fulltext) Tj ET\nendstream endobj\n" +
 		"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n" +
 		"trailer<</Root 1 0 R>>\n%%EOF"
+
 	text, err := pdfText([]byte(minimal), 1000)
 	if err != nil {
 		t.Skipf("minimal fixture not parseable by the lib: %v", err)
 	}
+
 	if !strings.Contains(text, "Hello fulltext") {
 		t.Fatalf("text: %q", text)
 	}
@@ -84,6 +93,7 @@ func TestLoadVisionNotes(t *testing.T) {
 	dir := t.TempDir()
 	st := &State{}
 	loadVisionNotes(dir, st) // no file at all
+
 	if len(st.VisionNotes) != 0 {
 		t.Fatal("no artifact must yield no notes")
 	}
@@ -92,7 +102,9 @@ func TestLoadVisionNotes(t *testing.T) {
 	if err := os.WriteFile(broken, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	loadVisionNotes(dir, st)
+
 	if len(st.VisionNotes) != 0 {
 		t.Fatal("broken artifact must yield no notes")
 	}
@@ -101,7 +113,9 @@ func TestLoadVisionNotes(t *testing.T) {
 	if err := os.WriteFile(broken, []byte(good), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	loadVisionNotes(dir, st)
+
 	if len(st.VisionNotes) != 1 || st.VisionNotes[0].DOI != "10.1/x" ||
 		st.VisionNotes[0].Findings[0] != "y-axis truncated at 40% (fig 2)" {
 		t.Fatalf("notes: %+v", st.VisionNotes)
@@ -115,14 +129,17 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
 		return "USER-SUPPLIED full text of a paywalled paper", nil
 	}
+
 	defer func() { pdfTextExtractor = restore }()
 
 	runDir := t.TempDir()
 	p := New(&config.Config{Concurrency: 4}, Clients{}, quietLog())
 	p.dir = runDir
+
 	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750); err != nil {
 		t.Fatal(err)
 	}
+
 	pdf := filepath.Join(runDir, "fulltext", "10.1000_paywalled.pdf")
 	if err := os.WriteFile(pdf, []byte("%PDF-1.4 user-supplied"), 0o600); err != nil {
 		t.Fatal(err)
@@ -132,6 +149,7 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 	if txt := p.fetchFullText(context.Background(), noLink, false); txt != "USER-SUPPLIED full text of a paywalled paper" {
 		t.Fatalf("pre-placed PDF not used: %q", txt)
 	}
+
 	if len(noLink.Errors) != 0 {
 		t.Fatalf("pre-placed path must not error: %v", noLink.Errors)
 	}
@@ -143,6 +161,7 @@ func TestPDFDOIs(t *testing.T) {
 	pdfTextExtractor = func(_ []byte, _ int) (string, error) {
 		return "JAMA Dermatol. doi:10.1001/jamadermatol.2020.0218 Published online.", nil
 	}
+
 	defer func() { pdfTextExtractor = restore }()
 
 	dois := PDFDOIs([]byte("%PDF-1.4 whatever"))

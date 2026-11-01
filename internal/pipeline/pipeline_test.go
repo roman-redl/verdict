@@ -51,12 +51,16 @@ const (
 // retractions OpenAlex missed.
 func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 	var mu sync.Mutex
+
 	oaCalls := map[string]int{}
+
 	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		doi := strings.TrimPrefix(r.URL.Path, "/works/doi:")
+
 		mu.Lock()
 		oaCalls[doi]++
 		mu.Unlock()
+
 		switch doi {
 		case doiVoid: // unknown to OpenAlex
 			w.WriteHeader(http.StatusNotFound)
@@ -69,14 +73,19 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 		}
 	}))
 	defer oa.Close()
+
 	cr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, doiRetr) {
-			_, _ = w.Write([]byte(`{"message":{"updated-by":[{"DOI":"10.1/notice","type":"retraction","label":"Retraction","source":"retraction-watch"}]}}`))
+			_, _ = w.Write([]byte(`{"message":{"updated-by":[{"DOI":"10.1/notice","type":"retraction",` +
+				`"label":"Retraction","source":"retraction-watch"}]}}`))
+
 			return
 		}
+
 		_, _ = w.Write([]byte(`{"message":{}}`))
 	}))
 	defer cr.Close()
+
 	sc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"tallies":{"10.1/retr":{"total":10,"supporting":1,"contradicting":2}}}`))
 	}))
@@ -100,21 +109,26 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
+
 	if n := oaCalls["10.1/oa"]; n != 0 {
 		t.Errorf("openalex-sourced paper re-queried %d times, want 0", n)
 	}
+
 	for _, d := range []string{"10.1/el", doiVoid, doiRetr} {
 		if n := oaCalls[d]; n != 1 {
 			t.Errorf("%s: %d openalex lookups, want 1", d, n)
 		}
 	}
+
 	if got := st.Enriched[1].Abstract; got != "abstract text" {
 		t.Errorf("manual stub abstract backfill: got %q", got)
 	}
+
 	retr := st.Enriched[3]
 	if !retr.Flags.Retracted || !strings.Contains(retr.Flags.Reason, "Crossref") {
 		t.Errorf("crossref retraction not flagged: %+v", retr.Flags)
 	}
+
 	if retr.Tally == nil || retr.Tally.Contradicting != 2 {
 		t.Errorf("scite tallies not attached: %+v", retr.Tally)
 	}
@@ -127,6 +141,7 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound) // all stubs; enough for this test
 	}))
 	defer oa.Close()
+
 	p := New(&config.Config{MaxPapers: 3}, Clients{
 		OpenAlex: openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
@@ -134,6 +149,7 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 	dir := t.TempDir()
 	f := dir + "/dois.txt"
 	list := []string{"10.1000/a", "10.1000/b", "10.1000/c", "10.1000/d", "10.1000/e"}
+
 	if err := os.WriteFile(f, []byte(strings.Join(list, "\n")), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -142,9 +158,11 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 	if err := p.discoverByDOIs(context.Background(), st, Options{DOIFile: f}); err != nil {
 		t.Fatal(err)
 	}
+
 	if len(st.Papers) != 5 {
 		t.Fatalf("no cap: want all 5 papers, got %d", len(st.Papers))
 	}
+
 	if len(st.Warnings) == 0 || !strings.Contains(st.Warnings[0], "LLM calls") {
 		t.Errorf("large list must warn about LLM cost, got %v", st.Warnings)
 	}
@@ -153,6 +171,7 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 	if err := p.discoverByDOIs(context.Background(), st, Options{DOIFile: f, MaxPapers: 2}); err != nil {
 		t.Fatal(err)
 	}
+
 	if len(st.Papers) != 2 {
 		t.Fatalf("explicit cap: want 2 papers, got %d", len(st.Papers))
 	}
@@ -167,28 +186,35 @@ func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
 	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
 		return "FULL TEXT OF THE CACHED STUDY", nil
 	}
+
 	defer func() { pdfTextExtractor = restore }()
 
 	var oaHits int32
+
 	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&oaHits, 1)
+
 		_, _ = w.Write([]byte(`{"doi":"https://doi.org/10.1/cached"}`))
 	}))
 	defer oa.Close()
+
 	sc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"tallies":{}}`))
 	}))
 	defer sc.Close()
 
 	tmp := t.TempDir()
+
 	runDir := filepath.Join(tmp, "run")
 	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750); err != nil {
 		t.Fatal(err)
 	}
+
 	pdf := filepath.Join(runDir, "fulltext", "10.1_cached.pdf")
 	if err := os.WriteFile(pdf, []byte("%PDF-1.4 stub"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	seeded := EnrichCache{"10.1/cached": {CheckedAt: time.Now(), Abstract: cachedAbstract}}
 	if err := seeded.Save(filepath.Join(tmp, "cache.json")); err != nil { // Dir(RunDir)/cache.json
 		t.Fatal(err)
@@ -200,16 +226,20 @@ func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
 	}, quietLog())
 	p.dir = runDir
 	st := &State{Papers: []model.Paper{{DOI: "10.1/cached", Source: sourceManual}}}
+
 	if err := p.enrich(context.Background(), st, Options{RunDir: runDir}); err != nil {
 		t.Fatal(err)
 	}
+
 	if atomic.LoadInt32(&oaHits) != 0 {
 		t.Errorf("cached paper re-queried OpenAlex %d times, want 0", oaHits)
 	}
+
 	e := st.Enriched[0]
 	if e.Abstract != cachedAbstract {
 		t.Errorf("cached abstract lost: %q", e.Abstract)
 	}
+
 	if !strings.Contains(e.FullText, "FULL TEXT OF THE CACHED STUDY") {
 		t.Errorf("pre-placed PDF not picked up on the cache-hit path: %q", e.FullText)
 	}

@@ -36,33 +36,41 @@ func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Com
 			backend = "claude-cli"
 		}
 	}
+
 	switch backend {
 	case "anthropic":
 		if cfg.AnthropicAPIKey == "" {
 			return nil, fmt.Errorf("LLM_BACKEND=anthropic but ANTHROPIC_API_KEY is empty")
 		}
+
 		m := FirstNonEmpty(model, cfg.LLMModel, cfg.AnthropicModel)
+
 		return llm.NewAnthropic(cfg.AnthropicAPIKey, m), nil
 	case "openai-compat":
 		if cfg.OpenAIKey == "" {
 			return nil, fmt.Errorf("LLM_BACKEND=openai-compat but OPENAI_API_KEY is empty")
 		}
+
 		m := FirstNonEmpty(model, cfg.LLMModel)
 		if m == "" {
 			return nil, fmt.Errorf("openai-compat requires LLM_MODEL (the endpoint's model name)")
 		}
+
 		return llm.NewOpenAICompat(cfg.OpenAIBaseURL, cfg.OpenAIKey, m), nil
 	case "claude-cli":
 		if strings.HasPrefix(cfg.LLMCommand, "claude-zai") {
 			log.Warn("claude-zai: the very first request blocks the corporate gateway " +
 				"for hours (one-way cooldown) — make sure corporate models are not needed soon")
 		}
+
 		m := FirstNonEmpty(model, cfg.LLMModel)
 		log.Info("LLM backend", "command", cfg.LLMCommand,
 			"model", FirstNonEmpty(m, "(wrapper default)"))
+
 		return llm.NewClaudeCLI(cfg.LLMCommand, m,
 			time.Duration(cfg.LLMTimeoutSec)*time.Second), nil
 	}
+
 	return nil, fmt.Errorf("unknown LLM_BACKEND: %s", backend)
 }
 
@@ -76,27 +84,33 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 	if opts.LLMCommand != "" {
 		cfgRun.LLMCommand = opts.LLMCommand
 	}
+
 	cfgCrit := cfgRun
 	if cfgRun.LLMCommandCritique != "" {
 		cfgCrit.LLMCommand = cfgRun.LLMCommandCritique
 	}
+
 	crit, err := BuildCompleter(&cfgCrit, log,
 		FirstNonEmpty(opts.ModelCritique, cfgRun.LLMModelCritique, opts.LLMModel))
 	if err != nil {
 		return pipeline.Clients{}, err
 	}
+
 	synth := crit
+
 	if cfgRun.LLMCommandSynthesis != "" || opts.ModelSynthesis != "" || cfgRun.LLMModelSynthesis != "" {
 		cfgSynth := cfgRun
 		if cfgRun.LLMCommandSynthesis != "" {
 			cfgSynth.LLMCommand = cfgRun.LLMCommandSynthesis
 		}
+
 		synth, err = BuildCompleter(&cfgSynth, log,
 			FirstNonEmpty(opts.ModelSynthesis, cfgRun.LLMModelSynthesis, opts.LLMModel))
 		if err != nil {
 			return pipeline.Clients{}, err
 		}
 	}
+
 	clients := pipeline.Clients{
 		Scite:        scite.New(cfg.SciteAPIKey),         // key is optional
 		OpenAlex:     openalex.New(cfg.OpenAlexEmail),    // no key needed
@@ -107,6 +121,7 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 		LLM:          crit,
 		LLMSynthesis: synth,
 	}
+
 	return clients, nil
 }
 
@@ -116,5 +131,6 @@ func FirstNonEmpty(vals ...string) string {
 			return v
 		}
 	}
+
 	return ""
 }

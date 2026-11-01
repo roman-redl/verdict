@@ -126,8 +126,9 @@ type Report struct {
 	VerdictRationale string    `json:"verdict_rationale"`
 	// Consensus is about the DIRECTION the field leans (the verdict is about
 	// the strength of evidence).
-	ConsensusStatus string      `json:"consensus_status,omitempty"` // broad_agreement | contested | emerging | no_consensus | insufficient_data
-	Consensus       string      `json:"consensus,omitempty"`        // what the majority claims, with DOIs
+	// broad_agreement | contested | emerging | no_consensus | insufficient_data
+	ConsensusStatus string      `json:"consensus_status,omitempty"`
+	Consensus       string      `json:"consensus,omitempty"` // what the majority claims, with DOIs
 	Matrix          []MatrixRow `json:"evidence_matrix"`
 	Contradictions  []string    `json:"contradictions,omitempty"`
 	Gaps            []string    `json:"gaps,omitempty"`
@@ -140,5 +141,6 @@ func NormalizeDOI(s string) string {
 	for _, p := range []string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"} {
 		s = strings.TrimPrefix(s, p)
 	}
+
 	return s
 }

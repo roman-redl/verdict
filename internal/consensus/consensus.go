@@ -77,11 +77,14 @@ func (q *Quartile) UnmarshalJSON(b []byte) error {
 		*q = ""
 		return nil
 	}
+
 	if s[0] >= '0' && s[0] <= '9' {
 		*q = Quartile("Q" + s)
 		return nil
 	}
+
 	*q = Quartile(s)
+
 	return nil
 }
 
@@ -101,37 +104,47 @@ func (c *Client) SearchPage(ctx context.Context, p SearchParams) (*Page, error) 
 	if p.Page != 0 {
 		u += "&page=" + strconv.Itoa(p.Page)
 	}
+
 	if p.PageSize != 0 {
 		u += "&page_size=" + strconv.Itoa(p.PageSize)
 	}
+
 	if p.YearMin != 0 {
 		u += "&year_min=" + strconv.Itoa(p.YearMin)
 	}
+
 	if p.YearMax != 0 {
 		u += "&year_max=" + strconv.Itoa(p.YearMax)
 	}
+
 	if len(p.StudyTypes) > 0 {
 		u += "&study_types=" + url.QueryEscape(strings.Join(p.StudyTypes, ","))
 	}
+
 	if p.Human {
 		u += "&human=true"
 	}
+
 	if p.SampleSizeMin != 0 {
 		u += "&sample_size_min=" + strconv.Itoa(p.SampleSizeMin)
 	}
+
 	if p.ExcludePreprints {
 		u += "&exclude_preprints=true"
 	}
+
 	var resp struct {
 		Results  []QueryResult `json:"results"`
 		PageSize int           `json:"page_size"`
 		IsEnd    bool          `json:"is_end"`
 		NextPage int           `json:"next_page"`
 	}
+
 	if err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &resp,
 		map[string]string{"x-api-key": c.key}); err != nil {
 		return nil, err // *httpx.StatusError propagates: 401/403/422 fail loudly
 	}
+
 	return &Page{
 		Results: resp.Results, PageSize: resp.PageSize,
 		IsEnd: resp.IsEnd, NextPage: resp.NextPage,

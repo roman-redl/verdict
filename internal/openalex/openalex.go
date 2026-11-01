@@ -65,15 +65,21 @@ func (c *Client) ByDOI(ctx context.Context, doi string) (*Work, error) {
 	if c.email != "" {
 		u += "?mailto=" + c.email
 	}
+
 	var w Work
+
 	err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &w, nil)
+
 	var se *httpx.StatusError
+
 	if errors.As(err, &se) && se.Status == http.StatusNotFound {
 		return nil, nil //nolint:nilnil // контракт метода: «нет данных» — не ошибка, вызывающий проверяет nil
 	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	return &w, nil
 }
 
@@ -87,23 +93,30 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]model.P
 	// OpenAlex treats * and ? as wildcards and rejects them in stemmed search;
 	// natural-language questions legitimately end with "?" — strip both.
 	query = strings.NewReplacer("*", "", "?", "").Replace(query)
+
 	u := c.base + "/works?search=" + url.QueryEscape(query) + "&per-page=" + strconv.Itoa(limit)
 	if c.email != "" {
 		u += "&mailto=" + url.QueryEscape(c.email)
 	}
+
 	var resp struct {
 		Results []Work `json:"results"`
 	}
+
 	if err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &resp, nil); err != nil {
 		return nil, err
 	}
+
 	papers := make([]model.Paper, 0, len(resp.Results))
+
 	for i := range resp.Results {
 		if resp.Results[i].IsRetracted {
 			continue
 		}
+
 		papers = append(papers, resp.Results[i].ToPaper(""))
 	}
+
 	return papers, nil
 }
 
@@ -118,15 +131,19 @@ func (c *Client) SearchTitle(ctx context.Context, title string) (*Work, error) {
 	if c.email != "" {
 		u += "&mailto=" + url.QueryEscape(c.email)
 	}
+
 	var resp struct {
 		Results []Work `json:"results"`
 	}
+
 	if err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &resp, nil); err != nil {
 		return nil, err
 	}
+
 	if len(resp.Results) == 0 {
 		return nil, nil //nolint:nilnil // контракт метода: «нет данных» — не ошибка, вызывающий проверяет nil
 	}
+
 	return &resp.Results[0], nil
 }
 
@@ -137,38 +154,48 @@ func (c *Client) CitesWork(ctx context.Context, openalexID string, limit int) ([
 	if limit < 1 {
 		limit = 25
 	}
+
 	u := c.base + "/works?filter=cites:" + url.QueryEscape(openalexID) +
 		"&sort=cited_by_count:desc&per-page=" + strconv.Itoa(limit)
 	if c.email != "" {
 		u += "&mailto=" + url.QueryEscape(c.email)
 	}
+
 	var resp struct {
 		Results []Work `json:"results"`
 	}
+
 	if err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &resp, nil); err != nil {
 		return nil, err
 	}
+
 	return resp.Results, nil
 }
 
 // ByIDs resolves OpenAlex work IDs (W...) to works, 50 per request.
 func (c *Client) ByIDs(ctx context.Context, ids []string) ([]Work, error) {
 	var out []Work
+
 	for i := 0; i < len(ids); i += 50 {
 		end := min(i+50, len(ids))
+
 		u := c.base + "/works?filter=ids.openalex:" +
 			url.QueryEscape(strings.Join(ids[i:end], "|")) + "&per-page=50"
 		if c.email != "" {
 			u += "&mailto=" + url.QueryEscape(c.email)
 		}
+
 		var resp struct {
 			Results []Work `json:"results"`
 		}
+
 		if err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &resp, nil); err != nil {
 			return nil, err
 		}
+
 		out = append(out, resp.Results...)
 	}
+
 	return out, nil
 }
 
@@ -178,7 +205,9 @@ func (w *Work) Abstract() string {
 	if len(w.AbstractInvertedIndex) == 0 {
 		return ""
 	}
+
 	var maxPos int
+
 	for _, idxs := range w.AbstractInvertedIndex {
 		for _, i := range idxs {
 			if i > maxPos {
@@ -186,12 +215,15 @@ func (w *Work) Abstract() string {
 			}
 		}
 	}
+
 	words := make([]string, maxPos+1)
+
 	for word, idxs := range w.AbstractInvertedIndex {
 		for _, i := range idxs {
 			words[i] = word
 		}
 	}
+
 	return strings.Join(words, " ")
 }
 
@@ -203,20 +235,25 @@ func (w *Work) ToPaper(doi string) model.Paper {
 	if d == "" {
 		d = doi
 	}
+
 	var authors []string
+
 	for _, a := range w.Authorships {
 		if a.Author.DisplayName != "" {
 			authors = append(authors, a.Author.DisplayName)
 		}
 	}
+
 	venue := ""
 	if w.PrimaryLocation != nil && w.PrimaryLocation.Source != nil {
 		venue = w.PrimaryLocation.Source.DisplayName
 	}
+
 	oaLink := w.OpenAccess.OAURL
 	if oaLink == "" && w.PrimaryLocation != nil {
 		oaLink = w.PrimaryLocation.PDFURL
 	}
+
 	return model.Paper{
 		DOI:          model.NormalizeDOI(d),
 		Title:        w.DisplayName,

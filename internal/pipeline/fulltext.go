@@ -28,24 +28,29 @@ var pdfTextExtractor = pdfText
 func pdfText(b []byte, maxChars int) (string, error) {
 	r, err := pdf.NewReader(bytes.NewReader(b), int64(len(b)))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("pdf: open: %w", err)
 	}
+
 	var sb strings.Builder
 	for i := 1; i <= r.NumPage() && sb.Len() < maxChars; i++ {
 		page := r.Page(i)
 		if page.V.IsNull() {
 			continue
 		}
+
 		text, err := page.GetPlainText(nil)
 		if err != nil {
 			continue // one unreadable page does not sink the document
 		}
+
 		sb.WriteString(text)
 	}
+
 	out := sb.String()
 	if len(out) > maxChars {
 		out = out[:maxChars]
 	}
+
 	return strings.TrimSpace(out), nil
 }
 
@@ -58,6 +63,7 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 	if p.dir == "" {
 		return ""
 	}
+
 	name := strings.ReplaceAll(model.NormalizeDOI(e.DOI), "/", "_") + ".pdf"
 	path := filepath.Join(p.dir, "fulltext", name)
 
@@ -69,21 +75,27 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 		return ""
 	} else {
 		hc := httpx.New("pdf", 2)
+
 		b, err := hc.Get(ctx, e.OALink, pdfMaxBytes)
 		if err != nil {
 			e.Errors = append(e.Errors, "fulltext: "+err.Error())
 			return ""
 		}
+
 		body = b
 	}
+
 	if !bytes.HasPrefix(body, []byte("%PDF")) {
 		src := path
 		if e.OALink != "" {
 			src = e.OALink
 		}
+
 		e.Errors = append(e.Errors, "fulltext: "+src+" is not a PDF (landing page?)")
+
 		return ""
 	}
+
 	if !fileExists(path) { // keep downloaded PDFs on disk for the vision stage
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			e.Errors = append(e.Errors, "fulltext: "+err.Error())
@@ -95,11 +107,13 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 			return ""
 		}
 	}
+
 	text, err := pdfTextExtractor(body, fullTextMaxChars)
 	if err != nil || text == "" {
 		e.Errors = append(e.Errors, fmt.Sprintf("fulltext: PDF saved but text extraction failed (%v)", err))
 		return ""
 	}
+
 	return text
 }
 
@@ -114,11 +128,13 @@ func (p *Pipeline) pickupFullTexts(ctx context.Context, st *State) {
 	if p.dir == "" {
 		return
 	}
+
 	for i := range st.Enriched {
 		e := &st.Enriched[i]
 		if e.FullText != "" || model.NormalizeDOI(e.DOI) == "" {
 			continue
 		}
+
 		if txt := p.fetchFullText(ctx, e, false); txt != "" {
 			e.FullText = txt
 		}
@@ -132,6 +148,7 @@ func PDFDOIs(b []byte) []string {
 	if err != nil {
 		return nil
 	}
+
 	return ExtractDOIs(text)
 }
 
@@ -144,11 +161,14 @@ func loadVisionNotes(dir string, st *State) {
 	if !fileExists(p) {
 		return
 	}
+
 	var v struct {
 		VisionNotes []model.VisionNote `json:"vision_notes"`
 	}
+
 	if err := loadJSON(p, &v); err != nil {
 		return
 	}
+
 	st.VisionNotes = v.VisionNotes
 }

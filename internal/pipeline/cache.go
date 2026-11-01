@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -39,16 +40,19 @@ func LoadEnrichCache(path string, ttl time.Duration) EnrichCache {
 	if err != nil {
 		return out
 	}
+
 	var c EnrichCache
 	if json.Unmarshal(b, &c) != nil {
 		return out // a corrupt cache is a cold cache
 	}
+
 	cutoff := time.Now().Add(-ttl)
 	for doi, e := range c {
 		if e.CheckedAt.After(cutoff) {
 			out[doi] = e
 		}
 	}
+
 	return out
 }
 
@@ -57,14 +61,21 @@ func (c EnrichCache) Save(path string) error {
 	if path == "" || len(c) == 0 {
 		return nil
 	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return fmt.Errorf("cache: create dir: %w", err)
 	}
+
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("cache: marshal: %w", err)
 	}
-	return os.WriteFile(path, b, 0o600)
+
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return fmt.Errorf("cache: write %s: %w", path, err)
+	}
+
+	return nil
 }
 
 // enrichCachePath places the cache next to the runs of a topic. No topic
@@ -76,6 +87,7 @@ func enrichCachePath(opts Options) string {
 	case opts.Topic != "":
 		return filepath.Join("runs", topicSlug(opts.Topic), "cache.json")
 	}
+
 	return ""
 }
 
@@ -105,16 +117,19 @@ func LoadCritiqueCache(path string, ttl time.Duration) CritiqueCache {
 	if err != nil {
 		return out
 	}
+
 	var c CritiqueCache
 	if json.Unmarshal(b, &c) != nil {
 		return out // a corrupt cache is a cold cache
 	}
+
 	cutoff := time.Now().Add(-ttl)
 	for k := range c {
 		if c[k].CheckedAt.After(cutoff) {
 			out[k] = c[k]
 		}
 	}
+
 	return out
 }
 
@@ -123,14 +138,21 @@ func (c CritiqueCache) Save(path string) error {
 	if path == "" || len(c) == 0 {
 		return nil
 	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return fmt.Errorf("cache: create dir: %w", err)
 	}
+
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("cache: marshal: %w", err)
 	}
-	return os.WriteFile(path, b, 0o600)
+
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return fmt.Errorf("cache: write %s: %w", path, err)
+	}
+
+	return nil
 }
 
 // critiqueCachePath places the cache next to the runs of a topic, mirroring
@@ -142,5 +164,6 @@ func critiqueCachePath(opts Options) string {
 	case opts.Topic != "":
 		return filepath.Join("runs", topicSlug(opts.Topic), "critique-cache.json")
 	}
+
 	return ""
 }

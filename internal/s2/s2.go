@@ -50,6 +50,7 @@ func (p *Paper) TLDRText() string {
 	if p == nil || p.TLDR == nil {
 		return ""
 	}
+
 	return p.TLDR.Text
 }
 
@@ -59,20 +60,27 @@ func (c *Client) Batch(ctx context.Context, dois []string) ([]*Paper, error) {
 	if len(dois) == 0 {
 		return nil, nil
 	}
+
 	ids := make([]string, len(dois))
 	for i, d := range dois {
 		ids[i] = "DOI:" + d
 	}
+
 	headers := map[string]string{}
 	if c.key != "" {
 		headers["x-api-key"] = c.key
 	}
+
 	var out []*Paper
+	// One batched request: every field the pipeline consumes from S2.
+	const fields = "externalIds,title,year,abstract,tldr,citationCount,influentialCitationCount,openAccessPdf"
+
 	err := c.http.DoJSON(ctx, http.MethodPost,
-		c.base+"/paper/batch?fields=externalIds,title,year,abstract,tldr,citationCount,influentialCitationCount,openAccessPdf",
+		c.base+"/paper/batch?fields="+fields,
 		map[string][]string{"ids": ids}, &out, headers)
 	if err != nil {
 		return nil, err
 	}
+
 	return out, nil
 }

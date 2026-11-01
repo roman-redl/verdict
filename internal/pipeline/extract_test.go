@@ -19,6 +19,7 @@ some plain text without a DOI, and a duplicate 10.1038/NATURE12373
 		"10.1126/science.abc123",
 		"10.1016/j.cell.2024.01.015",
 	}
+
 	if got := ExtractDOIs(text); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}

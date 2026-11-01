@@ -22,12 +22,15 @@ func TestSubmitRunLifecycle(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# Verdict: moderate"), 0o600); err != nil {
 			t.Fatal(err)
 		}
+
 		if opts.Question == "" {
 			t.Error("question must be defaulted before the runner sees it")
 		}
+
 		return &pipeline.State{Report: &model.Report{Verdict: "moderate"}}, dir, nil
 	})
 	defer drain()
+
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
@@ -36,7 +39,9 @@ func TestSubmitRunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	_ = resp.Body.Close()
+
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("empty submit: %d, want 400", resp.StatusCode)
 	}
@@ -47,9 +52,12 @@ func TestSubmitRunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var job Job
+
 	_ = json.NewDecoder(resp.Body).Decode(&job)
 	_ = resp.Body.Close()
+
 	if resp.StatusCode != http.StatusAccepted || job.ID == "" ||
 		(job.Status != "queued" && job.Status != "running") {
 		t.Fatalf("submit: %d %+v", resp.StatusCode, job)
@@ -57,18 +65,23 @@ func TestSubmitRunLifecycle(t *testing.T) {
 
 	// wait for the worker
 	deadline := time.Now().Add(5 * time.Second)
+
 	for {
 		resp, err = httpGet(srv.URL + "/runs/" + job.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
+
 		_ = json.NewDecoder(resp.Body).Decode(&job)
 		_ = resp.Body.Close()
+
 		if job.Status == "done" || job.Status == "failed" || time.Now().After(deadline) {
 			break
 		}
+
 		time.Sleep(20 * time.Millisecond)
 	}
+
 	if job.Status != "done" || job.Verdict != "moderate" || job.Dir == "" {
 		t.Fatalf("job did not finish: %+v", job)
 	}
@@ -78,9 +91,11 @@ func TestSubmitRunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	body := make([]byte, 64)
 	n, _ := resp.Body.Read(body)
 	_ = resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK || string(body[:n]) != "# Verdict: moderate" {
 		t.Fatalf("artifact: %d %q", resp.StatusCode, body[:n])
 	}
@@ -91,7 +106,9 @@ func TestSubmitRunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	_ = resp.Body.Close()
+
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("non-artifact file: %d, want 403", resp.StatusCode)
 	}
@@ -101,7 +118,9 @@ func TestSubmitRunLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	_ = resp.Body.Close()
+
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown id: %d, want 404", resp.StatusCode)
 	}
@@ -112,6 +131,7 @@ func TestListRuns(t *testing.T) {
 		return nil, t.TempDir(), nil
 	})
 	defer drain()
+
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
@@ -120,16 +140,21 @@ func TestListRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	_ = resp.Body.Close()
+
 	time.Sleep(300 * time.Millisecond) // let the worker finish
 
 	resp, err = httpGet(srv.URL + "/runs")
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var jobs []Job
+
 	_ = json.NewDecoder(resp.Body).Decode(&jobs)
 	_ = resp.Body.Close()
+
 	if len(jobs) != 1 || jobs[0].Topic != "t" {
 		t.Fatalf("list: %+v", jobs)
 	}
@@ -142,16 +167,19 @@ func stringsReader(s string) io.Reader { return strings.NewReader(s) }
 func postJSON(url string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, body)
 	if err != nil {
-		return nil, err
+		return nil, err //nolint:wrapcheck // test helper: the raw error is enough for t.Fatalf
 	}
+
 	req.Header.Set("Content-Type", "application/json")
-	return http.DefaultClient.Do(req)
+
+	return http.DefaultClient.Do(req) //nolint:wrapcheck // test helper: the raw error is enough for t.Fatalf
 }
 
 func httpGet(url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, err //nolint:wrapcheck // test helper: the raw error is enough for t.Fatalf
 	}
-	return http.DefaultClient.Do(req)
+
+	return http.DefaultClient.Do(req) //nolint:wrapcheck // test helper: the raw error is enough for t.Fatalf
 }

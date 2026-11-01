@@ -56,11 +56,13 @@ type response struct {
 // commentary known.
 func (c *Client) Publications(ctx context.Context, doi string) ([]Thread, error) {
 	var resp response
+
 	err := c.http.DoJSON(ctx, http.MethodPost, c.base+"/v3/publications",
 		map[string]string{"dois": doi, "devkey": c.devkey}, &resp, nil)
 	if err != nil {
 		return nil, err
 	}
+
 	return resp.Feedbacks, nil
 }
 
@@ -69,10 +71,12 @@ func Note(threads []Thread) string {
 	if len(threads) == 0 {
 		return ""
 	}
+
 	n := 0
 	for _, t := range threads {
 		n += t.TotalComments
 	}
+
 	return "PubPeer commentary (" + strconv.Itoa(n) + " comments): " +
 		strings.Join(mapURLs(threads), ", ")
 }
@@ -82,5 +86,6 @@ func mapURLs(threads []Thread) []string {
 	for _, t := range threads {
 		urls = append(urls, t.URL)
 	}
+
 	return urls
 }

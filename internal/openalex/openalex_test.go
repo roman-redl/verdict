@@ -14,6 +14,7 @@ func TestSearchFiltersRetracted(t *testing.T) {
 		if got := r.URL.Query().Get("search"); got != "does coffee work" {
 			t.Errorf("search parameter: got %q, want %q (wildcards stripped)", got, "does coffee work")
 		}
+
 		_, _ = w.Write([]byte(`{"results":[
 			{"doi":"https://doi.org/10.1/ok","display_name":"Good study","publication_year":2024,
 			 "abstract_inverted_index":{"coffee":[0],"works":[1]}},
@@ -21,6 +22,7 @@ func TestSearchFiltersRetracted(t *testing.T) {
 		]}`))
 	}))
 	defer srv.Close()
+
 	c := New("")
 	c.base = srv.URL
 
@@ -28,9 +30,11 @@ func TestSearchFiltersRetracted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if len(papers) != 1 {
 		t.Fatalf("want 1 paper (retraction filtered out), got %d", len(papers))
 	}
+
 	if papers[0].DOI != "10.1/ok" || papers[0].Title != "Good study" || papers[0].Abstract != "coffee works" {
 		t.Errorf("bad mapping: %+v", papers[0])
 	}
@@ -46,7 +50,9 @@ func TestAbstractReinversion(t *testing.T) {
 		"Nothing":    {1},
 		"Background": {0},
 	}
+
 	const want = "Background Nothing coffee improves everything"
+
 	if got := w.Abstract(); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -65,9 +71,12 @@ func TestSearchTitle(t *testing.T) {
 		if got := r.URL.Query().Get("filter"); got != `title.search:"Phototherapy for atopic dermatitis"` {
 			t.Errorf("filter: got %q", got)
 		}
-		_, _ = w.Write([]byte(`{"results":[{"doi":"https://doi.org/10.1/match","display_name":"Phototherapy for atopic dermatitis","publication_year":2016}]}`))
+
+		_, _ = w.Write([]byte(`{"results":[{"doi":"https://doi.org/10.1/match",` +
+			`"display_name":"Phototherapy for atopic dermatitis","publication_year":2016}]}`))
 	}))
 	defer srv.Close()
+
 	c := New("")
 	c.base = srv.URL
 
@@ -75,6 +84,7 @@ func TestSearchTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if w == nil || w.DOI != "https://doi.org/10.1/match" || w.PublicationYear != 2016 {
 		t.Fatalf("bad match: %+v", w)
 	}
@@ -85,6 +95,7 @@ func TestSearchTitleNoMatch(t *testing.T) {
 		_, _ = w.Write([]byte(`{"results":[]}`))
 	}))
 	defer srv.Close()
+
 	c := New("")
 	c.base = srv.URL
 
@@ -92,6 +103,7 @@ func TestSearchTitleNoMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if w != nil {
 		t.Fatalf("want nil for no match, got %+v", w)
 	}
@@ -103,9 +115,12 @@ func TestSearchTitleComma(t *testing.T) {
 		if got := r.URL.Query().Get("filter"); got != `title.search:"Laser, sham, trial"` {
 			t.Errorf("filter: got %q", got)
 		}
-		_, _ = w.Write([]byte(`{"results":[{"doi":"https://doi.org/10.1/comma","display_name":"Laser, sham, trial","publication_year":2020}]}`))
+
+		_, _ = w.Write([]byte(`{"results":[{"doi":"https://doi.org/10.1/comma",` +
+			`"display_name":"Laser, sham, trial","publication_year":2020}]}`))
 	}))
 	defer srv.Close()
+
 	c := New("")
 	c.base = srv.URL
 
@@ -113,6 +128,7 @@ func TestSearchTitleComma(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if w == nil || w.DOI != "https://doi.org/10.1/comma" {
 		t.Fatalf("bad match: %+v", w)
 	}

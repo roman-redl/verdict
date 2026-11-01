@@ -25,9 +25,11 @@ func (s *scriptCompleter) Name() string { return "script" }
 func (s *scriptCompleter) Complete(_ context.Context, _, user string, _ llm.Options) (string, llm.Usage, error) {
 	s.prompts = append(s.prompts, user)
 	s.calls++
+
 	if s.calls > len(s.replies) {
 		return "", llm.Usage{}, nil // script exhausted: an empty answer
 	}
+
 	return s.replies[s.calls-1], llm.Usage{InputTokens: 100, OutputTokens: 50}, nil
 }
 
@@ -58,17 +60,21 @@ func TestCritiqueBatchFallsBackForDroppedStudies(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("batch must return its two studies: %v", got)
 	}
+
 	fb, _ := critiquePaper(context.Background(), s, ep("10.1/c"), "q")
 
 	if got[doiA].DesignQuality != qualityHigh || got[doiA].Relevance != relevanceDirect {
 		t.Errorf("a: %+v", got[doiA])
 	}
+
 	if fb.DesignQuality != qualityLow {
 		t.Errorf("fallback single call: %+v", fb)
 	}
+
 	if len(s.prompts) != 2 || !strings.Contains(s.prompts[0], `"studies"`) {
 		t.Errorf("want one batch prompt then one single prompt, got %d", len(s.prompts))
 	}
+
 	if !strings.Contains(s.prompts[1], "Assess this study") {
 		t.Errorf("fallback must use the single-study form:\n%s", s.prompts[1])
 	}
@@ -77,10 +83,12 @@ func TestCritiqueBatchFallsBackForDroppedStudies(t *testing.T) {
 // A total batch failure degrades to single calls for the whole chunk.
 func TestCritiqueBatchTotalFailureReturnsNil(t *testing.T) {
 	s := &scriptCompleter{replies: []string{"complete garbage, not json at all", "still not json"}}
+
 	got, _ := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA)}, "q")
 	if got != nil {
 		t.Fatalf("failed batch must return nil map, got %v", got)
 	}
+
 	if s.calls != 2 { // the ask + the (payload-carrying) retry
 		t.Fatalf("calls: %d", s.calls)
 	}
@@ -91,29 +99,38 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	tmp := t.TempDir()
 	cachePath := filepath.Join(tmp, "critique-cache.json")
 	seeded := CritiqueCache{
-		critiqueCacheKey(ep(doiA), "q?"): {CheckedAt: time.Now(), Critique: crit(doiA, qualityHigh, relevanceDirect, directionPositive)},
+		critiqueCacheKey(ep(doiA), "q?"): {
+			CheckedAt: time.Now(), Critique: crit(doiA, qualityHigh, relevanceDirect, directionPositive),
+		},
 	}
+
 	if err := seeded.Save(cachePath); err != nil {
 		t.Fatal(err)
 	}
 
-	batch := `{"critiques":[{"doi":"10.1/b","design_quality":"low","relevance":"tangential","result_direction":"unclear"}]}`
+	batch := `{"critiques":[{"doi":"10.1/b","design_quality":"low",` +
+		`"relevance":"tangential","result_direction":"unclear"}]}`
 	s := &scriptCompleter{replies: []string{batch}}
 	p := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30},
 		Clients{LLM: s}, quietLog())
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA), ep(doiB)}}
+
 	if err := p.critique(context.Background(), st, Options{RunDir: filepath.Join(tmp, "run-1")}); err != nil {
 		t.Fatal(err)
 	}
+
 	if s.calls != 1 {
 		t.Fatalf("cached study must not be re-asked: %d calls", s.calls)
 	}
+
 	if st.Critiques[0].DesignQuality != qualityHigh || st.Critiques[1].DesignQuality != qualityLow {
 		t.Fatalf("critiques: %+v", st.Critiques)
 	}
+
 	if st.Cost == nil || st.Cost.Critique == nil || st.Cost.Critique.Calls != 1 {
 		t.Fatalf("cost must count only real calls: %+v", st.Cost)
 	}
+
 	saved := LoadCritiqueCache(cachePath, 30*24*time.Hour)
 	if _, ok := saved[critiqueCacheKey(ep(doiB), "q?")]; !ok {
 		t.Errorf("fresh critique not written back: %d entries", len(saved))
@@ -124,9 +141,11 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	p2 := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30},
 		Clients{LLM: s2}, quietLog())
 	st2 := &State{Question: "q?", Enriched: st.Enriched}
+
 	if err := p2.critique(context.Background(), st2, Options{RunDir: filepath.Join(tmp, "run-2")}); err != nil {
 		t.Fatal(err)
 	}
+
 	if s2.calls != 0 || st2.Critiques[0].DesignQuality != qualityHigh {
 		t.Fatalf("second stage must be cache-only: calls=%d critiques=%+v", s2.calls, st2.Critiques)
 	}
@@ -139,9 +158,11 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	p3 := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30},
 		Clients{LLM: s3}, quietLog())
 	st3 := &State{Question: "q?", Enriched: []model.EnrichedPaper{withFT}}
+
 	if err := p3.critique(context.Background(), st3, Options{RunDir: filepath.Join(tmp, "run-3")}); err != nil {
 		t.Fatal(err)
 	}
+
 	if s3.calls == 0 {
 		t.Fatal("added full text must re-critique, not serve the cached abstract critique")
 	}
@@ -156,21 +177,28 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
 		return "DROPPED PDF FULL TEXT", nil
 	}
+
 	defer func() { pdfTextExtractor = restore }()
 
 	tmp := t.TempDir()
+
 	runDir := filepath.Join(tmp, "run")
 	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := os.WriteFile(filepath.Join(runDir, "fulltext", "10.1_a.pdf"),
 		[]byte("%PDF-1.4 stub"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+
 	cachePath := filepath.Join(tmp, "critique-cache.json")
 	seeded := CritiqueCache{
-		critiqueCacheKey(ep(doiA), "q?"): {CheckedAt: time.Now(), Critique: crit(doiA, qualityHigh, relevanceDirect, directionPositive)},
+		critiqueCacheKey(ep(doiA), "q?"): {
+			CheckedAt: time.Now(), Critique: crit(doiA, qualityHigh, relevanceDirect, directionPositive),
+		},
 	}
+
 	if err := seeded.Save(cachePath); err != nil {
 		t.Fatal(err)
 	}
@@ -181,12 +209,15 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 		Clients{LLM: s}, quietLog())
 	p.dir = runDir
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)}} // no FullText yet
+
 	if err := p.critique(context.Background(), st, Options{RunDir: runDir}); err != nil {
 		t.Fatal(err)
 	}
+
 	if s.calls != 1 {
 		t.Fatalf("the picked-up PDF must re-critique (cache miss): %d calls", s.calls)
 	}
+
 	if !strings.Contains(s.prompts[0], "DROPPED PDF FULL TEXT") {
 		t.Error("the critique prompt must carry the picked-up full text")
 	}
@@ -214,22 +245,27 @@ func TestSynthesisUserPromptAbstractDiet(t *testing.T) {
 			Abstract string `json:"abstract"`
 		} `json:"studies"`
 	}
+
 	braceAt := strings.Index(out, "{")
 	if braceAt < 0 {
 		t.Fatal("synthesis prompt must carry JSON")
 	}
+
 	if err := json.Unmarshal([]byte(out[braceAt:]), &parsed); err != nil {
 		t.Fatal(err)
 	}
+
 	if len(parsed.Studies) != 3 {
 		t.Fatalf("studies: %d", len(parsed.Studies))
 	}
+
 	for _, s := range parsed.Studies {
 		switch s.DOI {
 		case "10.1/direct", "10.1/nocrit":
 			if s.Abstract == "" {
 				t.Errorf("%s: abstract must ride along (direct / no critique)", s.DOI)
 			}
+
 			if len(s.Abstract) > 1300 {
 				t.Errorf("%s: abstract must be capped at 1200 chars, got %d", s.DOI, len(s.Abstract))
 			}

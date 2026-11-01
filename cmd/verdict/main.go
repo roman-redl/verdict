@@ -34,11 +34,13 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	var opts pipeline.Options
+
 	runCmd := &cobra.Command{
 		Use:   "run",
 		Short: "Full pipeline for a research question or a list of DOIs",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.Load()
+
 			clients, err := app.BuildClients(cfg, log, opts)
 			if err != nil {
 				return err
@@ -48,6 +50,7 @@ func main() {
 			if err != nil {
 				return err
 			}
+
 			if st.Report != nil {
 				fmt.Printf("Verdict: %s\nReport: %s/report.md\nMatrix: %s/matrix.csv\n",
 					st.Report.Verdict, dir, dir)
@@ -55,6 +58,7 @@ func main() {
 			} else {
 				fmt.Printf("Stage artifacts: %s\n", dir)
 			}
+
 			return nil
 		},
 	}
@@ -83,7 +87,8 @@ func main() {
 	runCmd.Flags().IntVar(&opts.LLMConcurrency, "llm-concurrency", 0,
 		"LLM stage parallelism (defaults to LLM_CONCURRENCY from env)")
 	runCmd.Flags().IntVar(&opts.LLMChunk, "llm-chunk", 0,
-		"studies per critique call — the call count, not the payload, dominates the cost (0 = LLM_CHUNK from env, 5; 1 = one call per study)")
+		"studies per critique call — the call count, not the payload, dominates the cost "+
+			"(0 = LLM_CHUNK from env, 5; 1 = one call per study)")
 	runCmd.Flags().StringVar(&opts.LLMCommand, "llm-command", "",
 		"claude-cli wrapper for this run (default comes from .env)")
 	runCmd.Flags().StringVar(&opts.LLMModel, "llm-model", "",
@@ -95,13 +100,16 @@ func main() {
 	runCmd.Flags().StringVar(&opts.ChallengeNote, "challenge-note", "",
 		"counterargument to weigh and answer in the verdict rationale (not data)")
 	runCmd.Flags().StringVar(&opts.TextMode, "text-mode", "",
-		"what the critic reads: lean (abstracts only) | hybrid (abstracts, then full texts for the pivotal studies — default) | full (full texts for all) (defaults to TEXT_MODE from env)")
+		"what the critic reads: lean (abstracts only) | hybrid (abstracts, then full texts for the pivotal studies — "+
+			"default) | full (full texts for all) (defaults to TEXT_MODE from env)")
 
 	root := &cobra.Command{
 		Use:   "verdict",
 		Short: "Evidence assessment for scientific claims: discovery → Scite/OpenAlex → LLM",
 	}
-	root.AddCommand(runCmd, webCmd(), doisCmd(), resolveCmd(), snowballCmd(), addpdfCmd(), askCmd(), briefCmd(), picoCmd(), indexCmd())
+	root.AddCommand(runCmd, webCmd(), doisCmd(), resolveCmd(), snowballCmd(),
+		addpdfCmd(), askCmd(), briefCmd(), picoCmd(), indexCmd())
+
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -113,34 +121,42 @@ func main() {
 // semantic path with an API key is mode B (`run -q` does it automatically).
 func webCmd() *cobra.Command {
 	var question string
+
 	cmd := &cobra.Command{
-		Use:   "web",
-		Short: "Open the Consensus web UI with the question ready to paste (free manual selection — the semantic path without an API key)",
+		Use: "web",
+		Short: "Open the Consensus web UI with the question ready to paste " +
+			"(free manual selection — the semantic path without an API key)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if question == "" {
 				return fmt.Errorf("--question/-q is required")
 			}
+
 			fmt.Println("Run this question in Consensus (consensus.app):")
 			fmt.Println()
 			fmt.Println("  " + question)
 			fmt.Println()
+
 			opener := "xdg-open"
 			if runtime.GOOS == "darwin" {
 				opener = "open"
 			}
+
 			if err := exec.CommandContext(cmd.Context(), opener, "https://consensus.app/").Start(); err != nil {
 				fmt.Println("(the browser did not open — open consensus.app yourself)")
 			}
+
 			fmt.Println("Next steps:")
 			fmt.Println("  1) scroll the results to the end (\"Load more\" caps at ~50), then")
 			fmt.Println("     select and copy the whole list — raw paste back is fine")
 			fmt.Println("  2) pbpaste | bin/verdict dois > dois.txt        (DOIs present)")
 			fmt.Println("     pbpaste | bin/verdict resolve > dois.txt    (titles only)")
 			fmt.Println("  3) bin/verdict run --dois dois.txt -q \"" + question + "\"")
+
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&question, "question", "q", "", "research question")
+
 	return cmd
 }
 
@@ -155,13 +171,16 @@ func doisCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
 			dois := pipeline.ExtractDOIs(string(input))
 			if len(dois) == 0 {
 				return fmt.Errorf("no DOIs found")
 			}
+
 			for _, d := range dois {
 				fmt.Println(d)
 			}
+
 			return nil
 		},
 	}
@@ -181,22 +200,27 @@ func resolveCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
 			oa := openalex.New(config.Load().OpenAlexEmail)
 			seen := map[string]bool{}
 			resolved := 0
+
 			for line := range strings.SplitSeq(string(input), "\n") {
 				line = stripBullet(line)
 				if line == "" || seen[line] {
 					continue
 				}
+
 				seen[line] = true
 				if len(pipeline.ExtractDOIs(line)) > 0 {
 					fmt.Println(line) // already has a DOI — pass through
 					continue
 				}
+
 				if len([]rune(line)) < 12 {
 					continue // junk line, not a title
 				}
+
 				w, err := oa.SearchTitle(cmd.Context(), line)
 				switch {
 				case err != nil:
@@ -208,11 +232,15 @@ func resolveCmd() *cobra.Command {
 					if strings.EqualFold(w.DisplayName, line) {
 						marker = "exact"
 					}
+
 					resolved++
+
 					fmt.Printf("%s\t%d\t%s\t%s\n", model.NormalizeDOI(w.DOI), w.PublicationYear, marker, w.DisplayName)
 				}
 			}
+
 			fmt.Fprintf(os.Stderr, "resolved %d title(s); UNRESOLVED lines need a manual lookup\n", resolved)
+
 			return nil
 		},
 	}
@@ -229,6 +257,7 @@ func stripBullet(line string) string {
 // candidates for curation; nothing is added to any corpus automatically.
 func snowballCmd() *cobra.Command {
 	var minShared, maxOut int
+
 	cmd := &cobra.Command{
 		Use:   "snowball [file]",
 		Short: "Expand a DOI list via citation chaining (co-citation candidates for curation)",
@@ -238,29 +267,38 @@ func snowballCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
 			dois := pipeline.ExtractDOIs(string(input))
 			if len(dois) < 2 {
 				return fmt.Errorf("snowball needs at least 2 seed DOIs, got %d", len(dois))
 			}
+
 			oa := openalex.New(config.Load().OpenAlexEmail)
+
 			cands, err := pipeline.Snowball(cmd.Context(), oa, dois, minShared, maxOut)
 			if err != nil {
 				return err
 			}
+
 			if len(cands) == 0 {
 				fmt.Println("no candidates shared by several seeds — the corpus looks complete")
 				return nil
 			}
+
 			fmt.Println("doi\tyear\tcited-by-seeds\tcites-seeds\ttitle")
+
 			for _, c := range cands {
 				fmt.Printf("%s\t%d\t%d\t%d\t%s\n", c.DOI, c.Year, c.CitedBySeeds, c.CitesSeeds, c.Title)
 			}
+
 			fmt.Fprintln(os.Stderr, "curate manually: shared-citation counts are a signal, not a relevance verdict")
+
 			return nil
 		},
 	}
 	cmd.Flags().IntVar(&minShared, "min-shared", 2, "how many seeds a candidate must connect to")
 	cmd.Flags().IntVar(&maxOut, "max", 10, "how many candidates to print")
+
 	return cmd
 }
 
@@ -268,9 +306,10 @@ func snowballCmd() *cobra.Command {
 // stdin (the shared convention of dois/resolve/brief).
 func readInput(cmd *cobra.Command, args []string) ([]byte, error) {
 	if len(args) == 1 && args[0] != "-" {
-		return os.ReadFile(args[0])
+		return os.ReadFile(args[0]) //nolint:wrapcheck // CLI input: the os error already names the file and operation
 	}
-	return io.ReadAll(cmd.InOrStdin())
+
+	return io.ReadAll(cmd.InOrStdin()) //nolint:wrapcheck // CLI input: the io error goes to the user verbatim via cobra
 }
 
 // askCmd — Q&A with an analyst holding the run's context: the same LLM
@@ -278,65 +317,87 @@ func readInput(cmd *cobra.Command, args []string) ([]byte, error) {
 // single question.
 func askCmd() *cobra.Command {
 	var runDir, question string
+
 	cmd := &cobra.Command{
 		Use:   "ask",
 		Short: "Ask an analyst about a finished run (papers, citations, verdict)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			cfg := config.Load()
+
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {
 				return err
 			}
+
 			var runs []pipeline.RunState
+
 			runs, err = pipeline.LoadRuns(runDir)
 			if err != nil {
 				return err
 			}
+
 			system := pipeline.BuildAskSystem(runs)
+
 			fmt.Println("Loaded runs:")
+
 			for _, r := range runs {
 				fmt.Printf("  - %s (%d papers) — %s\n", r.Name, paperCount(r.State), shorten(r.State.Question, 80))
 			}
+
 			if question != "" {
 				ans, u, err := completer.Complete(cmd.Context(), system, question, llm.Options{})
 				if err != nil {
 					return err
 				}
+
 				log.Info("ask llm usage", "in", u.InputTokens, "out", u.OutputTokens)
 				fmt.Println(renderAnswer(ans))
+
 				return nil
 			}
+
 			fmt.Println("Ask anything about the runs. exit / Ctrl-D to quit; empty Enter just re-prompts.")
+
 			transcript := ""
+
 			rl, err := readline.NewEx(&readline.Config{
 				Prompt:      "❯ ",
 				HistoryFile: filepath.Join(os.TempDir(), "verdict-ask-history"),
 			})
 			if err != nil {
-				return err
+				return fmt.Errorf("starting readline: %w", err)
 			}
+
 			defer func() { _ = rl.Close() }()
+
 			for {
 				line, err := rl.Readline()
 				if err != nil { // Ctrl-D (io.EOF) or a reader failure
 					break
 				}
+
 				q := strings.TrimSpace(line)
 				if q == "" {
 					continue
 				}
+
 				if q == "exit" || q == "quit" {
 					break
 				}
+
 				user := transcript + "\n\nQuestion: " + q
+
 				fmt.Println("…thinking (up to a couple of minutes)…")
+
 				ans, u, err := completer.Complete(cmd.Context(), system, user, llm.Options{})
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "call failed:", err)
 					fmt.Fprintln(os.Stderr, "continuing — please repeat the question")
+
 					continue
 				}
+
 				log.Info("ask llm usage", "in", u.InputTokens, "out", u.OutputTokens)
 				fmt.Println("\n" + renderAnswer(ans) + "\n")
 				transcript = user + "\nAnswer: " + ans
@@ -346,13 +407,16 @@ func askCmd() *cobra.Command {
 					transcript = transcript[len(transcript)-24000:]
 				}
 			}
+
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&runDir, "run-dir", "",
 		"a topic directory (loads all its runs, newest first) or a single run directory")
+
 	_ = cmd.MarkFlagRequired("run-dir")
 	cmd.Flags().StringVarP(&question, "question", "q", "", "a single question, no interactive mode")
+
 	return cmd
 }
 
@@ -361,6 +425,7 @@ func shorten(s string, n int) string {
 	if len(r) <= n {
 		return s
 	}
+
 	return string(r[:n-1]) + "…"
 }
 
@@ -368,6 +433,7 @@ func orDash(s string) string {
 	if s == "" {
 		return "—"
 	}
+
 	return s
 }
 
@@ -378,7 +444,9 @@ func recordRun(ctx context.Context, dir string, st *pipeline.State, papers int) 
 	if err != nil {
 		return
 	}
+
 	defer func() { _ = d.Close() }()
+
 	_ = d.Record(ctx, db.Row{
 		Topic:       filepath.Base(filepath.Dir(dir)),
 		Run:         filepath.Base(dir),
@@ -396,6 +464,7 @@ func recordRun(ctx context.Context, dir string, st *pipeline.State, papers int) 
 // renaming. The next run over that directory gets the full text.
 func addpdfCmd() *cobra.Command {
 	var runDir string
+
 	cmd := &cobra.Command{
 		Use:   "addpdf <file.pdf> [more.pdf...]",
 		Short: "Drop paper PDF(s) into a run (the DOI is read from the PDF itself)",
@@ -403,34 +472,41 @@ func addpdfCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := filepath.Join(runDir, "fulltext")
 			if err := os.MkdirAll(dir, 0o750); err != nil {
-				return err
+				return fmt.Errorf("creating %s: %w", dir, err)
 			}
+
 			for _, f := range args {
 				//nolint:gosec // путь — аргумент локального CLI, файл задаёт сам пользователь
 				b, err := os.ReadFile(f)
 				if err != nil {
-					return err
+					return err //nolint:wrapcheck // CLI input: the os error already names the file and operation
 				}
+
 				if !bytes.HasPrefix(b, []byte("%PDF")) {
 					return fmt.Errorf("%s is not a PDF", f)
 				}
+
 				dois := pipeline.PDFDOIs(b)
 				if len(dois) == 0 {
 					return fmt.Errorf("%s: no DOI found inside the text — place it manually as %s/<doi>.pdf", f, dir)
 				}
+
 				name := strings.ReplaceAll(model.NormalizeDOI(dois[0]), "/", "_") + ".pdf"
 				dst := filepath.Join(dir, name)
 				//nolint:gosec // путь собран из флага --run-dir и DOI, вычитанного из самого PDF
 				if err := os.WriteFile(dst, b, 0o600); err != nil {
-					return err
+					return fmt.Errorf("writing %s: %w", dst, err)
 				}
+
 				fmt.Printf("%s -> %s (%s)\n", f, dst, dois[0])
 			}
+
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&runDir, "run-dir", "", "the run directory (runs/<topic>/<run>)")
 	_ = cmd.MarkFlagRequired("run-dir")
+
 	return cmd
 }
 
@@ -446,24 +522,31 @@ func indexCmd() *cobra.Command {
 			if len(args) == 1 {
 				topic = args[0]
 			}
+
 			d, err := db.Open(cmd.Context(), filepath.Join("runs", "verdict.db"))
 			if err != nil {
 				return err
 			}
+
 			defer func() { _ = d.Close() }()
+
 			rows, err := d.Runs(cmd.Context(), topic)
 			if err != nil {
 				return err
 			}
+
 			if len(rows) == 0 {
 				fmt.Println("no indexed runs")
 				return nil
 			}
+
 			fmt.Println("topic\trun\tverdict\tconsensus\tpapers\tquestion")
+
 			for _, r := range rows {
 				fmt.Printf("%s\t%s\t%s\t%s\t%d\t%s\n",
 					orDash(r.Topic), r.Run, orDash(r.Verdict), orDash(r.Consensus), r.Papers, shorten(r.Question, 60))
 			}
+
 			return nil
 		},
 	}
@@ -475,6 +558,7 @@ func indexCmd() *cobra.Command {
 // the Consensus API via `run --queries`, or the free web UI).
 func picoCmd() *cobra.Command {
 	var question string
+
 	cmd := &cobra.Command{
 		Use:   "pico",
 		Short: "Normalize a question into PICO + ready keyword/semantic queries",
@@ -482,22 +566,28 @@ func picoCmd() *cobra.Command {
 			if question == "" {
 				return fmt.Errorf("--question/-q is required")
 			}
+
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			cfg := config.Load()
+
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {
 				return err
 			}
+
 			p, err := pipeline.PICOFromQuestion(cmd.Context(), completer, question)
 			if err != nil {
 				return err
 			}
+
 			fmt.Println(pipeline.RenderPICO(p))
+
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&question, "question", "q", "", "the research question (any form)")
 	_ = cmd.MarkFlagRequired("question")
+
 	return cmd
 }
 
@@ -505,6 +595,7 @@ func picoCmd() *cobra.Command {
 // with the agent, scientific questions are handed to `verdict run`.
 func briefCmd() *cobra.Command {
 	var outDir string
+
 	cmd := &cobra.Command{
 		Use:   "brief [file]",
 		Short: "Turn a messy problem description into agent tasks + evidence questions",
@@ -512,43 +603,55 @@ func briefCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			cfg := config.Load()
+
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {
 				return err
 			}
+
 			input, err := readInput(cmd, args)
 			if err != nil {
 				return err
 			}
+
 			b, err := pipeline.BriefFromText(cmd.Context(), completer, string(input))
 			if err != nil {
 				return err
 			}
+
 			if outDir == "" {
 				outDir = "briefs"
 			}
+
 			dir := filepath.Join(outDir, slugify(b.Problem)+"-"+time.Now().Format("20060102-150405"))
 			if err := os.MkdirAll(dir, 0o750); err != nil {
-				return err
+				return fmt.Errorf("creating %s: %w", dir, err)
 			}
+
 			briefPath := filepath.Join(dir, "brief.md")
 			if err := os.WriteFile(briefPath, []byte(pipeline.RenderBrief(b)), 0o600); err != nil {
-				return err
+				return fmt.Errorf("writing %s: %w", briefPath, err)
 			}
+
 			fmt.Printf("Brief: %s\n", briefPath)
+
 			if len(b.Questions) > 0 {
 				fmt.Println("\nSuggested evidence questions (discovery default = mode B: run -q searches Consensus itself):")
+
 				for _, q := range b.Questions {
 					fmt.Printf("  # %s\n  bin/verdict run -q %q\n", orDashQ(q.Priority), q.Question)
 				}
+
 				fmt.Println(`  no CONSENSUS_API_KEY? mode C (free): pick papers in the browser —
     bin/verdict web -q "<question>"; pbpaste | bin/verdict dois > dois.txt &&
     bin/verdict run --dois dois.txt -q "<question>"`)
 			}
+
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&outDir, "out", "", "output directory (defaults to briefs/)")
+
 	return cmd
 }
 
@@ -559,9 +662,11 @@ func slugify(s string) string {
 	if len(slug) > 40 {
 		slug = slug[:40]
 	}
+
 	if slug == "" {
 		slug = "brief"
 	}
+
 	return slug
 }
 
@@ -569,6 +674,7 @@ func orDashQ(s string) string {
 	if s == "" {
 		return "—"
 	}
+
 	return s
 }
 
@@ -578,6 +684,7 @@ func paperCount(st *pipeline.State) int {
 	if n := len(st.Enriched); n > 0 {
 		return n
 	}
+
 	return len(st.Papers)
 }
 
@@ -588,13 +695,16 @@ func renderAnswer(s string) string {
 	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
 		return s
 	}
+
 	r, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(100))
 	if err != nil {
 		return s
 	}
+
 	out, err := r.Render(s)
 	if err != nil {
 		return s
 	}
+
 	return out
 }

@@ -20,8 +20,9 @@ type DB struct {
 func Open(ctx context.Context, path string) (*DB, error) {
 	d, err := sql.Open("sqlite", path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("db: open: %w", err)
 	}
+
 	if _, err := d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS runs (
 		id          INTEGER PRIMARY KEY AUTOINCREMENT,
 		topic       TEXT NOT NULL DEFAULT '',
@@ -35,12 +36,19 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 	)`); err != nil {
 		_ = d.Close()
-		return nil, err
+		return nil, fmt.Errorf("db: create schema: %w", err)
 	}
+
 	return &DB{sql: d}, nil
 }
 
-func (db *DB) Close() error { return db.sql.Close() }
+func (db *DB) Close() error {
+	if err := db.sql.Close(); err != nil {
+		return fmt.Errorf("db: close: %w", err)
+	}
+
+	return nil
+}
 
 // Row is one indexed run.
 type Row struct {
@@ -54,41 +62,64 @@ type Row struct {
 	GeneratedAt string `json:"generated_at"`
 }
 
-// Record indexes a finished run (upsert keyed by the run directory).
-func (db *DB) Record(ctx context.Context, r Row) error {
-	_, err := db.sql.ExecContext(ctx, `INSERT INTO runs (topic, run, dir, question, verdict, consensus, papers, generated_at)
+// recordSQL upserts a run row keyed by the run directory.
+const recordSQL = `INSERT INTO runs (topic, run, dir, question, verdict, consensus, papers, generated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(dir) DO UPDATE SET
 			topic=excluded.topic, run=excluded.run, question=excluded.question,
 			verdict=excluded.verdict, consensus=excluded.consensus,
-			papers=excluded.papers, generated_at=excluded.generated_at`,
+			papers=excluded.papers, generated_at=excluded.generated_at`
+
+// Record indexes a finished run (upsert keyed by the run directory).
+func (db *DB) Record(ctx context.Context, r Row) error {
+	_, err := db.sql.ExecContext(ctx, recordSQL,
 		r.Topic, r.Run, r.Dir, r.Question, r.Verdict, r.Consensus, r.Papers, r.GeneratedAt)
-	return err
+	if err != nil {
+		return fmt.Errorf("db: record run: %w", err)
+	}
+
+	return nil
 }
 
 // Runs lists indexed runs, newest first; topic "" means all topics.
 func (db *DB) Runs(ctx context.Context, topic string) ([]Row, error) {
 	q := `SELECT topic, run, dir, question, verdict, consensus, papers, generated_at FROM runs`
 	args := []any{}
+
 	if topic != "" {
 		q += ` WHERE topic = ?`
+
 		args = append(args, topic)
 	}
+
 	q += ` ORDER BY id DESC`
+
 	rows, err := db.sql.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("db: query runs: %w", err)
 	}
+
 	defer func() { _ = rows.Close() }()
+
 	var out []Row
+
 	for rows.Next() {
 		var r Row
-		if err := rows.Scan(&r.Topic, &r.Run, &r.Dir, &r.Question, &r.Verdict, &r.Consensus, &r.Papers, &r.GeneratedAt); err != nil {
+		if err := rows.Scan(
+			&r.Topic, &r.Run, &r.Dir, &r.Question,
+			&r.Verdict, &r.Consensus, &r.Papers, &r.GeneratedAt,
+		); err != nil {
 			return nil, fmt.Errorf("db: %w", err)
 		}
+
 		out = append(out, r)
 	}
-	return out, rows.Err()
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("db: scan runs: %w", err)
+	}
+
+	return out, nil
 }
 
 // stamp formats the index timestamp column.

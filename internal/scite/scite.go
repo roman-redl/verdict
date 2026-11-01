@@ -49,14 +49,17 @@ func (c *Client) Tallies(ctx context.Context, dois []string) (map[string]model.C
 	if len(dois) == 0 {
 		return map[string]model.CitationTally{}, nil
 	}
+
 	headers := map[string]string{}
 	if c.key != "" {
 		headers["Authorization"] = "Bearer " + c.key
 	}
+
 	var raw json.RawMessage
 	if err := c.http.DoJSON(ctx, http.MethodPost, c.base+"/tallies", dois, &raw, headers); err != nil {
 		return nil, err
 	}
+
 	return parseTallies(raw)
 }
 
@@ -68,6 +71,7 @@ func (c *Client) ContradictingSources(ctx context.Context, doi string) ([]string
 	if c.key != "" {
 		headers["Authorization"] = "Bearer " + c.key
 	}
+
 	var resp struct {
 		Citations []struct {
 			SourceDOI string `json:"source"`
@@ -75,16 +79,20 @@ func (c *Client) ContradictingSources(ctx context.Context, doi string) ([]string
 			Section   string `json:"section"`
 		} `json:"citations"`
 	}
+
 	if err := c.http.DoJSON(ctx, http.MethodGet,
 		c.base+"/api_partner/citations/citing/"+doi, nil, &resp, headers); err != nil {
 		return nil, err
 	}
+
 	var out []string
+
 	for _, cit := range resp.Citations {
 		if cit.Type == "contradicting" || cit.Type == "disagreeing" {
 			out = append(out, model.NormalizeDOI(cit.SourceDOI))
 		}
 	}
+
 	return out, nil
 }
 
@@ -99,16 +107,20 @@ func parseTallies(raw json.RawMessage) (map[string]model.CitationTally, error) {
 		Tallies map[string]tallyFields `json:"tallies"`
 		DOIs    map[string]tallyFields `json:"dois"`
 	}
+
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return nil, fmt.Errorf("scite: unrecognized response format: %s", snippet(raw))
 	}
+
 	merged := envelope.Tallies
 	if len(merged) == 0 {
 		merged = envelope.DOIs
 	}
+
 	if !isDOIMap(merged) {
 		return nil, fmt.Errorf("scite: no tallies in the response")
 	}
+
 	return toTallies(merged), nil
 }
 
@@ -116,15 +128,18 @@ func isDOIMap(m map[string]tallyFields) bool {
 	for k := range m {
 		return strings.HasPrefix(k, "10.")
 	}
+
 	return false
 }
 
 func toTallies(m map[string]tallyFields) map[string]model.CitationTally {
 	out := make(map[string]model.CitationTally, len(m))
+
 	for doi, t := range m {
 		if !strings.HasPrefix(doi, "10.") {
 			continue // service keys like "status"
 		}
+
 		d := model.NormalizeDOI(doi)
 		out[d] = model.CitationTally{
 			DOI:           d,
@@ -135,6 +150,7 @@ func toTallies(m map[string]tallyFields) map[string]model.CitationTally {
 			Unclassified:  t.Unclassified,
 		}
 	}
+
 	return out
 }
 
@@ -142,5 +158,6 @@ func snippet(raw json.RawMessage) string {
 	if len(raw) > 200 {
 		return string(raw[:200]) + "..."
 	}
+
 	return string(raw)
 }

@@ -58,6 +58,7 @@ type Config struct {
 
 func Load() *Config {
 	loadDotEnv(".env")
+
 	return &Config{
 		SciteAPIKey:          os.Getenv("SCITE_API_KEY"),
 		OpenAlexEmail:        os.Getenv("OPENALEX_EMAIL"),
@@ -95,17 +96,21 @@ func loadDotEnv(path string) {
 	if err != nil {
 		return
 	}
+
 	defer func() { _ = f.Close() }()
+
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+
 		k, v, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
 		}
+
 		k = strings.TrimSpace(k)
 		if _, exists := os.LookupEnv(k); !exists {
 			_ = os.Setenv(k, strings.Trim(strings.TrimSpace(v), `"'`))
@@ -117,6 +122,7 @@ func getenv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
+
 	return def
 }
 
@@ -126,5 +132,6 @@ func getint(key string, def int) int {
 			return n
 		}
 	}
+
 	return def
 }

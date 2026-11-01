@@ -32,23 +32,30 @@ func TestBuildMatrix(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("got %d rows, want 2", len(rows))
 	}
+
 	a := rows[0]
 	if a.Supporting != 5 || a.Contradicting != 2 || a.TotalCitations != 39 {
 		t.Errorf("row A tallies: got %d/%d of %d, want 5/2 of 39", a.Supporting, a.Contradicting, a.TotalCitations)
 	}
+
 	if a.Note != "LLM note for A" {
 		t.Errorf("row A note: got %q, want the LLM note (DOI keys must normalize)", a.Note)
 	}
+
 	if a.Direction != directionPositive {
 		t.Errorf("row A direction: got %q, want positive", a.Direction)
 	}
+
 	b := rows[1]
 	if b.Supporting != 0 || b.TotalCitations != 7 {
-		t.Errorf("row B: no tally — want 0 support and OpenAlex cited_by 7, got %d support / %d total", b.Supporting, b.TotalCitations)
+		t.Errorf("row B: no tally — want 0 support and OpenAlex cited_by 7, got %d support / %d total",
+			b.Supporting, b.TotalCitations)
 	}
+
 	if b.SampleSize != 60 {
 		t.Errorf("row B sample size: got %d, want 60 from the critique", b.SampleSize)
 	}
+
 	if b.Note != "no control group; 4-week follow-up" {
 		t.Errorf("row B note fallback (first 2 concerns): got %q", b.Note)
 	}
@@ -66,6 +73,7 @@ func TestCritiquesFor(t *testing.T) {
 			{Title: "No DOI two", ResultDirection: directionNegative},
 		},
 	}
+
 	crits := critiquesFor(st)
 	if crits[0].ResultDirection != directionPositive || crits[1].ResultDirection != directionNegative {
 		t.Fatalf("index alignment broken for DOI-less papers: %+v", crits)
@@ -82,10 +90,12 @@ func TestCritiquesFor(t *testing.T) {
 			{DOI: "10.1/y", ResultDirection: directionNull},
 		},
 	}
+
 	crits2 := critiquesFor(st2)
 	if crits2[1].ResultDirection != directionNull {
 		t.Errorf("DOI fallback: got %+v, want y -> null", crits2)
 	}
+
 	if hasCritique(crits2[0]) {
 		t.Errorf("empty-DOI critique must not attach to paper x: %+v", crits2[0])
 	}
@@ -100,10 +110,12 @@ func TestRenderMarkdownEscapesPipes(t *testing.T) {
 			},
 		},
 	}
+
 	out := RenderMarkdown(st)
 	if !strings.Contains(out, "RCT\\|pilot") || !strings.Contains(out, "a \\| b") {
 		t.Fatalf("pipes must be escaped in table cells:\n%s", out)
 	}
+
 	if !strings.Contains(out, "| Direction |") {
 		t.Fatalf("Direction column missing:\n%s", out)
 	}

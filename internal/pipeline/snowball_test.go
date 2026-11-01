@@ -16,18 +16,22 @@ func TestSnowball(t *testing.T) {
 		case strings.HasPrefix(r.URL.Path, "/works/doi:"):
 			switch strings.TrimPrefix(r.URL.Path, "/works/doi:") {
 			case "10.1000/seed1":
-				_, _ = w.Write([]byte(`{"id":"W1","doi":"https://doi.org/10.1000/seed1","display_name":"Seed one","referenced_works":["W9","W10"]}`))
+				_, _ = w.Write([]byte(`{"id":"W1","doi":"https://doi.org/10.1000/seed1",` +
+					`"display_name":"Seed one","referenced_works":["W9","W10"]}`))
 			default:
-				_, _ = w.Write([]byte(`{"id":"W2","doi":"https://doi.org/10.1000/seed2","display_name":"Seed two","referenced_works":["W9"]}`))
+				_, _ = w.Write([]byte(`{"id":"W2","doi":"https://doi.org/10.1000/seed2",` +
+					`"display_name":"Seed two","referenced_works":["W9"]}`))
 			}
 		case strings.Contains(r.URL.Query().Get("filter"), "cites:W1"):
-			_, _ = w.Write([]byte(`{"results":[{"id":"W5","doi":"https://doi.org/10.1000/cand1","display_name":"Shared candidate"}]}`))
+			_, _ = w.Write([]byte(`{"results":[{"id":"W5","doi":"https://doi.org/10.1000/cand1",` +
+				`"display_name":"Shared candidate"}]}`))
 		case strings.Contains(r.URL.Query().Get("filter"), "cites:W2"):
 			_, _ = w.Write([]byte(`{"results":[
 				{"id":"W5","doi":"https://doi.org/10.1000/cand1","display_name":"Shared candidate"},
 				{"id":"W6","doi":"https://doi.org/10.1000/one-side","display_name":"Cites seed two only"}]}`))
 		case strings.Contains(r.URL.Query().Get("filter"), "ids.openalex:"):
-			_, _ = w.Write([]byte(`{"results":[{"id":"W9","doi":"https://doi.org/10.1000/classic","display_name":"The classic"}]}`))
+			_, _ = w.Write([]byte(`{"results":[{"id":"W9","doi":"https://doi.org/10.1000/classic",` +
+				`"display_name":"The classic"}]}`))
 		default:
 			t.Errorf("unexpected request: %s?%s", r.URL.Path, r.URL.RawQuery)
 		}
@@ -39,6 +43,7 @@ func TestSnowball(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	byDOI := map[string]SnowballCandidate{}
 	for _, c := range cands {
 		byDOI[c.DOI] = c

@@ -18,17 +18,21 @@ const studyTypeMetaAnalysis = "meta-analysis"
 // omitting the zero-valued ones entirely.
 func TestSearchPageSendsKeyAndParams(t *testing.T) {
 	var gotQuery url.Values
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("x-api-key") != "test-key" {
 			t.Errorf("x-api-key header: got %q, want %q", r.Header.Get("x-api-key"), "test-key")
 		}
+
 		if r.URL.Path != "/v1/search" {
 			t.Errorf("path: got %q, want /v1/search", r.URL.Path)
 		}
+
 		gotQuery = r.URL.Query()
 		_, _ = w.Write([]byte(`{"results":[],"page":0,"page_size":20,"is_end":true}`))
 	}))
 	defer srv.Close()
+
 	c := NewWithBase(srv.URL+"/v1", "test-key")
 
 	if _, err := c.SearchPage(context.Background(), SearchParams{
@@ -38,6 +42,7 @@ func TestSearchPageSendsKeyAndParams(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SearchPage: %v", err)
 	}
+
 	want := map[string]string{
 		"query": "does creatine improve cognition?", "page": "2", "page_size": "50",
 		"year_min": "2015", "year_max": "2024", "study_types": "rct,meta-analysis",
@@ -51,9 +56,11 @@ func TestSearchPageSendsKeyAndParams(t *testing.T) {
 
 	// Zero values must leave the filters out of the URL entirely.
 	gotQuery = url.Values{}
+
 	if _, err := c.SearchPage(context.Background(), SearchParams{Query: "vitamin d"}); err != nil {
 		t.Fatalf("SearchPage (bare): %v", err)
 	}
+
 	for _, k := range []string{
 		"page", "page_size", "year_min", "year_max",
 		"study_types", "human", "sample_size_min", "exclude_preprints",
@@ -80,15 +87,18 @@ func TestSearchPageDecodesEnvelope(t *testing.T) {
 		}`))
 	}))
 	defer srv.Close()
+
 	c := NewWithBase(srv.URL, "test-key")
 
 	pg, err := c.SearchPage(context.Background(), SearchParams{Query: "q"})
 	if err != nil {
 		t.Fatalf("SearchPage: %v", err)
 	}
+
 	if len(pg.Results) != 1 || pg.Results[0].Title != "A trial" {
 		t.Fatalf("results: got %+v", pg.Results)
 	}
+
 	if pg.IsEnd || pg.NextPage != 1 || pg.PageSize != 20 {
 		t.Errorf("envelope: got is_end=%v next_page=%d page_size=%d, want false/1/20",
 			pg.IsEnd, pg.NextPage, pg.PageSize)
@@ -104,15 +114,18 @@ func TestToPaper(t *testing.T) {
 		CitationCount: 42, StudyType: studyTypeMetaAnalysis, SampleSize: 900,
 		SJRQuartile: "Q1", Takeaway: "helps a bit", URL: "https://consensus.app/papers/t",
 	}
+
 	p := r.ToPaper()
 	if p.DOI != "10.1234/ab.cd" {
 		t.Errorf("doi: got %q, want normalized 10.1234/ab.cd", p.DOI)
 	}
+
 	if p.Source != "consensus" || p.StudyDesign != studyTypeMetaAnalysis || p.SampleSize != 900 ||
 		p.Venue != "BMJ" || p.CitedByCount != 42 || p.Year != 2020 ||
 		p.SJRQuartile != "Q1" || p.Takeaway != "helps a bit" {
 		t.Errorf("mapping: got %+v", p)
 	}
+
 	if p.OALink != "" {
 		t.Errorf("oa_link must stay empty, got %q", p.OALink)
 	}
@@ -133,6 +146,7 @@ func TestQuartileUnmarshal(t *testing.T) {
 		if err := q.UnmarshalJSON([]byte(tc.in)); err != nil {
 			t.Fatalf("unmarshal %s: %v", tc.in, err)
 		}
+
 		if q != tc.want {
 			t.Errorf("unmarshal %s: got %q, want %q", tc.in, q, tc.want)
 		}
@@ -149,10 +163,13 @@ func TestSearchPageErrorStatus(t *testing.T) {
 		}))
 		c := NewWithBase(srv.URL, "test-key")
 		_, err := c.SearchPage(context.Background(), SearchParams{Query: "q"})
+
 		srv.Close()
+
 		if err == nil {
 			t.Fatalf("status %d: expected an error", status)
 		}
+
 		var se *httpx.StatusError
 		if !errors.As(err, &se) || se.Status != status {
 			t.Errorf("status %d: got %v, want *httpx.StatusError(%d)", status, err, status)

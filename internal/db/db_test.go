@@ -12,6 +12,7 @@ func TestRecordAndRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	defer func() { _ = d.Close() }()
 
 	base := Row{
@@ -27,6 +28,7 @@ func TestRecordAndRuns(t *testing.T) {
 	if err := d.Record(context.Background(), base); err != nil {
 		t.Fatal(err)
 	}
+
 	if err := d.Record(context.Background(), Row{
 		Topic: "creatine", Run: "r2", Dir: "runs/creatine/r2",
 		Verdict: "strong", GeneratedAt: stamp(time.Now()),
@@ -38,9 +40,11 @@ func TestRecordAndRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if len(all) != 2 {
 		t.Fatalf("want 2 rows, got %d", len(all))
 	}
+
 	if all[0].Topic != "creatine" {
 		t.Fatalf("newest first: %+v", all[0])
 	}
@@ -49,6 +53,7 @@ func TestRecordAndRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if len(one) != 1 || one[0].Verdict != "weak" || one[0].Papers != 10 {
 		t.Fatalf("topic filter / upsert: %+v", one)
 	}

@@ -55,6 +55,7 @@ func New(run Runner) (handler http.Handler, drain func()) {
 		run:   run,
 	}
 	s.wg.Add(1)
+
 	go s.worker()
 
 	mux := http.NewServeMux()
@@ -62,6 +63,7 @@ func New(run Runner) (handler http.Handler, drain func()) {
 	mux.HandleFunc("GET /runs", s.list)
 	mux.HandleFunc("GET /runs/{id}", s.get)
 	mux.HandleFunc("GET /runs/{id}/{file...}", s.artifact)
+
 	return mux, func() {
 		close(s.queue)
 		s.wg.Wait()
@@ -70,6 +72,7 @@ func New(run Runner) (handler http.Handler, drain func()) {
 
 func (s *service) worker() {
 	defer s.wg.Done()
+
 	for q := range s.queue {
 		s.update(q.job.ID, func(j *Job) { j.Status = "running" })
 		st, dir, err := s.run(context.Background(), q.opts)
@@ -89,6 +92,7 @@ func (s *service) worker() {
 func (s *service) update(id string, fn func(*Job)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	if j, ok := s.jobs[id]; ok {
 		fn(j)
 	}
@@ -100,10 +104,12 @@ func (s *service) update(id string, fn func(*Job)) {
 func (s *service) snapshot(id string) (Job, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	j, ok := s.jobs[id]
 	if !ok {
 		return Job{}, false
 	}
+
 	return *j, true
 }
 
@@ -116,14 +122,17 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 		TextMode  string   `json:"text_mode"`  // lean | hybrid (default) | full
 		StopAfter string   `json:"stop_after"` // e.g. "2" — deterministic stages only
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	if req.Question == "" && len(req.DOIs) == 0 {
 		http.Error(w, `"question" or "dois" is required`, http.StatusBadRequest)
 		return
 	}
+
 	opts := pipeline.Options{
 		Question:  req.Question,
 		Topic:     req.Topic,
@@ -131,19 +140,23 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 		TextMode:  req.TextMode,
 		StopAfter: req.StopAfter,
 	}
+
 	if len(req.DOIs) > 0 {
 		if err := os.MkdirAll("runs", 0o750); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 		f, err := os.CreateTemp("runs", "dois-*.txt")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
 		for _, d := range req.DOIs {
 			_, _ = fmt.Fprintln(f, d)
 		}
+
 		_ = f.Close()
 		opts.DOIFile = f.Name()
 	}
@@ -151,6 +164,7 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 	if opts.Question == "" {
 		opts.Question = "Evidence assessment over a given DOI list"
 	}
+
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("%d", s.nextID)
@@ -163,7 +177,9 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.update(id, func(j *Job) { j.Status, j.Error = "failed", "queue full" })
 	}
+
 	snap, _ := s.snapshot(id) // id только что записан — копия обязательна: воркер уже мог стартовать
+
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(snap)
 }
@@ -171,10 +187,12 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 func (s *service) list(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	out := make([]Job, 0, len(s.jobs))
 	for _, j := range s.jobs {
 		out = append(out, *j)
 	}
+
 	writeJSON(w, out)
 }
 
@@ -184,6 +202,7 @@ func (s *service) get(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
 	writeJSON(w, j)
 }
 
@@ -198,6 +217,7 @@ func (s *service) artifact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
 	name := filepath.Base(r.PathValue("file"))
 	if !artifactWhitelist.MatchString(name) {
 		http.Error(w, "artifact not served", http.StatusForbidden)

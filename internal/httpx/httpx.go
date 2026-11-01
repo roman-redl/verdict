@@ -42,6 +42,7 @@ func New(name string, qps int) *Client {
 	if qps < 1 {
 		qps = 1
 	}
+
 	return &Client{
 		Name: name,
 		hc:   &http.Client{Timeout: 90 * time.Second},
@@ -56,64 +57,84 @@ func retryable(status int) bool {
 // DoJSON performs a request; body and out may be nil.
 func (c *Client) DoJSON(ctx context.Context, method, url string, body, out any, headers map[string]string) error {
 	var payload []byte
+
 	if body != nil {
 		var err error
 		if payload, err = json.Marshal(body); err != nil {
 			return fmt.Errorf("%s: encoding request: %w", c.Name, err)
 		}
 	}
+
 	var lastErr error
+
 	for attempt := range 4 {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return fmt.Errorf("%s: %w", c.Name, ctx.Err())
 			case <-time.After(backoff(attempt)):
 			}
 		}
+
 		if err := c.rl.Wait(ctx); err != nil {
-			return err
+			return fmt.Errorf("%s: rate limit: %w", c.Name, err)
 		}
+
 		var reader io.Reader
 		if payload != nil {
 			reader = bytes.NewReader(payload)
 		}
+
 		req, err := http.NewRequestWithContext(ctx, method, url, reader)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s: building request: %w", c.Name, err)
 		}
+
 		req.Header.Set("Accept", "application/json")
+
 		if payload != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
+
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
+
 		resp, err := c.hc.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("%s: %w", c.Name, err)
 			continue
 		}
+
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 		_ = resp.Body.Close()
+
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			if out == nil {
 				return nil
 			}
-			return json.Unmarshal(data, out)
+
+			if err := json.Unmarshal(data, out); err != nil {
+				return fmt.Errorf("%s: decoding response: %w", c.Name, err)
+			}
+
+			return nil
 		}
+
 		lastErr = &StatusError{Name: c.Name, Status: resp.StatusCode, Body: snippet(data)}
 		if !retryable(resp.StatusCode) {
 			return lastErr
 		}
+
 		if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && secs > 0 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return fmt.Errorf("%s: %w", c.Name, ctx.Err())
 			case <-time.After(time.Duration(secs) * time.Second):
 			}
 		}
 	}
+
 	return fmt.Errorf("%s: retries exhausted: %w", c.Name, lastErr)
 }
 
@@ -126,44 +147,54 @@ func backoff(attempt int) time.Duration {
 // (used for OA PDF downloads). maxBytes caps the response.
 func (c *Client) Get(ctx context.Context, url string, maxBytes int64) ([]byte, error) {
 	var lastErr error
+
 	for attempt := range 4 {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, fmt.Errorf("%s: %w", c.Name, ctx.Err())
 			case <-time.After(backoff(attempt)):
 			}
 		}
+
 		if err := c.rl.Wait(ctx); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: rate limit: %w", c.Name, err)
 		}
+
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: building request: %w", c.Name, err)
 		}
+
 		req.Header.Set("Accept", "application/pdf,*/*")
+
 		resp, err := c.hc.Do(req)
 		if err != nil {
 			lastErr = fmt.Errorf("%s: %w", c.Name, err)
 			continue
 		}
+
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
 		_ = resp.Body.Close()
+
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return data, nil
 		}
+
 		lastErr = &StatusError{Name: c.Name, Status: resp.StatusCode, Body: snippet(data)}
 		if !retryable(resp.StatusCode) {
 			return nil, lastErr
 		}
+
 		if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && secs > 0 {
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, fmt.Errorf("%s: %w", c.Name, ctx.Err())
 			case <-time.After(time.Duration(secs) * time.Second):
 			}
 		}
 	}
+
 	return nil, fmt.Errorf("%s: retries exhausted: %w", c.Name, lastErr)
 }
 
@@ -171,5 +202,6 @@ func snippet(b []byte) string {
 	if len(b) > 300 {
 		b = b[:300]
 	}
+
 	return string(b)
 }

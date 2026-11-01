@@ -37,9 +37,11 @@ func NewClaudeCLI(command, model string, timeout time.Duration) *ClaudeCLI {
 	if command == "" {
 		command = "claude-zai"
 	}
+
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
+
 	return &ClaudeCLI{command: command, model: model, timeout: timeout}
 }
 
@@ -62,11 +64,14 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 	if err != nil {
 		return "", Usage{}, fmt.Errorf("%s: system prompt tempfile: %w", c.Name(), err)
 	}
+
 	defer func() { _ = os.Remove(spFile.Name()) }()
+
 	if _, err := spFile.WriteString(system); err != nil {
 		_ = spFile.Close()
 		return "", Usage{}, fmt.Errorf("%s: system prompt tempfile: %w", c.Name(), err)
 	}
+
 	if err := spFile.Close(); err != nil {
 		return "", Usage{}, fmt.Errorf("%s: system prompt tempfile: %w", c.Name(), err)
 	}
@@ -81,15 +86,20 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 	//nolint:gosec // команда-обёртка приходит из доверенного конфига пользователя (.env), а не извне
 	cmd := exec.CommandContext(callCtx, "zsh", "-ic", script)
 	cmd.Stdin = strings.NewReader(user)
+
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
 	if err := cmd.Run(); err != nil {
 		if callCtx.Err() == context.DeadlineExceeded {
 			return "", Usage{}, fmt.Errorf("%s: timeout after %s", c.Name(), c.timeout)
 		}
+
 		return "", Usage{}, fmt.Errorf("%s: %w (stderr: %s)", c.Name(), err, snip(stderr.String()))
 	}
+
 	var env struct {
 		Result  string `json:"result"`
 		IsError bool   `json:"is_error"`
@@ -100,21 +110,26 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 		} `json:"usage"`
 	}
+
 	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
 		return "", Usage{}, fmt.Errorf("%s: output is not the expected JSON envelope: %w (stdout: %s)",
 			c.Name(), err, snip(stdout.String()))
 	}
+
 	if env.IsError {
 		return "", Usage{}, fmt.Errorf("%s: session error: %s", c.Name(), firstNonEmpty(env.Result, snip(stderr.String())))
 	}
+
 	if strings.TrimSpace(env.Result) == "" {
 		return "", Usage{}, fmt.Errorf("%s: empty response (stderr: %s)", c.Name(), snip(stderr.String()))
 	}
+
 	u := Usage{
 		Calls:        1,
 		InputTokens:  env.Usage.InputTokens + env.Usage.CacheCreationInputTokens + env.Usage.CacheReadInputTokens,
 		OutputTokens: env.Usage.OutputTokens,
 	}
+
 	return env.Result, u, nil
 }
 
@@ -123,6 +138,7 @@ func snip(s string) string {
 	if len(s) > 300 {
 		s = s[:300]
 	}
+
 	return s
 }
 
@@ -132,5 +148,6 @@ func firstNonEmpty(vals ...string) string {
 			return v
 		}
 	}
+
 	return ""
 }

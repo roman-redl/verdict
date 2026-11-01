@@ -23,19 +23,24 @@ import (
 
 func main() {
 	addr := flag.String("addr", "localhost:8080", "listen address")
+
 	flag.Parse()
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	runner := func(ctx context.Context, opts pipeline.Options) (*pipeline.State, string, error) {
 		cfg := config.Load()
+
 		clients, err := app.BuildClients(cfg, log, opts)
 		if err != nil {
 			return nil, "", err
 		}
+
 		return pipeline.New(cfg, clients, log).Run(ctx, opts)
 	}
 
 	handler, drain := server.New(runner)
+
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -47,7 +52,8 @@ func main() {
 
 	log.Info("verdictd listening", "addr", *addr,
 		"endpoints", "POST /runs, GET /runs, GET /runs/{id}, GET /runs/{id}/{artifact}")
-	//nolint:gosec // личный локальный демон: таймауты сервера намеренно не заданы, чтобы не рубить долгие ответы и большие артефакты
+	//nolint:gosec // личный локальный демон: таймауты сервера намеренно не заданы,
+	// чтобы не рубить долгие ответы и большие артефакты
 	if err := http.ListenAndServe(*addr, handler); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

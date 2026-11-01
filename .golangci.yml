@@ -33,7 +33,13 @@ linters:
     - copyloopvar
     - intrange
     - maintidx                 # сложность функций
+    - lll                      # line length
+    - wsl_v5  # blank lines between logical blocks (wsl v4 deprecated)
     - depguard                 # запрет импортов между слоями (архитектура линтером)
+    - wrapcheck                # errors from external packages get wrapped with context
+    - revive                   # naming, doc comments, early returns
+    - exhaustive               # switch over enum covers all values
+    - testifylint              # tidy testify asserts (for new tests)
   settings:
     gocritic:
       enabled-tags: [diagnostic, style, performance]
@@ -44,6 +50,33 @@ linters:
     nolintlint:
       require-explanation: true
       require-specific: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    wsl_v5:
+      # рекомендованная миграция с wsl v4 (подсказка самого линтера)
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+    wrapcheck:
+      # default wrapping sigs; own internal ports are exempt: adapters already
+      # wrap with context, repeating per layer is noise
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - .Wrap(
+        - .Wrapf(
+        - .WithMessage(
+        - .WithMessagef(
+        - .WithStack(
+      ignore-sig-regexps:
+        - roman-redl/[^)]*/internal/
     depguard:
       rules:
         # драйвер SQLite допустим только в пакете индекса запусков
