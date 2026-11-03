@@ -11,6 +11,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	sq "github.com/Masterminds/squirrel"
 )
 
 type DB struct {
@@ -62,13 +64,18 @@ type Row struct {
 	GeneratedAt string `json:"generated_at"`
 }
 
+// runsCols is the indexed column list; INSERT and SELECT share it, so the
+// two stay in sync through one constant (spliced by concatenation, never
+// fmt.Sprintf — % is the LIKE wildcard).
+const runsCols = "topic, run, dir, question, verdict, consensus, papers, generated_at"
+
 // recordSQL upserts a run row keyed by the run directory.
-const recordSQL = `INSERT INTO runs (topic, run, dir, question, verdict, consensus, papers, generated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(dir) DO UPDATE SET
-			topic=excluded.topic, run=excluded.run, question=excluded.question,
-			verdict=excluded.verdict, consensus=excluded.consensus,
-			papers=excluded.papers, generated_at=excluded.generated_at`
+const recordSQL = `INSERT INTO runs (` + runsCols + `)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(dir) DO UPDATE SET
+		topic=excluded.topic, run=excluded.run, question=excluded.question,
+		verdict=excluded.verdict, consensus=excluded.consensus,
+		papers=excluded.papers, generated_at=excluded.generated_at`
 
 // Record indexes a finished run (upsert keyed by the run directory).
 func (db *DB) Record(ctx context.Context, r Row) error {
@@ -82,19 +89,23 @@ func (db *DB) Record(ctx context.Context, r Row) error {
 }
 
 // Runs lists indexed runs, newest first; topic "" means all topics.
+// Optional conditions are assembled by the squirrel builder (sq.Question
+// placeholders for SQLite) — the standard rule for dynamic WHERE clauses.
 func (db *DB) Runs(ctx context.Context, topic string) ([]Row, error) {
-	q := `SELECT topic, run, dir, question, verdict, consensus, papers, generated_at FROM runs`
-	args := []any{}
+	b := sq.Select(runsCols).
+		PlaceholderFormat(sq.Question).
+		From("runs")
 
 	if topic != "" {
-		q += ` WHERE topic = ?`
-
-		args = append(args, topic)
+		b = b.Where(sq.Eq{"topic": topic})
 	}
 
-	q += ` ORDER BY id DESC`
+	query, args, err := b.OrderBy("id DESC").ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("db: build runs query: %w", err)
+	}
 
-	rows, err := db.sql.QueryContext(ctx, q, args...)
+	rows, err := db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("db: query runs: %w", err)
 	}
