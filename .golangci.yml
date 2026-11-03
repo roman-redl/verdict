@@ -1,6 +1,6 @@
 version: "2"
-# Конфиг единого стандарта личных Go-проектов (тот же, что в erudit-bot).
-# Источник правил — заметка «Стандарт личных Go-проектов» в notes.
+# Config of the shared personal Go projects standard (same as erudit-bot).
+# Source of the rules: the «Стандарт личных Go-проектов» note in the private notes vault.
 formatters:
   enable: [goimports, gofumpt]
   settings:
@@ -9,33 +9,33 @@ formatters:
 linters:
   default: standard            # errcheck, govet, ineffassign, staticcheck, unused
   enable:
-    - gocritic                 # diagnostic + style + performance, см. настройки ниже
-    - errorlint                # errors.Is/As и %w вместо == и %v
-    - gosec                    # безопасность: слабый рандом, права файлов, tainted input
-    - nilerr                   # return nil при err != nil
-    - nilnil                   # return nil, nil — «успех» без значения
-    - noctx                    # HTTP-запросы без контекста
-    - contextcheck             # потеря ctx: функция с ctx зовёт внутреннюю с context.Background/TODO
-    - bodyclose                # незакрытые resp.Body
-    - unparam                  # неиспользуемые/всегда одинаковые параметры — анти-мусор
-    - goconst                  # повторяющиеся строки → константы
+    - gocritic                 # diagnostic + style + performance, see settings below
+    - errorlint                # errors.Is/As and %w instead of == and %v
+    - gosec                    # security: weak randomness, file permissions, tainted input
+    - nilerr                   # return nil when err != nil
+    - nilnil                   # return nil, nil — "success" without a value
+    - noctx                    # HTTP requests without context
+    - contextcheck             # lost ctx: a ctx-aware call chains into context.Background/TODO
+    - bodyclose                # unclosed resp.Body
+    - unparam                  # unused/always-identical parameters — noise removal
+    - goconst                  # repeated strings → constants
     - prealloc
-    - errname                  # sentinel-ошибки ErrFoo, типы FooError
-    - usestdlibvars            # http.StatusOK вместо 200
-    - nolintlint               # //nolint только явный, с объяснением — агент не глушит линтер молча
-    - recvcheck                # консистентность ресиверов (value vs pointer)
-    - modernize                # современный Go (ranges, min/max, slices.*)
+    - errname                  # sentinel errors ErrFoo, types FooError
+    - usestdlibvars            # http.StatusOK instead of 200
+    - nolintlint               # //nolint only explicit and explained — no silent silencing
+    - recvcheck                # receiver consistency (value vs pointer)
+    - modernize                # modern Go (ranges, min/max, slices.*)
     - misspell
     - unconvert
     - whitespace
     - nakedret
-    - predeclared              # затенение встроенных идентификаторов
+    - predeclared              # shadowing built-in identifiers
     - copyloopvar
     - intrange
-    - maintidx                 # сложность функций
+    - maintidx                 # function complexity
     - lll                      # line length
     - wsl_v5  # blank lines between logical blocks (wsl v4 deprecated)
-    - depguard                 # запрет импортов между слоями (архитектура линтером)
+    - depguard                 # import bans between layers (architecture enforced by linter)
     - wrapcheck                # errors from external packages get wrapped with context
     - revive                   # naming, doc comments, early returns
     - exhaustive               # switch over enum covers all values
@@ -46,14 +46,14 @@ linters:
       disabled-checks:
         - hugeParam
     maintidx:
-      under: 15                # минимальный допустимый maintainability index
+      under: 15                # minimum allowed maintainability index
     nolintlint:
       require-explanation: true
       require-specific: true
     exhaustive:
       default-signifies-exhaustive: true
     wsl_v5:
-      # рекомендованная миграция с wsl v4 (подсказка самого линтера)
+      # recommended migration from wsl v4 (the linter's own hint)
       allow-first-in-block: true
       allow-whole-block: false
       branch-max-lines: 2
@@ -79,15 +79,15 @@ linters:
         - roman-redl/[^)]*/internal/
     depguard:
       rules:
-        # драйвер SQLite допустим только в пакете индекса запусков
+        # the SQLite driver is allowed only in the run index package
         sqlite-in-db:
           files: ["**/internal/**"]
           deny:
             - pkg: "modernc.org/sqlite"
-              desc: "драйвер SQLite — только internal/db"
+              desc: "the SQLite driver belongs to internal/db only"
   exclusions:
     paths: ["vendor/"]
     rules:
-      # internal/db — единственный internal-пакет с правом на драйвер БД
+      # internal/db — the only internal package allowed to use the DB driver
       - linters: [depguard]
         path: ^internal/db/
