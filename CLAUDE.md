@@ -6,24 +6,27 @@ Docs: README.md, docs/how-it-works.md (design), docs/usage.md (usage),
 .claude/skills/research/SKILL.md (the agent research workflow).
 
 <!-- BEGIN go-standard -->
-Блок скопирован целиком из заметки «Программное обеспечение/Стандарт личных Go-проектов» (notes, SSOT). В репозитории не редактировать точечно — править заметку и обновлять блок целиком.
+Copied verbatim from the SSOT note «Программное обеспечение/Стандарт личных Go-проектов» (private notes vault); this is the public-repo version. Do not edit in place — change the note and refresh the whole block.
 
-- Точки входа в `cmd/<имя>/`, логика в `internal/`; пакеты узкие. `pkg/` — для кода, который импортируют другие репозитории (внешний потребитель появился — код переезжает туда с публичным API). Границы слоёв держит depguard.
-- `.golangci.yml` — конфиг целиком из SSOT-заметки (включая lll: строки ≤120 и wsl: пустые строки между смысловыми блоками). `//nolint` — только конкретный линтер и с объяснением.
-- Makefile: `build`, `test` (с `-race`), `lint`, `fmt`, `vet`, `check` (= build+vet+test+lint). Перед сдачей — `make check`.
-- Тесты не ходят в сеть и не тратят деньги: внешние сервисы — рукописные фейки. Новые тесты — на testify.
-- Логгер — `log/slog`, структурный, через DI; секреты в лог не пишутся. Ошибки — `fmt.Errorf("...: %w", err)` в месте, где контекст известен (следит wrapcheck).
-- CI (GitHub Actions): линтер с пином версии + vet + `go test -race` + кросс-сборка `GOOS=windows`; Docker в CI не собираем.
-- Конфиг — только env библиотекой caarlos0/env; секреты в `.env`, в репо — `.env.example`.
-- Коммиты: conventional prefixes, только текст, без автоподписей; по явной команде пользователя.
-- Язык документации и комментариев: приватный репозиторий — русский, публичный — английский; идентификаторы всегда английские.
+- Entry points in `cmd/<name>/`, logic in `internal/`; packages stay narrow. `pkg/` is for code other repositories import (once an external consumer appears, the code moves there with a public API). depguard holds the layer boundaries.
+- Don't guess external SDK APIs: check `go doc` and the module cache sources first.
+- `.golangci.yml`: settings verbatim from the SSOT note, comments in the repo's language. `//nolint` — a specific linter plus an explanation, nothing else. lll: lines ≤120; wsl_v5: blank lines between logical blocks.
+- Makefile: `build`, `test` (with `-race`), `lint`, `fmt`, `vet`, `check` (= build+vet+test+lint). Run `make check` before handing work in.
+- Tests don't touch the network and don't spend money: external services are handwritten fakes. New tests use testify.
+- SQL (any database): one command per line, the query a raw backtick string indented with a tab; repeated column lists and queries live in constants, spliced by concatenation — never `fmt.Sprintf` (`%` is the LIKE/ILIKE wildcard). The database choice is project-specific (see the repo's CLAUDE.md).
+- Optional query conditions (a dynamic WHERE) are assembled by the squirrel builder (placeholder format per the project's database), never by concatenating string pieces; raw strings are for fixed queries only.
+- The logger is `log/slog`, structured, injected via DI; no secrets in logs. Errors get context where it is known: `fmt.Errorf("...: %w", err)` (wrapcheck watches).
+- CI (GitHub Actions): pinned lint version + vet + `go test -race` + `GOOS=windows` cross-build; no Docker in CI.
+- Config is env-only via caarlos0/env; secrets in `.env`, the repo keeps `.env.example`.
+- Commits: conventional prefixes, text only, no auto-trailers; only on an explicit user command.
+- Documentation and comment language: private repo — Russian, public — English; identifiers are always English.
 <!-- END go-standard -->
 
 ## Rules
 
 - **File changes — Write/Edit tools only**, never `cat >`/python heredocs in Bash: diffs must be visible in the CLI and go through approval. Exception — programmatic transformation of large generated files: announce it explicitly and show a change summary (what and how much was replaced). (2026-09-09)
-- **Commit messages: conventional prefixes + English, text only** — `feat:` / `fix:` / `docs:` / `chore:` / `test:` / `refactor:` / … ; no auto-added trailers (`Co-Authored-By: …`, "Generated with …"). (2026-10-18)
 - **Write only inside this repository** — never touch files or configs outside it.
+- **The database is SQLite** (`modernc.org/sqlite`, pure Go — no CGO: needed for the `GOOS=windows` cross-build and arm64 Docker) via `database/sql`, the driver only in `internal/db`; squirrel placeholders use `sq.Question`.
 - **Paid APIs and LLM calls — only on an explicit user request** (tests run on httptest, not live APIs). Read-only curl checks against free public APIs (OpenAlex, Crossref, Semantic Scholar, PubPeer) to verify response shapes are allowed without asking (approved 2026-09-07).
 - LLM CLI wrappers — never launch without an explicit user request (the first request blocks the gateway for hours). Platform note: the bundled binaries and the default `LLM_COMMAND` (shells out via `zsh -ic`) target macOS.
 - **Models by exact name only** (aliases silently fall back to the wrapper default).
@@ -35,6 +38,6 @@ Docs: README.md, docs/how-it-works.md (design), docs/usage.md (usage),
 
 ## Verification
 
-`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint; локально нужен golangci-lint 2.13.2 — brew).
+`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint; locally requires golangci-lint 2.13.2 — brew).
 
 Live-run verifications: Scite `/tallies` — done 2026-09-07 (request body is a bare JSON array; response uses the `{"tallies": ...}` envelope); clean stdout from `~/.zshrc` — done; Consensus `/v1/search` — done 2026-10-10 (`x-api-key` auth; the `page`/`page_size`/`is_end`/`next_page` envelope; `page_size` in the response is the plan-applied value).
