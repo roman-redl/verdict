@@ -12,7 +12,7 @@ Copied verbatim from the SSOT note «Программное обеспечени
 - Don't guess external SDK APIs: check `go doc` and the module cache sources first.
 - `.golangci.yml`: settings verbatim from the SSOT note, comments in the repo's language. `//nolint` — a specific linter plus an explanation, nothing else. lll: lines ≤120; wsl_v5: blank lines between logical blocks.
 - Makefile: `build`, `test` (with `-race`), `lint`, `fmt`, `vet`, `check` (= build+vet+test+lint). Run `make check` before handing work in.
-- Tests don't touch the network and don't spend money: external services are handwritten fakes. New tests use testify.
+- Tests don't touch the network and don't spend money: external services are handwritten fakes. All tests use testify.
 - SQL (any database): one command per line, the query a raw backtick string indented with a tab; repeated column lists and queries live in constants, spliced by concatenation — never `fmt.Sprintf` (`%` is the LIKE/ILIKE wildcard). The database choice is project-specific (see the repo's CLAUDE.md).
 - Optional query conditions (a dynamic WHERE) are assembled by the squirrel builder (placeholder format per the project's database), never by concatenating string pieces; raw strings are for fixed queries only.
 - The logger is `log/slog`, structured, injected via DI; no secrets in logs. Errors get context where it is known: `fmt.Errorf("...: %w", err)` (wrapcheck watches).
