@@ -64,8 +64,11 @@ linters:
         - name: package-comments
           disabled: true
     wrapcheck:
-      # default wrapping sigs; own internal ports are exempt: adapters already
-      # wrap with context, repeating per layer is noise
+      # wrapcheck requires context on errors returned from external packages
+      # (database/sql, net/http, SDKs). ignore-sigs are the wrapping helpers
+      # themselves (Errorf, Wrap, ...) — a wrap is not wrapped again; this is
+      # wrapcheck's default list, spelled out explicitly. ignore-sig-regexps
+      # exempts own internal ports: their adapters already add context.
       ignore-sigs:
         - .Errorf(
         - errors.New(
