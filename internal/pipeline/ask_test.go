@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -31,18 +33,13 @@ func TestBuildAskSystemCompactOlderRuns(t *testing.T) {
 
 	sys := BuildAskSystem([]RunState{{Name: "new-run", State: newRun}, {Name: "old-run", State: oldRun}})
 
-	if n := strings.Count(sys, abstract); n != 1 {
-		t.Errorf("abstract appears %d times, want 1 (newest run only)", n)
-	}
+	assert.Equal(t, 1, strings.Count(sys, abstract), "abstract must appear in the newest run only")
 
 	compactAt := strings.Index(sys, "older, compact")
-	if !strings.Contains(sys, "newest, full context") || compactAt < 0 {
-		t.Errorf("run headers must label the digest tier:\n%s", sys)
-	}
+	assert.Contains(t, sys, "newest, full context", "run headers must label the digest tier")
+	assert.GreaterOrEqual(t, compactAt, 0, "run headers must label the digest tier")
 
-	if !strings.Contains(sys, "10.1/old-only") {
-		t.Errorf("a paper unique to the old run must stay listed")
-	}
+	assert.Contains(t, sys, "10.1/old-only", "a paper unique to the old run must stay listed")
 
 	var old string
 	if compactAt >= 0 { // заголовок есть — берём хвост от него
@@ -51,12 +48,8 @@ func TestBuildAskSystemCompactOlderRuns(t *testing.T) {
 
 	if strings.Contains(old, "Old-only paper") && strings.Count(old, doiShared) > 0 {
 		// the shared DOI may appear at most as the skip counter, not as a paper line
-		if strings.Contains(old, "- 10.1/shared") {
-			t.Errorf("paper shared with the newer run must be skipped in the old run's digest:\n%s", old)
-		}
+		assert.NotContains(t, old, "- 10.1/shared", "paper shared with the newer run must be skipped in the old run's digest")
 	}
 
-	if !strings.Contains(sys, "already listed under a newer run") {
-		t.Errorf("skip counter missing:\n%s", sys)
-	}
+	assert.Contains(t, sys, "already listed under a newer run", "skip counter missing")
 }

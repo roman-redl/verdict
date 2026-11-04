@@ -1,8 +1,10 @@
 package pipeline
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -29,36 +31,25 @@ func TestBuildMatrix(t *testing.T) {
 	notes := map[string]string{"https://doi.org/10.1/A": "LLM note for A"} // non-normalized key
 	rows := buildMatrix(st, notes)
 
-	if len(rows) != 2 {
-		t.Fatalf("got %d rows, want 2", len(rows))
-	}
+	require.Len(t, rows, 2)
 
 	a := rows[0]
-	if a.Supporting != 5 || a.Contradicting != 2 || a.TotalCitations != 39 {
-		t.Errorf("row A tallies: got %d/%d of %d, want 5/2 of 39", a.Supporting, a.Contradicting, a.TotalCitations)
-	}
+	assert.Equal(t, 5, a.Supporting)
+	assert.Equal(t, 2, a.Contradicting)
+	assert.Equal(t, 39, a.TotalCitations)
 
-	if a.Note != "LLM note for A" {
-		t.Errorf("row A note: got %q, want the LLM note (DOI keys must normalize)", a.Note)
-	}
+	assert.Equal(t, "LLM note for A", a.Note, "DOI keys must normalize")
 
-	if a.Direction != directionPositive {
-		t.Errorf("row A direction: got %q, want positive", a.Direction)
-	}
+	assert.Equal(t, directionPositive, a.Direction)
 
 	b := rows[1]
-	if b.Supporting != 0 || b.TotalCitations != 7 {
-		t.Errorf("row B: no tally — want 0 support and OpenAlex cited_by 7, got %d support / %d total",
-			b.Supporting, b.TotalCitations)
-	}
+	assert.Equal(t, 0, b.Supporting, "no tally must yield 0 support")
 
-	if b.SampleSize != 60 {
-		t.Errorf("row B sample size: got %d, want 60 from the critique", b.SampleSize)
-	}
+	assert.Equal(t, 7, b.TotalCitations, "no tally must fall back to OpenAlex cited_by")
 
-	if b.Note != "no control group; 4-week follow-up" {
-		t.Errorf("row B note fallback (first 2 concerns): got %q", b.Note)
-	}
+	assert.Equal(t, 60, b.SampleSize, "sample size comes from the critique")
+
+	assert.Equal(t, "no control group; 4-week follow-up", b.Note, "note fallback is the first 2 concerns")
 }
 
 func TestCritiquesFor(t *testing.T) {
@@ -75,9 +66,8 @@ func TestCritiquesFor(t *testing.T) {
 	}
 
 	crits := critiquesFor(st)
-	if crits[0].ResultDirection != directionPositive || crits[1].ResultDirection != directionNegative {
-		t.Fatalf("index alignment broken for DOI-less papers: %+v", crits)
-	}
+	require.Equal(t, directionPositive, crits[0].ResultDirection, "index alignment broken for DOI-less papers")
+	require.Equal(t, directionNegative, crits[1].ResultDirection, "index alignment broken for DOI-less papers")
 
 	// Mismatched lengths (hand-edited artifact): DOI fallback, empty keys ignored.
 	st2 := &State{
@@ -92,13 +82,9 @@ func TestCritiquesFor(t *testing.T) {
 	}
 
 	crits2 := critiquesFor(st2)
-	if crits2[1].ResultDirection != directionNull {
-		t.Errorf("DOI fallback: got %+v, want y -> null", crits2)
-	}
+	assert.Equal(t, directionNull, crits2[1].ResultDirection, "DOI fallback: want y -> null")
 
-	if hasCritique(crits2[0]) {
-		t.Errorf("empty-DOI critique must not attach to paper x: %+v", crits2[0])
-	}
+	assert.False(t, hasCritique(crits2[0]), "empty-DOI critique must not attach to paper x")
 }
 
 func TestRenderMarkdownEscapesPipes(t *testing.T) {
@@ -112,11 +98,8 @@ func TestRenderMarkdownEscapesPipes(t *testing.T) {
 	}
 
 	out := RenderMarkdown(st)
-	if !strings.Contains(out, "RCT\\|pilot") || !strings.Contains(out, "a \\| b") {
-		t.Fatalf("pipes must be escaped in table cells:\n%s", out)
-	}
+	require.Contains(t, out, `RCT\|pilot`, "pipes must be escaped in table cells")
+	require.Contains(t, out, `a \| b`, "pipes must be escaped in table cells")
 
-	if !strings.Contains(out, "| Direction |") {
-		t.Fatalf("Direction column missing:\n%s", out)
-	}
+	require.Contains(t, out, "| Direction |", "Direction column missing")
 }

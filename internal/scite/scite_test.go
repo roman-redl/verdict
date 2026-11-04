@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Tallies must survive both of Scite's historical response formats.
@@ -46,18 +49,13 @@ func TestTalliesFormats(t *testing.T) {
 			c.base = srv.URL
 
 			got, err := c.Tallies(context.Background(), []string{tt.wantDOI})
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 
-			tl, ok := got[tt.wantDOI]
-			if !ok {
-				t.Fatalf("no tallies for %s: %+v", tt.wantDOI, got)
-			}
+			require.Contains(t, got, tt.wantDOI)
 
-			if tl.Total != tt.want[0] || tl.Contradicting != tt.want[1] {
-				t.Errorf("%s: got %+v, want total=%d contradicting=%d", tt.wantDOI, tl, tt.want[0], tt.want[1])
-			}
+			tl := got[tt.wantDOI]
+			assert.Equal(t, tt.want[0], tl.Total, "%s: total", tt.wantDOI)
+			assert.Equal(t, tt.want[1], tl.Contradicting, "%s: contradicting", tt.wantDOI)
 		})
 	}
 }

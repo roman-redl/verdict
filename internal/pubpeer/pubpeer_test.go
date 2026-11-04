@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The API shape is probed live (POST /v3/publications requires a devkey
@@ -12,9 +15,8 @@ import (
 // verified on the first live run with a key.
 func TestPublications(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v3/publications" {
-			t.Errorf("request: %s %s", r.Method, r.URL.Path)
-		}
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/v3/publications", r.URL.Path)
 
 		_, _ = w.Write([]byte(`{"feedbacks":[
 			{"id":"10.1/x","title":"Retracted paper discussion","total_comments":4,
@@ -26,19 +28,12 @@ func TestPublications(t *testing.T) {
 	c := NewWithBase(srv.URL, "devkey")
 
 	threads, err := c.Publications(context.Background(), "10.1/x")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if len(threads) != 1 || threads[0].TotalComments != 4 || threads[0].ID != "10.1/x" {
-		t.Fatalf("bad mapping: %+v", threads)
-	}
+	require.Len(t, threads, 1)
+	require.Equal(t, 4, threads[0].TotalComments)
+	require.Equal(t, "10.1/x", threads[0].ID)
 
-	if note := Note(threads); note != "PubPeer commentary (4 comments): https://pubpeer.com/t/abc" {
-		t.Fatalf("note: %q", note)
-	}
-
-	if note := Note(nil); note != "" {
-		t.Fatalf("no threads must yield no note, got %q", note)
-	}
+	require.Equal(t, "PubPeer commentary (4 comments): https://pubpeer.com/t/abc", Note(threads))
+	require.Empty(t, Note(nil), "no threads must yield no note")
 }

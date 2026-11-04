@@ -3,6 +3,8 @@ package pipeline
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -29,9 +31,7 @@ func TestDirectionTally(t *testing.T) {
 		}, "2 mixed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := directionTally(tc.in); got != tc.want {
-				t.Fatalf("directionTally = %q, want %q", got, tc.want)
-			}
+			require.Equal(t, tc.want, directionTally(tc.in))
 		})
 	}
 }

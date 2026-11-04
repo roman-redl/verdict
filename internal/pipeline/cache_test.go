@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/model"
@@ -39,9 +42,7 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 		},
 	}
 
-	if err := prewarmed.Save(cachePath); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, prewarmed.Save(cachePath))
 
 	p := New(&config.Config{Concurrency: 4, EnrichCacheTTLDays: 30}, Clients{
 		OpenAlex: openalex.NewWithBase(oa.URL, ""),
@@ -54,26 +55,16 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 	}}
 	opts := Options{RunDir: filepath.Join(tmp, "run-1")}
 
-	if err := p.enrich(context.Background(), st, opts); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.enrich(context.Background(), st, opts))
 
-	if got := st.Enriched[0].Abstract; got != cachedAbstract {
-		t.Errorf("cached abstract: got %q", got)
-	}
+	assert.Equal(t, cachedAbstract, st.Enriched[0].Abstract)
 
-	if st.Enriched[0].OALink != "https://x/cached.pdf" {
-		t.Errorf("cached OA link: got %q", st.Enriched[0].OALink)
-	}
+	assert.Equal(t, "https://x/cached.pdf", st.Enriched[0].OALink)
 
-	if oaHits != 1 {
-		t.Errorf("openalex hits: %d (cached DOI must not be re-queried)", oaHits)
-	}
+	assert.Equal(t, 1, oaHits, "cached DOI must not be re-queried")
 	// the cache now also covers the fresh DOI
 	saved := LoadEnrichCache(cachePath, 30*24*time.Hour)
-	if _, ok := saved["10.1000/new"]; !ok {
-		t.Errorf("fetched DOI not written back to the cache: %v", saved)
-	}
+	assert.Contains(t, saved, "10.1000/new", "fetched DOI not written back to the cache")
 }
 
 func TestLoadEnrichCacheDropsStale(t *testing.T) {
@@ -83,20 +74,13 @@ func TestLoadEnrichCacheDropsStale(t *testing.T) {
 		"10.1/stale": {CheckedAt: time.Now().Add(-100 * 24 * time.Hour)},
 	}
 
-	if err := seeded.Save(path); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, seeded.Save(path))
 
 	got := LoadEnrichCache(path, 30*24*time.Hour)
-	if _, ok := got["10.1/fresh"]; !ok {
-		t.Error("fresh entry dropped")
-	}
+	assert.Contains(t, got, "10.1/fresh", "fresh entry dropped")
 
-	if _, ok := got["10.1/stale"]; ok {
-		t.Error("stale entry kept")
-	}
+	assert.NotContains(t, got, "10.1/stale", "stale entry kept")
 
-	if got := LoadEnrichCache(filepath.Join(t.TempDir(), "missing.json"), time.Hour); len(got) != 0 {
-		t.Error("missing cache file must yield an empty cache")
-	}
+	assert.Empty(t, LoadEnrichCache(filepath.Join(t.TempDir(), "missing.json"), time.Hour),
+		"missing cache file must yield an empty cache")
 }

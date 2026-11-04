@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
@@ -57,27 +60,19 @@ func TestCritiqueBatchFallsBackForDroppedStudies(t *testing.T) {
 	s := &scriptCompleter{replies: []string{batch, single}}
 
 	got, _ := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA), ep(doiB)}, "q")
-	if len(got) != 2 {
-		t.Fatalf("batch must return its two studies: %v", got)
-	}
+	require.Len(t, got, 2, "batch must return its two studies")
 
 	fb, _ := critiquePaper(context.Background(), s, ep("10.1/c"), "q")
 
-	if got[doiA].DesignQuality != qualityHigh || got[doiA].Relevance != relevanceDirect {
-		t.Errorf("a: %+v", got[doiA])
-	}
+	assert.Equal(t, qualityHigh, got[doiA].DesignQuality)
+	assert.Equal(t, relevanceDirect, got[doiA].Relevance)
 
-	if fb.DesignQuality != qualityLow {
-		t.Errorf("fallback single call: %+v", fb)
-	}
+	assert.Equal(t, qualityLow, fb.DesignQuality, "fallback single call")
 
-	if len(s.prompts) != 2 || !strings.Contains(s.prompts[0], `"studies"`) {
-		t.Errorf("want one batch prompt then one single prompt, got %d", len(s.prompts))
-	}
+	require.Len(t, s.prompts, 2, "want one batch prompt then one single prompt")
+	assert.Contains(t, s.prompts[0], `"studies"`, "want one batch prompt then one single prompt")
 
-	if !strings.Contains(s.prompts[1], "Assess this study") {
-		t.Errorf("fallback must use the single-study form:\n%s", s.prompts[1])
-	}
+	assert.Contains(t, s.prompts[1], "Assess this study", "fallback must use the single-study form")
 }
 
 // A total batch failure degrades to single calls for the whole chunk.
@@ -85,13 +80,9 @@ func TestCritiqueBatchTotalFailureReturnsNil(t *testing.T) {
 	s := &scriptCompleter{replies: []string{"complete garbage, not json at all", "still not json"}}
 
 	got, _ := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA)}, "q")
-	if got != nil {
-		t.Fatalf("failed batch must return nil map, got %v", got)
-	}
+	require.Nil(t, got, "failed batch must return nil map")
 
-	if s.calls != 2 { // the ask + the (payload-carrying) retry
-		t.Fatalf("calls: %d", s.calls)
-	}
+	require.Equal(t, 2, s.calls, "the ask + the (payload-carrying) retry")
 }
 
 // The stage reuses cached critiques and writes new ones back.
@@ -104,9 +95,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 		},
 	}
 
-	if err := seeded.Save(cachePath); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, seeded.Save(cachePath))
 
 	batch := `{"critiques":[{"doi":"10.1/b","design_quality":"low",` +
 		`"relevance":"tangential","result_direction":"unclear"}]}`
@@ -115,26 +104,19 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 		Clients{LLM: s}, quietLog())
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA), ep(doiB)}}
 
-	if err := p.critique(context.Background(), st, Options{RunDir: filepath.Join(tmp, "run-1")}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.critique(context.Background(), st, Options{RunDir: filepath.Join(tmp, "run-1")}))
 
-	if s.calls != 1 {
-		t.Fatalf("cached study must not be re-asked: %d calls", s.calls)
-	}
+	require.Equal(t, 1, s.calls, "cached study must not be re-asked")
 
-	if st.Critiques[0].DesignQuality != qualityHigh || st.Critiques[1].DesignQuality != qualityLow {
-		t.Fatalf("critiques: %+v", st.Critiques)
-	}
+	require.Equal(t, qualityHigh, st.Critiques[0].DesignQuality)
+	require.Equal(t, qualityLow, st.Critiques[1].DesignQuality)
 
-	if st.Cost == nil || st.Cost.Critique == nil || st.Cost.Critique.Calls != 1 {
-		t.Fatalf("cost must count only real calls: %+v", st.Cost)
-	}
+	require.NotNil(t, st.Cost, "cost must count only real calls")
+	require.NotNil(t, st.Cost.Critique, "cost must count only real calls")
+	require.Equal(t, 1, st.Cost.Critique.Calls, "cost must count only real calls")
 
 	saved := LoadCritiqueCache(cachePath, 30*24*time.Hour)
-	if _, ok := saved[critiqueCacheKey(ep(doiB), "q?")]; !ok {
-		t.Errorf("fresh critique not written back: %d entries", len(saved))
-	}
+	assert.Contains(t, saved, critiqueCacheKey(ep(doiB), "q?"), "fresh critique not written back")
 
 	// A second critique stage over the same corpus: pure cache, zero calls.
 	s2 := &scriptCompleter{}
@@ -142,13 +124,10 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 		Clients{LLM: s2}, quietLog())
 	st2 := &State{Question: "q?", Enriched: st.Enriched}
 
-	if err := p2.critique(context.Background(), st2, Options{RunDir: filepath.Join(tmp, "run-2")}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p2.critique(context.Background(), st2, Options{RunDir: filepath.Join(tmp, "run-2")}))
 
-	if s2.calls != 0 || st2.Critiques[0].DesignQuality != qualityHigh {
-		t.Fatalf("second stage must be cache-only: calls=%d critiques=%+v", s2.calls, st2.Critiques)
-	}
+	require.Equal(t, 0, s2.calls, "second stage must be cache-only")
+	require.Equal(t, qualityHigh, st2.Critiques[0].DesignQuality, "second stage must be cache-only")
 
 	// A dropped full text must MISS the cache: the abstract-only critique is
 	// stale for a study the critic should now read in full.
@@ -159,13 +138,9 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 		Clients{LLM: s3}, quietLog())
 	st3 := &State{Question: "q?", Enriched: []model.EnrichedPaper{withFT}}
 
-	if err := p3.critique(context.Background(), st3, Options{RunDir: filepath.Join(tmp, "run-3")}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p3.critique(context.Background(), st3, Options{RunDir: filepath.Join(tmp, "run-3")}))
 
-	if s3.calls == 0 {
-		t.Fatal("added full text must re-critique, not serve the cached abstract critique")
-	}
+	require.NotZero(t, s3.calls, "added full text must re-critique, not serve the cached abstract critique")
 }
 
 // PDFs dropped into the run directory after enrichment (the addpdf recipe, a
@@ -183,14 +158,10 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 	tmp := t.TempDir()
 
 	runDir := filepath.Join(tmp, "run")
-	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750))
 
-	if err := os.WriteFile(filepath.Join(runDir, "fulltext", "10.1_a.pdf"),
-		[]byte("%PDF-1.4 stub"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(runDir, "fulltext", "10.1_a.pdf"),
+		[]byte("%PDF-1.4 stub"), 0o600))
 
 	cachePath := filepath.Join(tmp, "critique-cache.json")
 	seeded := CritiqueCache{
@@ -199,9 +170,7 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 		},
 	}
 
-	if err := seeded.Save(cachePath); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, seeded.Save(cachePath))
 
 	batch := `{"critiques":[{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"}]}`
 	s := &scriptCompleter{replies: []string{batch}}
@@ -210,17 +179,11 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 	p.dir = runDir
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)}} // no FullText yet
 
-	if err := p.critique(context.Background(), st, Options{RunDir: runDir}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.critique(context.Background(), st, Options{RunDir: runDir}))
 
-	if s.calls != 1 {
-		t.Fatalf("the picked-up PDF must re-critique (cache miss): %d calls", s.calls)
-	}
+	require.Equal(t, 1, s.calls, "the picked-up PDF must re-critique (cache miss)")
 
-	if !strings.Contains(s.prompts[0], "DROPPED PDF FULL TEXT") {
-		t.Error("the critique prompt must carry the picked-up full text")
-	}
+	assert.Contains(t, s.prompts[0], "DROPPED PDF FULL TEXT", "the critique prompt must carry the picked-up full text")
 }
 
 // The judge payload carries an abstract only for direct studies (and when
@@ -247,32 +210,20 @@ func TestSynthesisUserPromptAbstractDiet(t *testing.T) {
 	}
 
 	braceAt := strings.Index(out, "{")
-	if braceAt < 0 {
-		t.Fatal("synthesis prompt must carry JSON")
-	}
+	require.GreaterOrEqual(t, braceAt, 0, "synthesis prompt must carry JSON")
 
-	if err := json.Unmarshal([]byte(out[braceAt:]), &parsed); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, json.Unmarshal([]byte(out[braceAt:]), &parsed))
 
-	if len(parsed.Studies) != 3 {
-		t.Fatalf("studies: %d", len(parsed.Studies))
-	}
+	require.Len(t, parsed.Studies, 3)
 
 	for _, s := range parsed.Studies {
 		switch s.DOI {
 		case "10.1/direct", "10.1/nocrit":
-			if s.Abstract == "" {
-				t.Errorf("%s: abstract must ride along (direct / no critique)", s.DOI)
-			}
+			assert.NotEmpty(t, s.Abstract, "%s: abstract must ride along (direct / no critique)", s.DOI)
 
-			if len(s.Abstract) > 1300 {
-				t.Errorf("%s: abstract must be capped at 1200 chars, got %d", s.DOI, len(s.Abstract))
-			}
+			assert.LessOrEqual(t, len(s.Abstract), 1300, "%s: abstract must be capped at 1200 chars", s.DOI)
 		case "10.1/indirect":
-			if s.Abstract != "" {
-				t.Errorf("indirect study: abstract must be dropped, got %d chars", len(s.Abstract))
-			}
+			assert.Empty(t, s.Abstract, "%s: abstract must be dropped", s.DOI)
 		}
 	}
 }

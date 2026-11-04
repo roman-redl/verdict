@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -16,9 +19,7 @@ import (
 func TestFetchFullText(t *testing.T) {
 	restore := pdfTextExtractor
 	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
-		if !strings.HasPrefix(string(b), "%PDF-") {
-			t.Error("extractor called on non-PDF body")
-		}
+		assert.True(t, strings.HasPrefix(string(b), "%PDF-"), "extractor called on non-PDF body")
 
 		return "METHODS We randomized 240 patients. RESULTS No effect.", nil
 	}
@@ -40,27 +41,21 @@ func TestFetchFullText(t *testing.T) {
 	p.dir = runDir
 
 	ok := &model.EnrichedPaper{Paper: model.Paper{DOI: "10.1000/a", OALink: pdfSrv.URL + "/a.pdf"}}
-	if txt := p.fetchFullText(context.Background(), ok, true); txt == "" || !strings.Contains(txt, "240 patients") {
-		t.Fatalf("text not extracted: %q", txt)
-	}
+	txt := p.fetchFullText(context.Background(), ok, true)
+	require.NotEmpty(t, txt)
+	require.Contains(t, txt, "240 patients")
 
-	if ok.FullText != "" { // the caller (enrich) assigns the field
-		t.Fatal("fetchFullText must not mutate FullText itself")
-	}
+	require.Empty(t, ok.FullText, "fetchFullText must not mutate FullText itself") // the caller (enrich) assigns the field
 
 	pdfPath := filepath.Join(runDir, "fulltext", "10.1000_a.pdf")
-	if _, err := os.Stat(pdfPath); err != nil {
-		t.Fatalf("PDF not saved for the vision stage: %v", err)
-	}
+	_, err := os.Stat(pdfPath)
+	require.NoError(t, err, "PDF not saved for the vision stage")
 
 	landing := &model.EnrichedPaper{Paper: model.Paper{DOI: "10.1000/b", OALink: pdfSrv.URL + "/landing"}}
-	if txt := p.fetchFullText(context.Background(), landing, true); txt != "" {
-		t.Fatalf("landing page must yield no text, got %q", txt)
-	}
+	landingTxt := p.fetchFullText(context.Background(), landing, true)
+	require.Empty(t, landingTxt, "landing page must yield no text")
 
-	if len(landing.Errors) == 0 {
-		t.Fatal("non-PDF link must be recorded as an error")
-	}
+	require.NotEmpty(t, landing.Errors, "non-PDF link must be recorded as an error")
 }
 
 // The real extractor against a minimal handcrafted PDF.
@@ -82,9 +77,7 @@ func TestPdfTextReal(t *testing.T) {
 		t.Skipf("minimal fixture not parseable by the lib: %v", err)
 	}
 
-	if !strings.Contains(text, "Hello fulltext") {
-		t.Fatalf("text: %q", text)
-	}
+	require.Contains(t, text, "Hello fulltext")
 }
 
 // The agent-written chart critique slots into synthesis as data; a broken
@@ -94,32 +87,23 @@ func TestLoadVisionNotes(t *testing.T) {
 	st := &State{}
 	loadVisionNotes(dir, st) // no file at all
 
-	if len(st.VisionNotes) != 0 {
-		t.Fatal("no artifact must yield no notes")
-	}
+	require.Empty(t, st.VisionNotes, "no artifact must yield no notes")
 
 	broken := filepath.Join(dir, "3b-vision.json")
-	if err := os.WriteFile(broken, []byte("{not json"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(broken, []byte("{not json"), 0o600))
 
 	loadVisionNotes(dir, st)
 
-	if len(st.VisionNotes) != 0 {
-		t.Fatal("broken artifact must yield no notes")
-	}
+	require.Empty(t, st.VisionNotes, "broken artifact must yield no notes")
 
 	good := `{"vision_notes":[{"doi":"10.1/x","findings":["y-axis truncated at 40% (fig 2)"]}]}`
-	if err := os.WriteFile(broken, []byte(good), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(broken, []byte(good), 0o600))
 
 	loadVisionNotes(dir, st)
 
-	if len(st.VisionNotes) != 1 || st.VisionNotes[0].DOI != "10.1/x" ||
-		st.VisionNotes[0].Findings[0] != "y-axis truncated at 40% (fig 2)" {
-		t.Fatalf("notes: %+v", st.VisionNotes)
-	}
+	require.Len(t, st.VisionNotes, 1)
+	require.Equal(t, "10.1/x", st.VisionNotes[0].DOI)
+	require.Equal(t, "y-axis truncated at 40% (fig 2)", st.VisionNotes[0].Findings[0])
 }
 
 // A PDF pre-placed by the user wins over download, works without the
@@ -136,23 +120,16 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 	p := New(&config.Config{Concurrency: 4}, Clients{}, quietLog())
 	p.dir = runDir
 
-	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750))
 
 	pdf := filepath.Join(runDir, "fulltext", "10.1000_paywalled.pdf")
-	if err := os.WriteFile(pdf, []byte("%PDF-1.4 user-supplied"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(pdf, []byte("%PDF-1.4 user-supplied"), 0o600))
 
 	noLink := &model.EnrichedPaper{Paper: model.Paper{DOI: "10.1000/paywalled"}} // no OALink, no --fulltext
-	if txt := p.fetchFullText(context.Background(), noLink, false); txt != "USER-SUPPLIED full text of a paywalled paper" {
-		t.Fatalf("pre-placed PDF not used: %q", txt)
-	}
+	txt := p.fetchFullText(context.Background(), noLink, false)
+	require.Equal(t, "USER-SUPPLIED full text of a paywalled paper", txt, "pre-placed PDF not used")
 
-	if len(noLink.Errors) != 0 {
-		t.Fatalf("pre-placed path must not error: %v", noLink.Errors)
-	}
+	require.Empty(t, noLink.Errors, "pre-placed path must not error")
 }
 
 // PDFDOIs reads the paper's identity out of a user-supplied file.
@@ -165,7 +142,6 @@ func TestPDFDOIs(t *testing.T) {
 	defer func() { pdfTextExtractor = restore }()
 
 	dois := PDFDOIs([]byte("%PDF-1.4 whatever"))
-	if len(dois) != 1 || dois[0] != "10.1001/jamadermatol.2020.0218" {
-		t.Fatalf("dois: %v", dois)
-	}
+	require.Len(t, dois, 1)
+	require.Equal(t, "10.1001/jamadermatol.2020.0218", dois[0])
 }

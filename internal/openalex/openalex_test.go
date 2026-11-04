@@ -5,15 +5,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Search must map results into Paper, filter out retractions, and strip
 // wildcard characters (* and ?) that OpenAlex rejects in stemmed search.
 func TestSearchFiltersRetracted(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("search"); got != "does coffee work" {
-			t.Errorf("search parameter: got %q, want %q (wildcards stripped)", got, "does coffee work")
-		}
+		assert.Equal(t, "does coffee work", r.URL.Query().Get("search"), "wildcards must be stripped")
 
 		_, _ = w.Write([]byte(`{"results":[
 			{"doi":"https://doi.org/10.1/ok","display_name":"Good study","publication_year":2024,
@@ -27,17 +28,13 @@ func TestSearchFiltersRetracted(t *testing.T) {
 	c.base = srv.URL
 
 	papers, err := c.Search(context.Background(), "does coffee work?", 15)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if len(papers) != 1 {
-		t.Fatalf("want 1 paper (retraction filtered out), got %d", len(papers))
-	}
+	require.Len(t, papers, 1, "retraction filtered out")
 
-	if papers[0].DOI != "10.1/ok" || papers[0].Title != "Good study" || papers[0].Abstract != "coffee works" {
-		t.Errorf("bad mapping: %+v", papers[0])
-	}
+	assert.Equal(t, "10.1/ok", papers[0].DOI)
+	assert.Equal(t, "Good study", papers[0].Title)
+	assert.Equal(t, "coffee works", papers[0].Abstract)
 }
 
 // Abstract must reconstruct text from the inverted index by word positions.
@@ -53,24 +50,18 @@ func TestAbstractReinversion(t *testing.T) {
 
 	const want = "Background Nothing coffee improves everything"
 
-	if got := w.Abstract(); got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
+	require.Equal(t, want, w.Abstract())
 }
 
 func TestAbstractEmpty(t *testing.T) {
 	w := &Work{}
-	if got := w.Abstract(); got != "" {
-		t.Fatalf("got %q, want empty", got)
-	}
+	require.Empty(t, w.Abstract())
 }
 
 // SearchTitle resolves a DOI-less title through filter=title.search.
 func TestSearchTitle(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("filter"); got != `title.search:"Phototherapy for atopic dermatitis"` {
-			t.Errorf("filter: got %q", got)
-		}
+		assert.Equal(t, `title.search:"Phototherapy for atopic dermatitis"`, r.URL.Query().Get("filter"))
 
 		_, _ = w.Write([]byte(`{"results":[{"doi":"https://doi.org/10.1/match",` +
 			`"display_name":"Phototherapy for atopic dermatitis","publication_year":2016}]}`))
@@ -81,13 +72,11 @@ func TestSearchTitle(t *testing.T) {
 	c.base = srv.URL
 
 	w, err := c.SearchTitle(context.Background(), "Phototherapy for atopic dermatitis")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if w == nil || w.DOI != "https://doi.org/10.1/match" || w.PublicationYear != 2016 {
-		t.Fatalf("bad match: %+v", w)
-	}
+	require.NotNil(t, w)
+	require.Equal(t, "https://doi.org/10.1/match", w.DOI)
+	require.Equal(t, 2016, w.PublicationYear)
 }
 
 func TestSearchTitleNoMatch(t *testing.T) {
@@ -100,21 +89,15 @@ func TestSearchTitleNoMatch(t *testing.T) {
 	c.base = srv.URL
 
 	w, err := c.SearchTitle(context.Background(), "No such paper anywhere")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if w != nil {
-		t.Fatalf("want nil for no match, got %+v", w)
-	}
+	require.Nil(t, w, "want nil for no match")
 }
 
 // Titles containing commas must arrive quoted: OpenAlex 400s on %2C commas.
 func TestSearchTitleComma(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.Query().Get("filter"); got != `title.search:"Laser, sham, trial"` {
-			t.Errorf("filter: got %q", got)
-		}
+		assert.Equal(t, `title.search:"Laser, sham, trial"`, r.URL.Query().Get("filter"))
 
 		_, _ = w.Write([]byte(`{"results":[{"doi":"https://doi.org/10.1/comma",` +
 			`"display_name":"Laser, sham, trial","publication_year":2020}]}`))
@@ -125,11 +108,8 @@ func TestSearchTitleComma(t *testing.T) {
 	c.base = srv.URL
 
 	w, err := c.SearchTitle(context.Background(), "Laser, sham, trial")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if w == nil || w.DOI != "https://doi.org/10.1/comma" {
-		t.Fatalf("bad match: %+v", w)
-	}
+	require.NotNil(t, w)
+	require.Equal(t, "https://doi.org/10.1/comma", w.DOI)
 }

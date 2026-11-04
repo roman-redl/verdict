@@ -3,17 +3,18 @@ module github.com/roman-redl/verdict
 go 1.25.0
 
 require (
+	github.com/Masterminds/squirrel v1.5.4
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/ergochat/readline v0.1.3
 	github.com/ledongthuc/pdf v0.0.0-20260907135840-6c8c28e0e8a0
 	github.com/spf13/cobra v1.8.1
+	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.22.0
 	golang.org/x/time v0.7.0
 	modernc.org/sqlite v1.58.0
 )
 
 require (
-	github.com/Masterminds/squirrel v1.5.4 // indirect
 	github.com/alecthomas/chroma/v2 v2.20.0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
@@ -43,6 +44,7 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.36.0 // indirect

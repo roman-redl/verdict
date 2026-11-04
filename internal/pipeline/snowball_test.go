@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/openalex"
 )
 
@@ -33,35 +36,27 @@ func TestSnowball(t *testing.T) {
 			_, _ = w.Write([]byte(`{"results":[{"id":"W9","doi":"https://doi.org/10.1000/classic",` +
 				`"display_name":"The classic"}]}`))
 		default:
-			t.Errorf("unexpected request: %s?%s", r.URL.Path, r.URL.RawQuery)
+			assert.Fail(t, "unexpected request", "%s?%s", r.URL.Path, r.URL.RawQuery)
 		}
 	}))
 	defer srv.Close()
 
 	cands, err := Snowball(context.Background(), openalex.NewWithBase(srv.URL, ""),
 		[]string{"10.1000/seed1", "10.1000/seed2"}, 2, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	byDOI := map[string]SnowballCandidate{}
 	for _, c := range cands {
 		byDOI[c.DOI] = c
 	}
 	// cites both seeds (appears in both citing lists) — the forward signal.
-	if c := byDOI["10.1000/cand1"]; c.CitesSeeds != 2 || c.Title != "Shared candidate" {
-		t.Errorf("shared candidate: %+v", c)
-	}
+	shared := byDOI["10.1000/cand1"]
+	assert.Equal(t, 2, shared.CitesSeeds)
+	assert.Equal(t, "Shared candidate", shared.Title)
 	// referenced by both seeds — the backward signal.
-	if c := byDOI["10.1000/classic"]; c.CitedBySeeds != 2 {
-		t.Errorf("classic: %+v", c)
-	}
+	assert.Equal(t, 2, byDOI["10.1000/classic"].CitedBySeeds)
 	// connected to one seed only — filtered out by min-shared=2.
-	if _, ok := byDOI["10.1000/one-side"]; ok {
-		t.Errorf("one-side candidate must be filtered: %+v", byDOI["10.1000/one-side"])
-	}
+	assert.NotContains(t, byDOI, "10.1000/one-side", "one-side candidate must be filtered")
 	// seeds themselves must never be candidates.
-	if _, ok := byDOI["10.1000/seed1"]; ok {
-		t.Errorf("seed listed as candidate")
-	}
+	assert.NotContains(t, byDOI, "10.1000/seed1", "seed listed as candidate")
 }

@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -24,15 +27,12 @@ func TestResolveTextMode(t *testing.T) {
 		{" HYBRID ", "", "hybrid"},
 	} {
 		got, err := resolveTextMode(tc.opt, tc.cfg)
-		if err != nil || got != tc.want {
-			t.Errorf("resolveTextMode(%q,%q) = %q,%v; want %q", tc.opt, tc.cfg, got, err, tc.want)
-		}
+		require.NoError(t, err, "resolveTextMode(%q,%q)", tc.opt, tc.cfg)
+		assert.Equal(t, tc.want, got, "resolveTextMode(%q,%q)", tc.opt, tc.cfg)
 	}
 
-	if _, err := resolveTextMode("abstracts", ""); err == nil ||
-		!strings.Contains(err.Error(), "lean | hybrid | full") {
-		t.Errorf("unknown mode must name the valid values, got %v", err)
-	}
+	_, err := resolveTextMode("abstracts", "")
+	require.ErrorContains(t, err, "lean | hybrid | full", "unknown mode must name the valid values")
 }
 
 // Pivotal = direct studies first, then design quality, then citation heat —
@@ -62,19 +62,14 @@ func TestPivotalStudies(t *testing.T) {
 	got := pivotalStudies(st, 3)
 	want := []string{"10.1/d", doiA, doiB}
 
-	if len(got) != len(want) {
-		t.Fatalf("pivotalStudies: got %v, want %v", got, want)
-	}
+	require.Len(t, got, len(want))
 
 	for i, idx := range got {
-		if st.Enriched[idx].DOI != want[i] {
-			t.Fatalf("pivotalStudies: got %v, want %v", got, want)
-		}
+		require.Equal(t, want[i], st.Enriched[idx].DOI)
 	}
 
-	if len(pivotalStudies(st, 99)) != 4 { // every direct study, capped only by max
-		t.Errorf("uncapped pivotal must keep all 4 direct studies")
-	}
+	// every direct study, capped only by max
+	assert.Len(t, pivotalStudies(st, 99), 4, "uncapped pivotal must keep all 4 direct studies")
 }
 
 // The deepening pass fetches full texts for the pivotal studies only,
@@ -95,9 +90,7 @@ func TestHybridDeepen(t *testing.T) {
 	tmp := t.TempDir()
 
 	runDir := filepath.Join(tmp, "run")
-	if err := os.MkdirAll(runDir, 0o750); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(runDir, 0o750))
 
 	a := ep(doiA) // direct, high — pivotal, OA link serves a PDF
 	a.OALink = pdfSrv.URL + "/a.pdf"
@@ -123,34 +116,23 @@ func TestHybridDeepen(t *testing.T) {
 		Cost: &CostReport{},
 	}
 
-	if err := p.hybridDeepen(context.Background(), st, Options{RunDir: runDir}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.hybridDeepen(context.Background(), st, Options{RunDir: runDir}))
 
-	if st.Enriched[0].FullText == "" {
-		t.Error("pivotal study must have its full text")
-	}
+	assert.NotEmpty(t, st.Enriched[0].FullText, "pivotal study must have its full text")
 
-	if st.Enriched[1].FullText != "" {
-		t.Error("non-pivotal study must stay on abstracts")
-	}
+	assert.Empty(t, st.Enriched[1].FullText, "non-pivotal study must stay on abstracts")
 
-	if !strings.Contains(s.prompts[0], "FULL TEXT METHODS") {
-		t.Error("the re-critique prompt must carry the fetched full text")
-	}
+	assert.Contains(t, s.prompts[0], "FULL TEXT METHODS", "the re-critique prompt must carry the fetched full text")
 
-	if st.Report == nil || st.Report.Verdict != "moderate" {
-		t.Fatalf("re-synthesis missing: %+v", st.Report)
-	}
+	require.NotNil(t, st.Report, "re-synthesis missing")
+	assert.Equal(t, "moderate", st.Report.Verdict, "re-synthesis missing")
 
-	if s.calls != 2 {
-		t.Errorf("calls: got %d, want 2 (critique + synthesis)", s.calls)
-	}
+	assert.Equal(t, 2, s.calls, "want 2 LLM calls (critique + synthesis)")
 
-	if st.Cost.Critique == nil || st.Cost.Critique.Calls != 1 ||
-		st.Cost.Synthesis == nil || st.Cost.Synthesis.Calls != 1 {
-		t.Errorf("cost must account both stages: %+v", st.Cost)
-	}
+	require.NotNil(t, st.Cost.Critique, "cost must account both stages")
+	require.NotNil(t, st.Cost.Synthesis, "cost must account both stages")
+	assert.Equal(t, 1, st.Cost.Critique.Calls, "cost must account both stages")
+	assert.Equal(t, 1, st.Cost.Synthesis.Calls, "cost must account both stages")
 }
 
 // No OA full text for any pivotal study → the pass is a no-op and the
@@ -165,13 +147,10 @@ func TestHybridDeepenNoFullTextAvailable(t *testing.T) {
 		Critiques: []model.Critique{crit(doiA, qualityHigh, relevanceDirect, directionPositive)}, Cost: &CostReport{},
 	}
 
-	if err := p.hybridDeepen(context.Background(), st, Options{RunDir: tmp}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.hybridDeepen(context.Background(), st, Options{RunDir: tmp}))
 
-	if s.calls != 0 || st.Report != nil {
-		t.Errorf("no-OA pivotal must skip the pass: calls=%d report=%v", s.calls, st.Report)
-	}
+	assert.Equal(t, 0, s.calls, "no-OA pivotal must skip the pass")
+	assert.Nil(t, st.Report, "no-OA pivotal must skip the pass")
 }
 
 // The verdictd submit body carries text_mode; the pipeline Options map it
@@ -180,11 +159,7 @@ func TestHybridDoneSerializes(t *testing.T) {
 	st := &State{HybridDone: true}
 
 	b, err := json.Marshal(st)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(string(b), `"hybrid_done":true`) {
-		t.Errorf("hybrid_done not serialized: %s", b)
-	}
+	assert.Contains(t, string(b), `"hybrid_done":true`, "hybrid_done not serialized")
 }

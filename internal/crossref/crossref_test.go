@@ -5,15 +5,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The response shape is verified live (Wakefield DOI): retractions and
 // corrections both arrive as updated-by entries, discriminated by type.
 func TestUpdates(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/works/10.1016/S0140-6736(97)11096-0" {
-			t.Errorf("path: got %q, want the DOI path (decoded form)", r.URL.Path)
-		}
+		assert.Equal(t, "/works/10.1016/S0140-6736(97)11096-0", r.URL.Path, "want the DOI path (decoded form)")
 
 		_, _ = w.Write([]byte(`{"message":{"updated-by":[
 			{"DOI":"10.1016/s0140-6736(04)15715-2","type":"correction","label":"Correction","source":"retraction-watch"},
@@ -25,17 +26,11 @@ func TestUpdates(t *testing.T) {
 	c := NewWithBase(srv.URL, "")
 
 	ups, err := c.Updates(context.Background(), "10.1016/S0140-6736(97)11096-0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if len(ups) != 2 {
-		t.Fatalf("want 2 updates, got %d", len(ups))
-	}
-
-	if !ups[1].IsRetraction() || ups[0].IsRetraction() {
-		t.Fatalf("retraction discrimination broken: %+v", ups)
-	}
+	require.Len(t, ups, 2)
+	require.True(t, ups[1].IsRetraction(), "retraction discrimination broken")
+	require.False(t, ups[0].IsRetraction(), "retraction discrimination broken")
 }
 
 func TestUpdatesCleanRecord(t *testing.T) {
@@ -47,13 +42,9 @@ func TestUpdatesCleanRecord(t *testing.T) {
 	c := NewWithBase(srv.URL, "")
 
 	ups, err := c.Updates(context.Background(), "10.1/ok")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if len(ups) != 0 {
-		t.Fatalf("clean record: want no updates, got %+v", ups)
-	}
+	require.Empty(t, ups, "clean record: want no updates")
 }
 
 // A 404 (Crossref does not know the DOI) is "no data", not an error.
@@ -66,11 +57,7 @@ func TestUpdatesUnknownDOI(t *testing.T) {
 	c := NewWithBase(srv.URL, "")
 
 	ups, err := c.Updates(context.Background(), "10.1/void")
-	if err != nil {
-		t.Fatalf("404 must not be an error, got %v", err)
-	}
+	require.NoError(t, err, "404 must not be an error")
 
-	if len(ups) != 0 {
-		t.Fatalf("want no updates, got %+v", ups)
-	}
+	require.Empty(t, ups)
 }

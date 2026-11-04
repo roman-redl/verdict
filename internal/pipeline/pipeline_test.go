@@ -14,6 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/model"
@@ -103,35 +106,25 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 		{DOI: doiVoid, Source: sourceManual},     // discovery lookup failed — one retry
 		{DOI: doiRetr, Source: sourceManual},     // OpenAlex misses it, Crossref flags it
 	}}
-	if err := p.enrich(context.Background(), st, Options{}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.enrich(context.Background(), st, Options{}))
 
 	mu.Lock()
 	defer mu.Unlock()
 
-	if n := oaCalls["10.1/oa"]; n != 0 {
-		t.Errorf("openalex-sourced paper re-queried %d times, want 0", n)
-	}
+	assert.Equal(t, 0, oaCalls["10.1/oa"], "openalex-sourced paper must not be re-queried")
 
 	for _, d := range []string{"10.1/el", doiVoid, doiRetr} {
-		if n := oaCalls[d]; n != 1 {
-			t.Errorf("%s: %d openalex lookups, want 1", d, n)
-		}
+		assert.Equal(t, 1, oaCalls[d], "%s: openalex lookups", d)
 	}
 
-	if got := st.Enriched[1].Abstract; got != "abstract text" {
-		t.Errorf("manual stub abstract backfill: got %q", got)
-	}
+	assert.Equal(t, "abstract text", st.Enriched[1].Abstract, "manual stub abstract backfill")
 
 	retr := st.Enriched[3]
-	if !retr.Flags.Retracted || !strings.Contains(retr.Flags.Reason, "Crossref") {
-		t.Errorf("crossref retraction not flagged: %+v", retr.Flags)
-	}
+	assert.True(t, retr.Flags.Retracted, "crossref retraction not flagged")
+	assert.Contains(t, retr.Flags.Reason, "Crossref", "crossref retraction not flagged")
 
-	if retr.Tally == nil || retr.Tally.Contradicting != 2 {
-		t.Errorf("scite tallies not attached: %+v", retr.Tally)
-	}
+	require.NotNil(t, retr.Tally, "scite tallies not attached")
+	assert.Equal(t, 2, retr.Tally.Contradicting, "scite tallies not attached")
 }
 
 // A DOI list above the default runs whole (user-curated), but the run gets a
@@ -150,31 +143,20 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 	f := dir + "/dois.txt"
 	list := []string{"10.1000/a", "10.1000/b", "10.1000/c", "10.1000/d", "10.1000/e"}
 
-	if err := os.WriteFile(f, []byte(strings.Join(list, "\n")), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(f, []byte(strings.Join(list, "\n")), 0o600))
 
 	st := &State{}
-	if err := p.discoverByDOIs(context.Background(), st, Options{DOIFile: f}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discoverByDOIs(context.Background(), st, Options{DOIFile: f}))
 
-	if len(st.Papers) != 5 {
-		t.Fatalf("no cap: want all 5 papers, got %d", len(st.Papers))
-	}
+	require.Len(t, st.Papers, 5, "user-curated list must run whole")
 
-	if len(st.Warnings) == 0 || !strings.Contains(st.Warnings[0], "LLM calls") {
-		t.Errorf("large list must warn about LLM cost, got %v", st.Warnings)
-	}
+	require.NotEmpty(t, st.Warnings, "large list must warn about LLM cost")
+	assert.Contains(t, st.Warnings[0], "LLM calls", "large list must warn about LLM cost")
 
 	st = &State{}
-	if err := p.discoverByDOIs(context.Background(), st, Options{DOIFile: f, MaxPapers: 2}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discoverByDOIs(context.Background(), st, Options{DOIFile: f, MaxPapers: 2}))
 
-	if len(st.Papers) != 2 {
-		t.Fatalf("explicit cap: want 2 papers, got %d", len(st.Papers))
-	}
+	require.Len(t, st.Papers, 2, "explicit cap")
 }
 
 // A cached enrichment must not skip the full-text pickup: a PDF pre-placed
@@ -189,10 +171,10 @@ func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
 
 	defer func() { pdfTextExtractor = restore }()
 
-	var oaHits int32
+	var oaHits atomic.Int32
 
 	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&oaHits, 1)
+		oaHits.Add(1)
 
 		_, _ = w.Write([]byte(`{"doi":"https://doi.org/10.1/cached"}`))
 	}))
@@ -206,19 +188,13 @@ func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
 	tmp := t.TempDir()
 
 	runDir := filepath.Join(tmp, "run")
-	if err := os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750))
 
 	pdf := filepath.Join(runDir, "fulltext", "10.1_cached.pdf")
-	if err := os.WriteFile(pdf, []byte("%PDF-1.4 stub"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(pdf, []byte("%PDF-1.4 stub"), 0o600))
 
 	seeded := EnrichCache{"10.1/cached": {CheckedAt: time.Now(), Abstract: cachedAbstract}}
-	if err := seeded.Save(filepath.Join(tmp, "cache.json")); err != nil { // Dir(RunDir)/cache.json
-		t.Fatal(err)
-	}
+	require.NoError(t, seeded.Save(filepath.Join(tmp, "cache.json"))) // Dir(RunDir)/cache.json
 
 	p := New(&config.Config{Concurrency: 4, EnrichCacheTTLDays: 30}, Clients{
 		Scite:    scite.NewWithBase(sc.URL, ""),
@@ -227,20 +203,12 @@ func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
 	p.dir = runDir
 	st := &State{Papers: []model.Paper{{DOI: "10.1/cached", Source: sourceManual}}}
 
-	if err := p.enrich(context.Background(), st, Options{RunDir: runDir}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.enrich(context.Background(), st, Options{RunDir: runDir}))
 
-	if atomic.LoadInt32(&oaHits) != 0 {
-		t.Errorf("cached paper re-queried OpenAlex %d times, want 0", oaHits)
-	}
+	assert.Equal(t, int32(0), oaHits.Load(), "cached paper must not re-query OpenAlex")
 
 	e := st.Enriched[0]
-	if e.Abstract != cachedAbstract {
-		t.Errorf("cached abstract lost: %q", e.Abstract)
-	}
+	assert.Equal(t, cachedAbstract, e.Abstract, "cached abstract lost")
 
-	if !strings.Contains(e.FullText, "FULL TEXT OF THE CACHED STUDY") {
-		t.Errorf("pre-placed PDF not picked up on the cache-hit path: %q", e.FullText)
-	}
+	assert.Contains(t, e.FullText, "FULL TEXT OF THE CACHED STUDY", "pre-placed PDF not picked up on the cache-hit path")
 }

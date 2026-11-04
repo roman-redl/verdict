@@ -3,8 +3,9 @@ package llm
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type fakeCompleter struct {
@@ -34,13 +35,10 @@ func TestAskJSONParsesFenced(t *testing.T) {
 		Verdict string `json:"verdict"`
 	}
 
-	if _, err := AskJSON(context.Background(), f, "sys", "usr", &out, 100); err != nil {
-		t.Fatal(err)
-	}
+	_, err := AskJSON(context.Background(), f, "sys", "usr", &out, 100)
+	require.NoError(t, err)
 
-	if out.Verdict != "weak" {
-		t.Fatalf("got %q", out.Verdict)
-	}
+	require.Equal(t, "weak", out.Verdict)
 }
 
 func TestAskJSONRetriesBrokenJSON(t *testing.T) {
@@ -51,17 +49,13 @@ func TestAskJSONRetriesBrokenJSON(t *testing.T) {
 	}
 
 	u, err := AskJSON(context.Background(), f, "s", "u", &out, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if out.X != 1 || f.calls != 2 {
-		t.Fatalf("x=%d calls=%d (want 1 retry, 2 calls total)", out.X, f.calls)
-	}
+	require.Equal(t, 1, out.X)
+	require.Equal(t, 2, f.calls, "want 1 retry, 2 calls total")
 
-	if u.InputTokens != 20 || u.OutputTokens != 10 {
-		t.Fatalf("usage must accumulate both attempts: %+v", u)
-	}
+	require.Equal(t, 20, u.InputTokens, "usage must accumulate both attempts")
+	require.Equal(t, 10, u.OutputTokens, "usage must accumulate both attempts")
 }
 
 // The backends are stateless: a retry without the original task reaches a
@@ -74,20 +68,12 @@ func TestAskJSONRetryResendsPayload(t *testing.T) {
 		X int `json:"x"`
 	}
 
-	if _, err := AskJSON(context.Background(), f, "s", "ASSESS THIS STUDY", &out, 100); err != nil {
-		t.Fatal(err)
-	}
+	_, err := AskJSON(context.Background(), f, "s", "ASSESS THIS STUDY", &out, 100)
+	require.NoError(t, err)
 
-	if len(f.prompts) != 2 {
-		t.Fatalf("want 2 prompts, got %d", len(f.prompts))
-	}
+	require.Len(t, f.prompts, 2)
 
 	retry := f.prompts[1]
-	if !strings.Contains(retry, "ASSESS THIS STUDY") {
-		t.Fatalf("retry lost the original task:\n%s", retry)
-	}
-
-	if !strings.Contains(retry, "oops not json") {
-		t.Fatalf("retry must quote the broken answer:\n%s", retry)
-	}
+	require.Contains(t, retry, "ASSESS THIS STUDY", "retry lost the original task")
+	require.Contains(t, retry, "oops not json", "retry must quote the broken answer")
 }

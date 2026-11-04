@@ -2,11 +2,13 @@ package consensus
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/roman-redl/verdict/internal/httpx"
 )
@@ -20,13 +22,9 @@ func TestSearchPageSendsKeyAndParams(t *testing.T) {
 	var gotQuery url.Values
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("x-api-key") != "test-key" {
-			t.Errorf("x-api-key header: got %q, want %q", r.Header.Get("x-api-key"), "test-key")
-		}
+		assert.Equal(t, "test-key", r.Header.Get("x-api-key"), "x-api-key header")
 
-		if r.URL.Path != "/v1/search" {
-			t.Errorf("path: got %q, want /v1/search", r.URL.Path)
-		}
+		assert.Equal(t, "/v1/search", r.URL.Path)
 
 		gotQuery = r.URL.Query()
 		_, _ = w.Write([]byte(`{"results":[],"page":0,"page_size":20,"is_end":true}`))
@@ -35,13 +33,12 @@ func TestSearchPageSendsKeyAndParams(t *testing.T) {
 
 	c := NewWithBase(srv.URL+"/v1", "test-key")
 
-	if _, err := c.SearchPage(context.Background(), SearchParams{
+	_, err := c.SearchPage(context.Background(), SearchParams{
 		Query: "does creatine improve cognition?", Page: 2, PageSize: 50,
 		YearMin: 2015, YearMax: 2024, StudyTypes: []string{"rct", studyTypeMetaAnalysis},
 		Human: true, SampleSizeMin: 30, ExcludePreprints: true,
-	}); err != nil {
-		t.Fatalf("SearchPage: %v", err)
-	}
+	})
+	require.NoError(t, err, "SearchPage")
 
 	want := map[string]string{
 		"query": "does creatine improve cognition?", "page": "2", "page_size": "50",
@@ -49,25 +46,20 @@ func TestSearchPageSendsKeyAndParams(t *testing.T) {
 		"human": "true", "sample_size_min": "30", "exclude_preprints": "true",
 	}
 	for k, v := range want {
-		if got := gotQuery.Get(k); got != v {
-			t.Errorf("param %s: got %q, want %q", k, got, v)
-		}
+		assert.Equal(t, v, gotQuery.Get(k), "param %s", k)
 	}
 
 	// Zero values must leave the filters out of the URL entirely.
 	gotQuery = url.Values{}
 
-	if _, err := c.SearchPage(context.Background(), SearchParams{Query: "vitamin d"}); err != nil {
-		t.Fatalf("SearchPage (bare): %v", err)
-	}
+	_, err = c.SearchPage(context.Background(), SearchParams{Query: "vitamin d"})
+	require.NoError(t, err, "SearchPage (bare)")
 
 	for _, k := range []string{
 		"page", "page_size", "year_min", "year_max",
 		"study_types", "human", "sample_size_min", "exclude_preprints",
 	} {
-		if _, ok := gotQuery[k]; ok {
-			t.Errorf("zero-valued param %s should be absent, got %q", k, gotQuery[k])
-		}
+		assert.NotContains(t, gotQuery, k, "zero-valued param must be absent")
 	}
 }
 
@@ -91,18 +83,14 @@ func TestSearchPageDecodesEnvelope(t *testing.T) {
 	c := NewWithBase(srv.URL, "test-key")
 
 	pg, err := c.SearchPage(context.Background(), SearchParams{Query: "q"})
-	if err != nil {
-		t.Fatalf("SearchPage: %v", err)
-	}
+	require.NoError(t, err, "SearchPage")
 
-	if len(pg.Results) != 1 || pg.Results[0].Title != "A trial" {
-		t.Fatalf("results: got %+v", pg.Results)
-	}
+	require.Len(t, pg.Results, 1)
+	require.Equal(t, "A trial", pg.Results[0].Title)
 
-	if pg.IsEnd || pg.NextPage != 1 || pg.PageSize != 20 {
-		t.Errorf("envelope: got is_end=%v next_page=%d page_size=%d, want false/1/20",
-			pg.IsEnd, pg.NextPage, pg.PageSize)
-	}
+	assert.False(t, pg.IsEnd)
+	assert.Equal(t, 1, pg.NextPage)
+	assert.Equal(t, 20, pg.PageSize)
 }
 
 // ToPaper must map the fields the pipeline consumes and normalize the DOI;
@@ -116,19 +104,18 @@ func TestToPaper(t *testing.T) {
 	}
 
 	p := r.ToPaper()
-	if p.DOI != "10.1234/ab.cd" {
-		t.Errorf("doi: got %q, want normalized 10.1234/ab.cd", p.DOI)
-	}
+	assert.Equal(t, "10.1234/ab.cd", p.DOI, "DOI must normalize")
 
-	if p.Source != "consensus" || p.StudyDesign != studyTypeMetaAnalysis || p.SampleSize != 900 ||
-		p.Venue != "BMJ" || p.CitedByCount != 42 || p.Year != 2020 ||
-		p.SJRQuartile != "Q1" || p.Takeaway != "helps a bit" {
-		t.Errorf("mapping: got %+v", p)
-	}
+	assert.Equal(t, "consensus", p.Source)
+	assert.Equal(t, studyTypeMetaAnalysis, p.StudyDesign)
+	assert.Equal(t, 900, p.SampleSize)
+	assert.Equal(t, "BMJ", p.Venue)
+	assert.Equal(t, 42, p.CitedByCount)
+	assert.Equal(t, 2020, p.Year)
+	assert.Equal(t, "Q1", p.SJRQuartile)
+	assert.Equal(t, "helps a bit", p.Takeaway)
 
-	if p.OALink != "" {
-		t.Errorf("oa_link must stay empty, got %q", p.OALink)
-	}
+	assert.Empty(t, p.OALink, "their url is not an open-access PDF")
 }
 
 // Quartile must accept both wire forms ("Q1" or 1) and null.
@@ -143,13 +130,9 @@ func TestQuartileUnmarshal(t *testing.T) {
 		{`null`, ""},
 	} {
 		var q Quartile
-		if err := q.UnmarshalJSON([]byte(tc.in)); err != nil {
-			t.Fatalf("unmarshal %s: %v", tc.in, err)
-		}
+		require.NoError(t, q.UnmarshalJSON([]byte(tc.in)), "unmarshal %s", tc.in)
 
-		if q != tc.want {
-			t.Errorf("unmarshal %s: got %q, want %q", tc.in, q, tc.want)
-		}
+		assert.Equal(t, tc.want, q, "unmarshal %s", tc.in)
 	}
 }
 
@@ -166,13 +149,10 @@ func TestSearchPageErrorStatus(t *testing.T) {
 
 		srv.Close()
 
-		if err == nil {
-			t.Fatalf("status %d: expected an error", status)
-		}
+		require.Error(t, err, "status %d: expected an error", status)
 
 		var se *httpx.StatusError
-		if !errors.As(err, &se) || se.Status != status {
-			t.Errorf("status %d: got %v, want *httpx.StatusError(%d)", status, err, status)
-		}
+		require.ErrorAs(t, err, &se)
+		assert.Equal(t, status, se.Status, "status %d: want *httpx.StatusError", status)
 	}
 }

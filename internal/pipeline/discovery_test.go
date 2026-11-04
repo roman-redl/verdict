@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/consensus"
 	"github.com/roman-redl/verdict/internal/openalex"
@@ -52,31 +55,25 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st, Options{Question: "q"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q"}))
 
-	if hits != 2 {
-		t.Errorf("HTTP hits: got %d, want 2 (walk to is_end)", hits)
-	}
+	assert.Equal(t, int32(2), hits, "walk to is_end")
 
-	if len(st.Papers) != 3 {
-		t.Fatalf("papers: got %d, want 3", len(st.Papers))
-	}
+	require.Len(t, st.Papers, 3)
 
 	d := st.Discovery
-	if d == nil || d.Engine != engineConsensus || d.PagesFetched != 2 || d.PapersFound != 3 || d.Truncated {
-		t.Errorf("discovery info: got %+v", d)
-	}
+	require.NotNil(t, d, "discovery info")
+	assert.Equal(t, engineConsensus, d.Engine, "discovery info")
+	assert.Equal(t, 2, d.PagesFetched, "discovery info")
+	assert.Equal(t, 3, d.PapersFound, "discovery info")
+	assert.False(t, d.Truncated, "discovery info")
 
-	if len(d.Queries) != 1 || d.Queries[0] != "q" {
-		t.Errorf("queries not recorded: %v", d.Queries)
-	}
+	require.Len(t, d.Queries, 1)
+	assert.Equal(t, "q", d.Queries[0], "queries not recorded")
 
 	for _, pp := range st.Papers {
-		if pp.Source != engineConsensus || pp.StudyDesign != "rct" {
-			t.Errorf("paper mapping: %+v", pp)
-		}
+		assert.Equal(t, engineConsensus, pp.Source, "paper mapping")
+		assert.Equal(t, "rct", pp.StudyDesign, "paper mapping")
 	}
 }
 
@@ -95,17 +92,11 @@ func TestDiscoverConsensusPagesCapTruncates(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st, Options{Question: "q", ConsensusPages: 2}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q", ConsensusPages: 2}))
 
-	if hits != 2 {
-		t.Errorf("HTTP hits: got %d, want 2 (page cap)", hits)
-	}
+	assert.Equal(t, int32(2), hits, "page cap")
 
-	if !st.Discovery.Truncated {
-		t.Errorf("cap hit on a not-ended ranking must set Truncated")
-	}
+	assert.True(t, st.Discovery.Truncated, "cap hit on a not-ended ranking must set Truncated")
 }
 
 // An explicit --max-papers truncates the corpus after the page it crossed
@@ -124,21 +115,13 @@ func TestDiscoverConsensusStopsAtMaxPapers(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st, Options{Question: "q", MaxPapers: 1}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q", MaxPapers: 1}))
 
-	if hits != 1 {
-		t.Errorf("HTTP hits: got %d, want 1", hits)
-	}
+	assert.Equal(t, int32(1), hits)
 
-	if len(st.Papers) != 1 {
-		t.Errorf("papers: got %d, want 1 (truncated)", len(st.Papers))
-	}
+	assert.Len(t, st.Papers, 1, "truncated")
 
-	if st.Discovery.PapersFound != 3 {
-		t.Errorf("PapersFound: got %d, want 3 (retrieved before the cut)", st.Discovery.PapersFound)
-	}
+	assert.Equal(t, 3, st.Discovery.PapersFound, "PapersFound keeps the retrieved count")
 }
 
 // Multiple queries dedupe by DOI; DOI-less results are dropped with a
@@ -162,23 +145,16 @@ func TestDiscoverConsensusDedupesAndDropsNoDOI(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st, Options{
+	require.NoError(t, p.discover(context.Background(), st, Options{
 		Question: "q", Queries: []string{"first", "second"},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
-	if len(st.Papers) != 3 {
-		t.Fatalf("papers: got %d, want 3 (A,B,C after dedup)", len(st.Papers))
-	}
+	require.Len(t, st.Papers, 3, "A,B,C after dedup")
 
-	if st.Discovery.DroppedNoDOI != 1 {
-		t.Errorf("DroppedNoDOI: got %d, want 1", st.Discovery.DroppedNoDOI)
-	}
+	assert.Equal(t, 1, st.Discovery.DroppedNoDOI)
 
-	if len(st.Warnings) == 0 || !strings.Contains(st.Warnings[0], "without a DOI") {
-		t.Errorf("no-DOI drop must warn, got %v", st.Warnings)
-	}
+	require.NotEmpty(t, st.Warnings, "no-DOI drop must warn")
+	assert.Contains(t, st.Warnings[0], "without a DOI", "no-DOI drop must warn")
 }
 
 // With a key configured, a bare -q discovers through Consensus, not OpenAlex.
@@ -203,17 +179,12 @@ func TestDiscoverDefaultsToConsensusWhenKeyPresent(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st, Options{Question: "q"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q"}))
 
-	if csHits == 0 || oaHits != 0 {
-		t.Errorf("hits: consensus=%d openalex=%d, want consensus>0 openalex=0", csHits, oaHits)
-	}
+	assert.Positive(t, csHits, "consensus must be queried")
+	assert.Zero(t, oaHits, "no openalex fallback")
 
-	if st.Discovery.Engine != engineConsensus {
-		t.Errorf("engine: got %q, want consensus", st.Discovery.Engine)
-	}
+	assert.Equal(t, engineConsensus, st.Discovery.Engine)
 }
 
 // Without a key the bare -q path stays mode A (keyword OpenAlex) with a
@@ -234,17 +205,12 @@ func TestDiscoverFallsBackToOpenAlexWithoutKey(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st, Options{Question: "q"}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q"}))
 
-	if oaHits != 1 {
-		t.Errorf("openalex hits: got %d, want 1", oaHits)
-	}
+	assert.Equal(t, int32(1), oaHits)
 
-	if st.Discovery == nil || st.Discovery.Engine != engineOpenAlex {
-		t.Errorf("engine: got %+v, want openalex", st.Discovery)
-	}
+	require.NotNil(t, st.Discovery)
+	assert.Equal(t, engineOpenAlex, st.Discovery.Engine)
 }
 
 // --engine forces the keyword path even with a key; an unknown value errors.
@@ -269,17 +235,13 @@ func TestDiscoverEngineOverride(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st, Options{Question: "q", Engine: engineOpenAlex}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q", Engine: engineOpenAlex}))
 
-	if oaHits != 1 || csHits != 0 {
-		t.Errorf("hits: openalex=%d consensus=%d, want 1/0", oaHits, csHits)
-	}
+	assert.Equal(t, int32(1), oaHits)
+	assert.Zero(t, csHits)
 
-	if err := p.discover(context.Background(), &State{}, Options{Question: "q", Engine: "bogus"}); err == nil {
-		t.Error("unknown engine must error")
-	}
+	err := p.discover(context.Background(), &State{}, Options{Question: "q", Engine: "bogus"})
+	assert.Error(t, err, "unknown engine must error")
 }
 
 // A Consensus failure must kill the stage loudly (never a silent keyword
@@ -307,17 +269,12 @@ func TestDiscoverConsensusErrorIsLoud(t *testing.T) {
 	}, quietLog())
 
 	err := p.discover(context.Background(), &State{}, Options{Question: "q"})
-	if err == nil {
-		t.Fatal("consensus 401 must fail the stage")
-	}
+	require.Error(t, err, "consensus 401 must fail the stage")
 
-	if csHits == 0 || oaHits != 0 {
-		t.Errorf("hits: consensus=%d openalex=%d, want consensus>0 openalex=0 (no fallback)", csHits, oaHits)
-	}
+	assert.Positive(t, csHits, "consensus was queried")
+	assert.Zero(t, oaHits, "no silent keyword fallback")
 
-	if !strings.Contains(err.Error(), "mode C") {
-		t.Errorf("error must point at the mode C escape hatch, got: %v", err)
-	}
+	assert.ErrorContains(t, err, "mode C", "error must point at the mode C escape hatch")
 }
 
 // Page 0 of every query is fetched before page 1 of any, and the corpus cap
@@ -349,18 +306,12 @@ func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	if err := p.discover(context.Background(), st,
-		Options{Question: "main", Queries: []string{"first q", "second q"}}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, p.discover(context.Background(), st,
+		Options{Question: "main", Queries: []string{"first q", "second q"}}))
 
-	if hits != 2 {
-		t.Errorf("HTTP hits: got %d, want 2 (page 0 of each query; deeper pages skipped)", hits)
-	}
+	assert.Equal(t, int32(2), hits, "page 0 of each query; deeper pages skipped")
 
-	if len(st.Papers) != 10 {
-		t.Fatalf("papers: got %d, want 10 (the cap)", len(st.Papers))
-	}
+	require.Len(t, st.Papers, 10, "the cap")
 
 	f, s := 0, 0
 
@@ -373,11 +324,8 @@ func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
 		}
 	}
 
-	if f != 5 || s != 5 {
-		t.Errorf("fair share: got %d first-query / %d second-query papers, want 5/5", f, s)
-	}
+	assert.Equal(t, 5, f, "fair share: first-query papers")
+	assert.Equal(t, 5, s, "fair share: second-query papers")
 
-	if st.Discovery.PapersFound != 40 {
-		t.Errorf("PapersFound must keep the pooled dedup count: got %d, want 40", st.Discovery.PapersFound)
-	}
+	assert.Equal(t, 40, st.Discovery.PapersFound, "PapersFound must keep the pooled dedup count")
 }

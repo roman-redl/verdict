@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRecordAndRuns(t *testing.T) {
 	d, err := Open(context.Background(), filepath.Join(t.TempDir(), "verdict.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	defer func() { _ = d.Close() }()
 
@@ -20,41 +20,27 @@ func TestRecordAndRuns(t *testing.T) {
 		Question: "does light therapy work", Verdict: "moderate", Consensus: "broad_agreement",
 		Papers: 10, GeneratedAt: stamp(time.Now()),
 	}
-	if err := d.Record(context.Background(), base); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, d.Record(context.Background(), base))
+
 	// a re-record of the same dir is an update, not a duplicate
 	base.Verdict = "weak"
-	if err := d.Record(context.Background(), base); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, d.Record(context.Background(), base))
 
-	if err := d.Record(context.Background(), Row{
+	require.NoError(t, d.Record(context.Background(), Row{
 		Topic: "creatine", Run: "r2", Dir: "runs/creatine/r2",
 		Verdict: "strong", GeneratedAt: stamp(time.Now()),
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 
 	all, err := d.Runs(context.Background(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if len(all) != 2 {
-		t.Fatalf("want 2 rows, got %d", len(all))
-	}
-
-	if all[0].Topic != "creatine" {
-		t.Fatalf("newest first: %+v", all[0])
-	}
+	require.Len(t, all, 2)
+	require.Equal(t, "creatine", all[0].Topic, "newest first")
 
 	one, err := d.Runs(context.Background(), "keratosis")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if len(one) != 1 || one[0].Verdict != "weak" || one[0].Papers != 10 {
-		t.Fatalf("topic filter / upsert: %+v", one)
-	}
+	require.Len(t, one, 1, "topic filter")
+	require.Equal(t, "weak", one[0].Verdict, "upsert")
+	require.Equal(t, 10, one[0].Papers, "upsert")
 }

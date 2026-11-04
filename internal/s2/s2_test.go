@@ -6,15 +6,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The anonymous API is verified live: batch POST works keyless, unknown
 // DOIs arrive as null entries in their position.
 func TestBatch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/paper/batch" {
-			t.Errorf("request: %s %s", r.Method, r.URL.Path)
-		}
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/paper/batch", r.URL.Path)
 
 		var body struct {
 			IDs []string `json:"ids"`
@@ -22,8 +24,8 @@ func TestBatch(t *testing.T) {
 
 		_ = json.NewDecoder(r.Body).Decode(&body)
 
-		if len(body.IDs) != 2 || body.IDs[0] != "DOI:10.1/a" {
-			t.Errorf("ids: %+v", body.IDs)
+		if assert.Len(t, body.IDs, 2) {
+			assert.Equal(t, "DOI:10.1/a", body.IDs[0])
 		}
 
 		_, _ = w.Write([]byte(`[
@@ -38,24 +40,22 @@ func TestBatch(t *testing.T) {
 	c := NewWithBase(srv.URL, "")
 
 	papers, err := c.Batch(context.Background(), []string{"10.1/a", "10.1/void"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if len(papers) != 2 || papers[1] != nil {
-		t.Fatalf("want [paper, nil], got %+v", papers)
-	}
+	require.Len(t, papers, 2)
+	require.Nil(t, papers[1])
 
 	a := papers[0]
-	if a.Title != "Study A" || a.TLDRText() != "A one-liner" ||
-		a.InfluentialCitations != 3 || a.OpenAccessPDF.URL != "https://x/a.pdf" {
-		t.Fatalf("bad mapping: %+v", a)
-	}
+	require.Equal(t, "Study A", a.Title)
+	require.Equal(t, "A one-liner", a.TLDRText())
+	require.Equal(t, 3, a.InfluentialCitations)
+	require.Equal(t, "https://x/a.pdf", a.OpenAccessPDF.URL)
 }
 
 func TestBatchEmpty(t *testing.T) {
 	c := New("")
-	if papers, err := c.Batch(context.Background(), nil); err != nil || papers != nil {
-		t.Fatalf("empty batch: %v %+v", err, papers)
-	}
+
+	papers, err := c.Batch(context.Background(), nil)
+	require.NoError(t, err, "empty batch")
+	require.Nil(t, papers)
 }

@@ -2,8 +2,9 @@ package pipeline
 
 import (
 	"context"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/roman-redl/verdict/internal/llm"
 )
@@ -31,17 +32,13 @@ func TestPICOFromQuestion(t *testing.T) {
 	}`}
 
 	p, err := PICOFromQuestion(context.Background(), c, "creatine for the brain??")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	if p.Population != "healthy adults" || len(p.SemanticQueries) != 2 {
-		t.Fatalf("bad parse: %+v", p)
-	}
+	require.Equal(t, "healthy adults", p.Population)
+	require.Len(t, p.SemanticQueries, 2)
 
 	out := RenderPICO(p)
-	if !strings.Contains(out, "creatine cognition randomized") ||
-		!strings.Contains(out, "does creatine supplementation improve memory in healthy adults") {
-		t.Fatalf("render must carry both query flavors:\n%s", out)
-	}
+	require.Contains(t, out, "creatine cognition randomized", "render must carry both query flavors")
+	require.Contains(t, out, "does creatine supplementation improve memory in healthy adults",
+		"render must carry both query flavors")
 }

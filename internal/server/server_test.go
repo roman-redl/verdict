@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
@@ -19,13 +22,10 @@ import (
 func TestSubmitRunLifecycle(t *testing.T) {
 	handler, drain := New(func(_ context.Context, opts pipeline.Options) (*pipeline.State, string, error) {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# Verdict: moderate"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# Verdict: moderate"), 0o600)
+		require.NoError(t, err)
 
-		if opts.Question == "" {
-			t.Error("question must be defaulted before the runner sees it")
-		}
+		assert.NotEmpty(t, opts.Question, "question must be defaulted before the runner sees it")
 
 		return &pipeline.State{Report: &model.Report{Verdict: "moderate"}}, dir, nil
 	})
@@ -36,41 +36,32 @@ func TestSubmitRunLifecycle(t *testing.T) {
 
 	// invalid submit
 	resp, err := postJSON(srv.URL+"/runs", stringsReader(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	_ = resp.Body.Close()
 
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("empty submit: %d, want 400", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "empty submit")
 
 	// valid submit
 	resp, err = postJSON(srv.URL+"/runs",
 		stringsReader(`{"question":"does creatine help cognition","topic":"creatine"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	var job Job
 
 	_ = json.NewDecoder(resp.Body).Decode(&job)
 	_ = resp.Body.Close()
 
-	if resp.StatusCode != http.StatusAccepted || job.ID == "" ||
-		(job.Status != "queued" && job.Status != "running") {
-		t.Fatalf("submit: %d %+v", resp.StatusCode, job)
-	}
+	require.Equal(t, http.StatusAccepted, resp.StatusCode, "submit")
+	require.NotEmpty(t, job.ID, "submit")
+	require.Contains(t, []string{"queued", "running"}, job.Status, "submit")
 
 	// wait for the worker
 	deadline := time.Now().Add(5 * time.Second)
 
 	for {
 		resp, err = httpGet(srv.URL + "/runs/" + job.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 
 		_ = json.NewDecoder(resp.Body).Decode(&job)
 		_ = resp.Body.Close()
@@ -82,48 +73,37 @@ func TestSubmitRunLifecycle(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	if job.Status != "done" || job.Verdict != "moderate" || job.Dir == "" {
-		t.Fatalf("job did not finish: %+v", job)
-	}
+	require.Equal(t, "done", job.Status, "job did not finish")
+	require.Equal(t, "moderate", job.Verdict, "job did not finish")
+	require.NotEmpty(t, job.Dir, "job did not finish")
 
 	// artifact fetch
 	resp, err = httpGet(srv.URL + "/runs/" + job.ID + "/report.md")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	body := make([]byte, 64)
 	n, _ := resp.Body.Read(body)
 	_ = resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK || string(body[:n]) != "# Verdict: moderate" {
-		t.Fatalf("artifact: %d %q", resp.StatusCode, body[:n])
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode, "artifact")
+	require.Equal(t, "# Verdict: moderate", string(body[:n]), "artifact")
 
 	// whitelist: only run artifacts are served (the stdlib client
 	// normalizes ".." away, so a forbidden plain name is the real check)
 	resp, err = httpGet(srv.URL + "/runs/" + job.ID + "/verdict.db")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	_ = resp.Body.Close()
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("non-artifact file: %d, want 403", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusForbidden, resp.StatusCode, "non-artifact file")
 
 	// unknown id
 	resp, err = httpGet(srv.URL + "/runs/999")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	_ = resp.Body.Close()
 
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("unknown id: %d, want 404", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusNotFound, resp.StatusCode, "unknown id")
 }
 
 func TestListRuns(t *testing.T) {
@@ -137,27 +117,22 @@ func TestListRuns(t *testing.T) {
 
 	resp, err := postJSON(srv.URL+"/runs",
 		stringsReader(`{"dois":["10.1000/a"],"topic":"t"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	_ = resp.Body.Close()
 
 	time.Sleep(300 * time.Millisecond) // let the worker finish
 
 	resp, err = httpGet(srv.URL + "/runs")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	var jobs []Job
 
 	_ = json.NewDecoder(resp.Body).Decode(&jobs)
 	_ = resp.Body.Close()
 
-	if len(jobs) != 1 || jobs[0].Topic != "t" {
-		t.Fatalf("list: %+v", jobs)
-	}
+	require.Len(t, jobs, 1)
+	require.Equal(t, "t", jobs[0].Topic)
 }
 
 func stringsReader(s string) io.Reader { return strings.NewReader(s) }
@@ -167,19 +142,19 @@ func stringsReader(s string) io.Reader { return strings.NewReader(s) }
 func postJSON(url string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, body)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // test helper: the raw error is enough for t.Fatalf
+		return nil, err //nolint:wrapcheck // test helper: the raw error is enough for require.NoError
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
-	return http.DefaultClient.Do(req) //nolint:wrapcheck // test helper: the raw error is enough for t.Fatalf
+	return http.DefaultClient.Do(req) //nolint:wrapcheck // test helper: the raw error is enough for require.NoError
 }
 
 func httpGet(url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // test helper: the raw error is enough for t.Fatalf
+		return nil, err //nolint:wrapcheck // test helper: the raw error is enough for require.NoError
 	}
 
-	return http.DefaultClient.Do(req) //nolint:wrapcheck // test helper: the raw error is enough for t.Fatalf
+	return http.DefaultClient.Do(req) //nolint:wrapcheck // test helper: the raw error is enough for require.NoError
 }
