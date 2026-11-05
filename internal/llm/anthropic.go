@@ -1,8 +1,9 @@
 // Package llm holds the LLM backends of the pipeline; they implement
 // pipeline.Completer. The same prompt contract runs over three backend types:
-//   - ClaudeCLI    — reuses existing Claude Code subscriptions (wrappers
-//     from ~/.zshrc), no separate tokens to buy;
-//   - Anthropic    — direct Messages API (personal keys, for the future);
+//   - ClaudeCLI    — reuses existing Claude Code subscriptions through a
+//     wrapper (claude-max by default), no separate tokens to buy;
+//   - Anthropic    — direct Messages API (a personal key, only through an
+//     HTTPS proxy, only when LLM_BACKEND=anthropic asks for it);
 //   - OpenAICompat — any /chat/completions endpoint (OpenRouter, DeepSeek,
 //     vLLM, ...) — the migration path to cheap personal subscriptions.
 package llm
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/roman-redl/verdict/internal/httpx"
 	"github.com/roman-redl/verdict/internal/pipeline"
@@ -28,9 +30,15 @@ const (
 	anthropicVer  = "2023-06-01"
 
 	defaultMaxTokens = 4096
+	// anthropicTimeout covers the longest answer (synthesis, up to 8000
+	// tokens), which takes minutes; the shared default of 90 seconds would
+	// cut it off.
+	anthropicTimeout = 8 * time.Minute
 )
 
-// Anthropic is the direct Messages API with a personal key.
+// Anthropic is the direct Messages API with a personal key. Every request
+// goes through an HTTPS proxy: a direct call from the owner's own address is
+// forbidden (risk to the account), so there is no constructor without one.
 type Anthropic struct {
 	base  string
 	http  *httpx.Client
@@ -38,10 +46,22 @@ type Anthropic struct {
 	model string
 }
 
-func NewAnthropic(key, model string) *Anthropic { return newAnthropic(anthropicBase, key, model) }
+// NewAnthropic returns a client for the pinned API address that reaches it
+// through the proxy URL (https://user:pass@host:port). The proxy URL is never
+// echoed in errors: it carries the credentials.
+func NewAnthropic(key, model, proxy string) (*Anthropic, error) {
+	rt, err := ProxyTransport(proxy)
+	if err != nil {
+		return nil, err
+	}
 
-func newAnthropic(base, key, model string) *Anthropic {
-	return &Anthropic{base: base, http: httpx.New("anthropic", 2), key: key, model: model}
+	return newAnthropic(anthropicBase, key, model, rt), nil
+}
+
+func newAnthropic(base, key, model string, rt http.RoundTripper) *Anthropic {
+	hc := httpx.New("anthropic", 2, httpx.WithTimeout(anthropicTimeout), httpx.WithTransport(rt))
+
+	return &Anthropic{base: base, http: hc, key: key, model: model}
 }
 
 type message struct {

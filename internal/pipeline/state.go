@@ -24,8 +24,11 @@ type State struct {
 	Critiques     []model.Critique      `json:"critiques,omitempty"`
 	VisionNotes   []model.VisionNote    `json:"vision_notes,omitempty"`
 	Report        *model.Report         `json:"report,omitempty"`
-	// HybridDone records that the hybrid deepening pass has already run for
-	// this state (resume must not repeat it).
+	// HybridDone records that the hybrid deepening pass (the tail of the
+	// critique stage) has already run for this state, even if it found no full
+	// text to deepen; resume must not repeat it. False in a critique artifact
+	// written by older code or by a run stopped before the pass: --resume then
+	// deepens before the synthesis.
 	HybridDone bool `json:"hybrid_done,omitempty"`
 	// Cost is the run's LLM token accounting, as reported by the backend —
 	// the audit trail for quota-economy decisions. Nil on backends that
@@ -95,7 +98,8 @@ func (s *State) PaperCount() int {
 
 // critiqueCost and synthesisCost return the accumulated usage of a stage,
 // creating the entry on first use. Accumulating (not overwriting) matters:
-// the hybrid deepening pass re-enters both stages.
+// the hybrid deepening pass re-enters the critique stage (a resumed run adds
+// its calls to the figures already saved).
 func (s *State) critiqueCost() *StageCost {
 	if s.Cost == nil {
 		s.Cost = &CostReport{}

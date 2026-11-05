@@ -9,7 +9,8 @@ import (
 type Backend string
 
 const (
-	// BackendAuto picks a backend from the configured credentials.
+	// BackendAuto is claude-cli: a key in the environment never switches a
+	// run from the subscription to a paid API, that takes an explicit choice.
 	BackendAuto Backend = ""
 	// BackendAnthropic is the direct Messages API.
 	BackendAnthropic Backend = "anthropic"

@@ -115,11 +115,61 @@ func TestAskJSONBackendErrors(t *testing.T) {
 	})
 }
 
-func TestStripFencesAndCapText(t *testing.T) {
-	assert.JSONEq(t, `{"a":1}`, string(stripFences("```json\n{\"a\":1}\n```")))
-	assert.JSONEq(t, `{"a":1}`, string(stripFences("  {\"a\":1}  ")))
-	assert.JSONEq(t, `{"a":1}`, string(stripFences("```\n{\"a\":1}\n```")))
+func TestExtractJSON(t *testing.T) {
+	t.Parallel()
 
+	const obj = `{"a":{"b":"}"}}`
+
+	tests := []struct {
+		name, in, want string
+	}{
+		{"bare object", obj, obj},
+		{"surrounding whitespace", "  " + obj + "  \n", obj},
+		{"json fence", "```json\n" + obj + "\n```", obj},
+		{"plain fence", "```\n" + obj + "\n```", obj},
+		{"fence with trailing prose", "```json\n" + obj + "\n```\nHope this helps", obj},
+		{"prose before", "Here is the result: " + obj, obj},
+		{"prose before a fence", "Sure!\n```json\n" + obj + "\n```", obj},
+		{"prose around", "Result:\n" + obj + "\nLet me know.", obj},
+		{"prose after a bare object", obj + "\n\nDone.", obj},
+		{"no braces stays as is", "no json here", "no json here"},
+		{"only a closing brace stays as is", "} oops", "} oops"},
+		{"reversed braces stay as is", "} x {", "} x {"},
+		{"empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, string(extractJSON(tt.in)))
+		})
+	}
+}
+
+func TestAskJSONExtractsFromProse(t *testing.T) {
+	f := &echoCompleter{replies: []string{"Here you go:\n```json\n{\"x\": 7}\n```\nEnjoy"}}
+
+	var out struct{ X int }
+
+	_, err := AskJSON(context.Background(), f, "s", "u", &out, 100)
+	require.NoError(t, err)
+	assert.Equal(t, 7, out.X)
+	assert.Equal(t, 1, f.calls, "no retry when the object can be extracted")
+}
+
+// A stop error is not retried and keeps its identity through the wrapping.
+func TestAskJSONPropagatesLLMStop(t *testing.T) {
+	f := &stopCompleter{}
+
+	var out struct{ X int }
+
+	_, err := AskJSON(context.Background(), f, "s", "u", &out, 100)
+	require.ErrorIs(t, err, ErrLLMStop)
+	assert.Equal(t, 1, f.count(), "no retry after a stop")
+}
+
+func TestCapText(t *testing.T) {
 	assert.Equal(t, "héllo", capText("héllo", 5))
 	assert.Equal(t, "hé…", capText("héllo", 2), "the cap counts runes, not bytes")
 }
@@ -129,13 +179,16 @@ func TestUsageAdd(t *testing.T) {
 	assert.Equal(t, Usage{Calls: 5, InputTokens: 7, OutputTokens: 9}, sum)
 }
 
-func FuzzStripFences(f *testing.F) {
-	for _, seed := range []string{"", "```json\n{}\n```", "```", "``` ", "{\"a\":1}", "```\n```"} {
+func FuzzExtractJSON(f *testing.F) {
+	for _, seed := range []string{
+		"", "```json\n{}\n```", "```", "``` ", "{\"a\":1}", "```\n```", "x {a} y", "} {", "{", "}", "```{```}",
+	} {
 		f.Add(seed)
 	}
 
 	f.Fuzz(func(t *testing.T, s string) {
-		// must not panic whatever the model wraps around its answer
-		_ = stripFences(s)
+		// must not panic whatever the model wraps around its answer, and it
+		// only cuts: the result is always a piece of the input
+		require.Contains(t, s, string(extractJSON(s)))
 	})
 }

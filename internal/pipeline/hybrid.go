@@ -1,15 +1,16 @@
 package pipeline
 
-// The hybrid text mode's second half. The first pass runs on abstracts (as
-// lean); once the critic has marked each study's relevance and quality, the
-// studies the verdict rests on are known deterministically — no extra LLM
-// call. Exactly those get OA full texts, are re-critiqued (the cache key
-// includes the full text, so only they miss) and the verdict is rebuilt.
+// The hybrid text mode's deepening, the tail of the critique stage. The first
+// pass runs on abstracts (as lean); once the critic has marked each study's
+// relevance and quality, the studies the verdict will rest on are known
+// deterministically — no extra LLM call, and no synthesis needed to choose
+// them. Exactly those get OA full texts and are re-critiqued (the cache key
+// includes the full text, so only they miss). The synthesis stage then runs
+// once, on the final critiques.
 
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"sort"
 )
 
@@ -62,8 +63,9 @@ func pivotalStudies(st *State, maxStudies int) []int {
 }
 
 // hybridPass runs the deepening and records that it happened: HybridDone
-// keeps a resume from repeating the pass, and both artifacts that changed
-// are saved again.
+// is set even when no pivotal study had a full text (the pass ran, there was
+// nothing to deepen), so a resume does not repeat it. Saving the critique
+// artifact is the caller's job.
 func (p *Pipeline) hybridPass(ctx context.Context, rp runParams, st *State) error {
 	if err := p.hybridDeepen(ctx, rp, st); err != nil {
 		return fmt.Errorf("hybrid deepening: %w", err)
@@ -71,18 +73,13 @@ func (p *Pipeline) hybridPass(ctx context.Context, rp runParams, st *State) erro
 
 	st.HybridDone = true
 
-	for _, name := range []string{stageCritique, stageSynthesis} {
-		if err := saveJSON(filepath.Join(rp.dir, name+".json"), st); err != nil {
-			return fmt.Errorf("saving %s: %w", name, err)
-		}
-	}
-
 	return nil
 }
 
-// hybridDeepen fetches OA full texts for the pivotal studies, re-critiques
-// the changed ones and re-synthesizes. When no pivotal study yields a full
-// text, the pass is a no-op — the abstracts-only verdict stands.
+// hybridDeepen fetches OA full texts for the pivotal studies and re-critiques
+// the changed ones with the deep client (Clients.LLMDeep, the critic when
+// unset). It does not synthesize. When no pivotal study yields a full text,
+// the pass is a no-op — the abstracts critiques stand.
 func (p *Pipeline) hybridDeepen(ctx context.Context, rp runParams, st *State) error {
 	maxStudies := p.set.HybridPivotalMax
 	if maxStudies <= 0 {
@@ -104,15 +101,18 @@ func (p *Pipeline) hybridDeepen(ctx context.Context, rp runParams, st *State) er
 	}
 
 	if got == 0 {
-		p.log.Info("hybrid: no OA full text for the pivotal studies — keeping the abstracts verdict")
+		p.log.Info("hybrid: no OA full text for the pivotal studies — keeping the abstracts critiques")
 		return nil
 	}
 
 	p.log.Info("hybrid: deepening pivotal studies with full texts", "studies", got)
 
-	if err := p.critique(ctx, rp, st); err != nil {
-		return err
+	// the pivotal studies are the ones the verdict rests on: the deep client
+	// re-critiques them (the first pass ran on the cheap critic)
+	deep := p.clients.LLMDeep
+	if deep == nil {
+		deep = p.clients.LLM
 	}
 
-	return p.synthesize(ctx, rp, st)
+	return p.critiqueWith(ctx, rp, st, deep)
 }

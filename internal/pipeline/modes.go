@@ -12,7 +12,8 @@ const (
 	// TextLean reads abstracts only.
 	TextLean TextMode = "lean"
 	// TextHybrid reads abstracts first, then open-access full texts for the
-	// pivotal studies after the first synthesis (one deepening pass).
+	// pivotal studies (one deepening pass at the end of the critique stage,
+	// before the single synthesis).
 	TextHybrid TextMode = "hybrid"
 	// TextFull reads open-access full texts for every paper at enrichment.
 	TextFull TextMode = "full"

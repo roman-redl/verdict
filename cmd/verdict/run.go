@@ -116,13 +116,17 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 		"studies per critique call — the call count, not the payload, dominates the cost "+
 			"(0 = LLM_CHUNK from env, 5; 1 = one call per study)")
 	fl.StringVar(&opts.LLMCommand, "llm-command", "",
-		"claude-cli wrapper for this run (default comes from .env)")
+		"claude-cli wrapper for this run (default: the session's CLAUDE_WRAPPER, then LLM_COMMAND, then claude-max)")
 	fl.StringVar(&opts.LLMModel, "llm-model", "",
-		"exact model name for both LLM stages (empty = wrapper default)")
+		"model for every LLM stage: a name or an alias (opus | sonnet | haiku | fable); empty = each stage's default")
 	fl.StringVar(&opts.ModelCritique, "model-critique", "",
-		"critique-stage model override, exact name (cheap critic + strong judge)")
+		"critique-stage model override (default sonnet)")
+	fl.StringVar(&opts.ModelDeep, "model-deep", "",
+		"model override for the full-text re-critique of the hybrid pass (default opus)")
 	fl.StringVar(&opts.ModelSynthesis, "model-synthesis", "",
-		"synthesis-stage model override, exact name")
+		"synthesis-stage model override (default opus, fable with --deep)")
+	fl.BoolVar(&opts.Deep, "deep", false,
+		"the strongest model (fable) for the synthesis unless --model-synthesis says otherwise")
 	fl.StringVar(&opts.ChallengeNote, "challenge-note", "",
 		"counterargument to weigh and answer in the verdict rationale (not data)")
 	fl.StringVar(&f.modeFlag, "text-mode", "",

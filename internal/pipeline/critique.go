@@ -90,9 +90,10 @@ Design quality guidance: meta-analysis / systematic review of RCTs = high; RCT =
 
 // critiqueInput is the per-study payload sent to the critic — the explicit
 // field allowlist that keeps Consensus's own takeaways out of the evidence.
-func critiqueInput(e model.EnrichedPaper, question string) map[string]any {
+// The question is not part of it: the single-study form adds it to its
+// payload, the batch carries it once at the top level.
+func critiqueInput(e model.EnrichedPaper) map[string]any {
 	return map[string]any{
-		"question":           question,
 		"doi":                e.DOI,
 		"title":              e.Title,
 		"year":               e.Year,
@@ -131,7 +132,10 @@ func critiquePaper(
 ) (model.Critique, Usage, error) {
 	c := blankCritique(e)
 
-	b, err := json.Marshal(critiqueInput(e, question))
+	in := critiqueInput(e)
+	in["question"] = question
+
+	b, err := json.Marshal(in)
 	if err != nil {
 		err = fmt.Errorf("encoding study %s: %w", e.DOI, err)
 		c.Error = persistedErr(err)
@@ -165,7 +169,7 @@ func critiqueBatch(
 
 	p := payload{Question: question, Studies: make([]map[string]any, len(papers))}
 	for i := range papers {
-		p.Studies[i] = critiqueInput(papers[i], question)
+		p.Studies[i] = critiqueInput(papers[i])
 	}
 
 	b, err := json.Marshal(p)

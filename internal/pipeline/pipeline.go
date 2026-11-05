@@ -1,7 +1,8 @@
 // Package pipeline is the orchestrator: discovery → enrichment → critique →
-// synthesis. A full state checkpoint is written after every stage, so a run
-// that died midway can be resumed (--resume) without paying for the paid
-// APIs twice.
+// synthesis. In the hybrid text mode the critique stage ends with a deepening
+// pass over the pivotal studies, so the synthesis still runs once. A full
+// state checkpoint is written after every stage, so a run that died midway
+// can be resumed (--resume) without paying for the paid APIs twice.
 package pipeline
 
 import (
@@ -35,9 +36,13 @@ type Options struct {
 	ConsensusPages int      // max Consensus pages per query (defaults to CONSENSUS_PAGES, 3)
 
 	LLMCommand     string // claude-cli wrapper override for this run
-	LLMModel       string // exact model name for both LLM stages
+	LLMModel       string // model for every LLM stage (a name or an alias like sonnet | opus)
 	ModelCritique  string // critique-stage model override
+	ModelDeep      string // model override for the full-text re-critique of the hybrid pass
 	ModelSynthesis string // synthesis-stage model override
+	// Deep makes the strongest model (fable) the synthesis default; an
+	// explicit synthesis model still wins.
+	Deep bool
 
 	// ChallengeNote is the user's counterargument to a previous verdict: not
 	// data, but the judge must weigh and answer it explicitly.
@@ -46,9 +51,10 @@ type Options struct {
 	// TextMode selects what the critic reads: lean | hybrid | full
 	// ("" = TEXT_MODE from the environment, default hybrid). lean — abstracts
 	// only; hybrid — abstracts first, then OA full texts for the pivotal
-	// studies after the first synthesis (one deepening pass); full — OA full
-	// texts for every paper at enrichment. A PDF pre-placed in the run's
-	// fulltext/ is read in every mode: an explicit user action beats the mode.
+	// studies inside the critique stage (one deepening pass, before the single
+	// synthesis); full — OA full texts for every paper at enrichment. A PDF
+	// pre-placed in the run's fulltext/ is read in every mode: an explicit
+	// user action beats the mode.
 	TextMode TextMode
 }
 
@@ -63,9 +69,12 @@ type Clients struct {
 	Search     SemanticSearch // Consensus: semantic discovery (behind an API key)
 	PDFs       PDFSource      // open-access PDF download
 	PDFText    PDFText        // PDF text extraction
-	LLM        Completer
+	LLM        Completer      // the critic: the per-paper methodology review
+	// LLMDeep re-critiques the pivotal studies in the hybrid pass, once their
+	// full texts are in; nil = the same backend as LLM.
+	LLMDeep Completer
 	// LLMSynthesis overrides the judge model when set (cheap critic + strong
-	// judge); empty = the same backend as LLM.
+	// judge); nil = the same backend as LLM.
 	LLMSynthesis Completer
 }
 
@@ -135,7 +144,7 @@ func (p *Pipeline) stages() []stage {
 	return []stage{
 		{stageDiscovery, p.discover},
 		{stageEnrichment, p.enrich},
-		{stageCritique, p.critique},
+		{stageCritique, p.critiqueStage},
 		{stageSynthesis, p.synthesize},
 	}
 }
@@ -168,18 +177,8 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 
 	st := &State{ChallengeNote: opts.ChallengeNote}
 
-	synthesisRanFresh, err := p.runStages(ctx, rp, st)
-	if err != nil {
+	if err := p.runStages(ctx, rp, st); err != nil {
 		return nil, dir, err
-	}
-	// The hybrid second half: after a fresh first-verdict pass, fetch OA full
-	// texts for the pivotal studies, re-critique exactly those (the cache keys
-	// changed) and re-synthesize. One pass per state — resume does not repeat
-	// it; a --stop-after before synthesis skips it (st.Report is nil then).
-	if st.Report != nil && opts.TextMode == TextHybrid && !st.HybridDone && synthesisRanFresh {
-		if err := p.hybridPass(ctx, rp, st); err != nil {
-			return nil, dir, err
-		}
 	}
 
 	if err := writeReports(dir, st); err != nil {
@@ -209,53 +208,96 @@ func copyInput(rp runParams) error {
 }
 
 // runStages runs the stages in order, saving a full checkpoint after each.
-// With Resume, a stage whose artifact is on disk is loaded instead of run. It
-// reports whether the synthesis ran in this call (the hybrid pass only
-// follows a fresh synthesis).
-func (p *Pipeline) runStages(ctx context.Context, rp runParams, st *State) (bool, error) {
-	synthesisRanFresh := false
-
+// With Resume, a stage whose artifact is on disk is loaded instead of run.
+func (p *Pipeline) runStages(ctx context.Context, rp runParams, st *State) error {
 	for _, s := range p.stages() {
 		artifact := filepath.Join(rp.dir, s.name+".json")
-		if rp.opts.Resume && fileExists(artifact) {
-			if err := loadJSON(artifact, st); err != nil {
-				return false, fmt.Errorf("resume %s: %w", s.name, err)
-			}
+		loaded := rp.opts.Resume && fileExists(artifact)
 
-			p.log.Info("stage skipped: artifact on disk", "stage", s.name)
-
-			continue
+		var err error
+		if loaded {
+			err = p.resumeStage(ctx, rp, st, s.name, artifact)
+		} else {
+			err = p.runStage(ctx, rp, st, s, artifact)
 		}
 
-		if s.name == stageSynthesis {
-			p.loadVisionNotes(rp.dir, st) // optional agent-written chart critique
-
-			synthesisRanFresh = true
+		if err != nil {
+			return err
 		}
-
-		if err := s.run(ctx, rp, st); err != nil {
-			return false, fmt.Errorf("stage %s: %w", s.name, err)
-		}
-		// A canceled context makes the sources fail one by one without failing
-		// the stage; the half-filled state must not be saved as a finished
-		// stage, or --resume would skip it.
-		if err := ctx.Err(); err != nil {
-			return false, fmt.Errorf("stage %s interrupted: %w", s.name, err)
-		}
-
-		if err := saveJSON(artifact, st); err != nil {
-			return false, fmt.Errorf("saving %s: %w", s.name, err)
-		}
-
-		p.log.Info("stage done", "stage", s.name, "papers", len(st.Papers))
-
+		// a --stop-after at a loaded stage ends the run there too: nothing
+		// after it (the deepening included) may start
 		if stopsAfter(rp.opts.StopAfter, s.name) {
 			p.log.Info("stopping after --stop-after", "stage", s.name)
 			break
 		}
 	}
 
-	return synthesisRanFresh, nil
+	return nil
+}
+
+// resumeStage loads a stage's finished artifact instead of running the stage.
+func (p *Pipeline) resumeStage(ctx context.Context, rp runParams, st *State, name, artifact string) error {
+	if err := loadJSON(artifact, st); err != nil {
+		return fmt.Errorf("resume %s: %w", name, err)
+	}
+
+	p.log.Info("stage skipped: artifact on disk", "stage", name)
+
+	if name == stageCritique {
+		return p.deepenLoadedCritique(ctx, rp, st, artifact)
+	}
+
+	return nil
+}
+
+// runStage runs one stage and saves its checkpoint.
+func (p *Pipeline) runStage(ctx context.Context, rp runParams, st *State, s stage, artifact string) error {
+	if s.name == stageSynthesis {
+		p.loadVisionNotes(rp.dir, st) // optional agent-written chart critique
+	}
+
+	if err := s.run(ctx, rp, st); err != nil {
+		return fmt.Errorf("stage %s: %w", s.name, err)
+	}
+	// A canceled context makes the sources fail one by one without failing
+	// the stage; the half-filled state must not be saved as a finished
+	// stage, or --resume would skip it.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("stage %s interrupted: %w", s.name, err)
+	}
+
+	if err := saveJSON(artifact, st); err != nil {
+		return fmt.Errorf("saving %s: %w", s.name, err)
+	}
+
+	p.log.Info("stage done", "stage", s.name, "papers", len(st.Papers))
+
+	return nil
+}
+
+// deepenLoadedCritique gives a critique artifact loaded by --resume the hybrid
+// deepening it lacks: one written by older code (which deepened after the
+// synthesis) or by a run stopped right after the abstracts critique. When the
+// synthesis artifact is already on disk the run is left as it is — a resume
+// never repeats the pass. The artifact is saved again after the deepening.
+func (p *Pipeline) deepenLoadedCritique(ctx context.Context, rp runParams, st *State, artifact string) error {
+	if rp.opts.TextMode != TextHybrid || st.HybridDone || fileExists(filepath.Join(rp.dir, stageSynthesis+".json")) {
+		return nil
+	}
+
+	if err := p.hybridPass(ctx, rp, st); err != nil {
+		return fmt.Errorf("stage %s: %w", stageCritique, err)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("stage %s interrupted: %w", stageCritique, err)
+	}
+
+	if err := saveJSON(artifact, st); err != nil {
+		return fmt.Errorf("saving %s: %w", stageCritique, err)
+	}
+
+	return nil
 }
 
 // stopsAfter reports whether --stop-after names the stage, by full name or

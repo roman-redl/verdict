@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/roman-redl/verdict/cmd/internal/app"
+	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -22,7 +23,7 @@ func (c *cli) briefCmd() *cobra.Command {
 		Short: "Turn a messy problem description into agent tasks + evidence questions",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			completer, err := app.BuildCompleter(c.cfg, c.log, "")
+			completer, err := app.BuildCompleter(c.cfg, c.log, app.CompleterSpec{Role: llm.RolePlan})
 			if err != nil {
 				return err
 			}

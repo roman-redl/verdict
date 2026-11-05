@@ -18,8 +18,9 @@ const openAIDefaultBase = "https://api.openai.com/v1"
 const completionTemperature = 0.2
 
 // OpenAICompat is any /chat/completions endpoint: OpenRouter, DeepSeek,
-// vLLM, Together, etc. When corporate tariff access disappears, migrating to
-// cheap personal subscriptions is a change of three env variables, no code.
+// vLLM, Together, etc. Migrating to another provider is a change of a few env
+// variables, no code. Providers with a personal paid key (OpenAI, Groq) are
+// reached only through the proxy, see ProxyRequired.
 type OpenAICompat struct {
 	base  string
 	key   string
@@ -27,12 +28,38 @@ type OpenAICompat struct {
 	http  *httpx.Client
 }
 
-func NewOpenAICompat(base, key, model string) *OpenAICompat {
+// NewOpenAICompat returns a client for the endpoint. A non-empty proxy URL
+// (https://user:pass@host:443) routes every request through it; it is never
+// echoed in errors, it carries the credentials. Whether a proxy is mandatory
+// for this endpoint is the caller's check (ProxyRequired).
+func NewOpenAICompat(base, key, model, proxy string) (*OpenAICompat, error) {
 	if base == "" {
 		base = openAIDefaultBase
 	}
 
-	return &OpenAICompat{base: base, key: key, model: model, http: httpx.New("openai-compat", 2)}
+	// config.Validate checks this at startup; the constructor refuses too, so
+	// no other caller can send a paid personal key out directly
+	required, err := ProxyRequired(base)
+	if err != nil {
+		return nil, err
+	}
+
+	if required && proxy == "" {
+		return nil, ErrProxyRequired
+	}
+
+	var opts []httpx.Option
+
+	if proxy != "" {
+		rt, err := ProxyTransport(proxy)
+		if err != nil {
+			return nil, err
+		}
+
+		opts = append(opts, httpx.WithTransport(rt))
+	}
+
+	return &OpenAICompat{base: base, key: key, model: model, http: httpx.New("openai-compat", 2, opts...)}, nil
 }
 
 func (o *OpenAICompat) Name() string { return "openai-compat:" + o.model }

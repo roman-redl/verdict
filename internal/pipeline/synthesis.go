@@ -34,11 +34,17 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 	var jr synthesisResult
 
 	usage, err := AskJSON(ctx, judge, synthesisSystemPrompt, user, &jr, synthesisMaxTokens)
+	if errors.Is(err, ErrLLMStop) {
+		p.log.Error("synthesis stopped: the LLM backend takes no more calls", "err", err)
+
+		return errLLMStopped()
+	}
+
 	if err != nil {
 		return fmt.Errorf("LLM synthesis: %w", err)
 	}
 
-	st.synthesisCost().add(usage) // accumulates: a hybrid re-synthesis adds its call
+	st.synthesisCost().add(usage) // accumulates: a rerun after deleting 4-synthesis.json adds its call
 	p.log.Info("synthesis llm usage", "in", usage.InputTokens, "out", usage.OutputTokens)
 
 	r := model.Report{

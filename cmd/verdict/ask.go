@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/roman-redl/verdict/cmd/internal/app"
+	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -39,7 +40,7 @@ func (c *cli) askCmd() *cobra.Command {
 }
 
 func (c *cli) ask(ctx context.Context, runDir, question string) error {
-	completer, err := app.BuildCompleter(c.cfg, c.log, "")
+	completer, err := app.BuildCompleter(c.cfg, c.log, app.CompleterSpec{Role: llm.RoleAsk})
 	if err != nil {
 		return err
 	}

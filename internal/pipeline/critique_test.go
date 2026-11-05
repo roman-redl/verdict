@@ -55,6 +55,40 @@ func TestCritiqueBatchFallsBackForDroppedStudies(t *testing.T) {
 	assert.Contains(t, s.prompts[1], "Assess this study", "fallback must use the single-study form")
 }
 
+// The question travels once, at the top of the batch payload; the single-study
+// form keeps it inside the study.
+func TestCritiquePayloadsCarryTheQuestionOnce(t *testing.T) {
+	batch := `{"critiques":[{"doi":"10.1/a"},{"doi":"10.1/b"}]}`
+	single := `{"doi":"10.1/a"}`
+	s := &scriptCompleter{replies: []string{batch, single}}
+
+	_, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA), ep(doiB)}, "does X work?")
+	require.NoError(t, err)
+
+	_, user, ok := strings.Cut(s.prompts[0], "\n\n")
+	require.True(t, ok)
+
+	user = strings.TrimSuffix(user, jsonInstruct)
+
+	var got struct {
+		Question string           `json:"question"`
+		Studies  []map[string]any `json:"studies"`
+	}
+
+	require.NoError(t, json.Unmarshal([]byte(user), &got))
+	assert.Equal(t, "does X work?", got.Question)
+	require.Len(t, got.Studies, 2)
+
+	for _, st := range got.Studies {
+		assert.NotContains(t, st, "question", "the batch repeats no question per study")
+		assert.Contains(t, st, "abstract")
+	}
+
+	_, _, err = critiquePaper(context.Background(), s, ep(doiA), "does X work?")
+	require.NoError(t, err)
+	assert.Contains(t, s.prompts[1], `"question":"does X work?"`, "the single form keeps the question")
+}
+
 // A total batch failure degrades to single calls for the whole chunk.
 func TestCritiqueBatchTotalFailureReturnsNil(t *testing.T) {
 	s := &scriptCompleter{replies: []string{"complete garbage, not json at all", "still not json"}}

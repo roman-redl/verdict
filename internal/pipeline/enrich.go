@@ -56,7 +56,7 @@ func (p *Pipeline) enrich(ctx context.Context, rp runParams, st *State) error {
 		scholar: p.fetchScholar(ctx, st.Papers),
 		cache:   LoadEnrichCache(cachePath, p.set.EnrichCacheTTL, p.now(), p.log),
 		// OA downloads happen in full mode only (hybrid fetches its full texts
-		// after the first synthesis, lean never); a pre-placed PDF is read in
+		// at the end of the critique stage, lean never); a pre-placed PDF is read in
 		// every mode — see fetchFullText.
 		download: rp.opts.TextMode == TextFull,
 	}

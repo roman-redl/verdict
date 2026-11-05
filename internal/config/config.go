@@ -29,34 +29,51 @@ type Config struct {
 
 	SciteAPIKey     string `env:"SCITE_API_KEY"`
 	OpenAlexEmail   string `env:"OPENALEX_EMAIL"`
-	AnthropicAPIKey string `env:"ANTHROPIC_API_KEY"`
-	AnthropicModel  string `env:"ANTHROPIC_MODEL" envDefault:"claude-sonnet-5"`
 	S2APIKey        string `env:"S2_API_KEY"`        // optional: raises Semantic Scholar's free anonymous limits
 	PubPeerDevKey   string `env:"PUBPEER_DEVKEY"`    // optional: enables the PubPeer commentary check
 	ConsensusAPIKey string `env:"CONSENSUS_API_KEY"` // optional: mode B — semantic discovery via the Consensus API
 
-	// LLM backend for the analytical stages: "" (auto) | anthropic | claude-cli
-	// | openai-compat.
+	// LLM backend for the analytical stages: "" (auto: always claude-cli) |
+	// anthropic | claude-cli | openai-compat.
 	LLMBackend llm.Backend `env:"LLM_BACKEND"`
-	// LLMCommand is the claude-cli wrapper from ~/.zshrc; the per-stage
-	// overrides (cheap critic, strong judge) fall back to it when empty.
-	LLMCommand          string `env:"LLM_COMMAND" envDefault:"claude-zai"`
-	LLMCommandCritique  string `env:"LLM_COMMAND_CRITIQUE"`
-	LLMCommandSynthesis string `env:"LLM_COMMAND_SYNTHESIS"`
-	// LLMModel is an exact model name (aliases do not resolve in claude-cli);
-	// the per-stage overrides fall back to it when empty.
-	LLMModel          string        `env:"LLM_MODEL"`
-	LLMModelCritique  string        `env:"LLM_MODEL_CRITIQUE"`
-	LLMModelSynthesis string        `env:"LLM_MODEL_SYNTHESIS"`
-	LLMTimeout        time.Duration `env:"LLM_TIMEOUT" envDefault:"10m"`
+	// ClaudeWrapper is the wrapper of the agent session this process runs in:
+	// the wrappers export CLAUDE_WRAPPER. It beats LLM_COMMAND — .env serves
+	// runs outside a session (a terminal, verdictd).
+	ClaudeWrapper string `env:"CLAUDE_WRAPPER"`
+	// LLMCommand is the claude-cli wrapper (claude-max, claude-zai, ...) for
+	// runs outside an agent session; empty = claude-max. Never the bare
+	// `claude`: see Validate.
+	LLMCommand string `env:"LLM_COMMAND"`
+	// LLMModel is a model name or an alias (opus, sonnet, haiku, fable —
+	// they resolve in every wrapper). It is the fallback of the role models;
+	// empty = the default of each role.
+	LLMModel          string `env:"LLM_MODEL"`
+	LLMModelPlan      string `env:"LLM_MODEL_PLAN"`
+	LLMModelCritique  string `env:"LLM_MODEL_CRITIQUE"`
+	LLMModelDeep      string `env:"LLM_MODEL_DEEP"`
+	LLMModelSynthesis string `env:"LLM_MODEL_SYNTHESIS"`
+	LLMModelAsk       string `env:"LLM_MODEL_ASK"`
+	// LLMTimeout caps one claude-cli attempt.
+	LLMTimeout time.Duration `env:"LLM_TIMEOUT" envDefault:"10m"`
 	// LLMConcurrency is the LLM stage parallelism; LLMChunk is the number of
 	// studies per critique call (1 = one call per study).
 	LLMConcurrency int `env:"LLM_CONCURRENCY" envDefault:"4"`
 	LLMChunk       int `env:"LLM_CHUNK" envDefault:"5"`
 
-	// OpenAI-compatible backend (OpenRouter/DeepSeek/...).
+	// Anthropic Messages API (LLM_BACKEND=anthropic only). The personal key
+	// goes through an HTTPS proxy, never directly; the model is an exact API
+	// model id (the API takes no aliases), with no default.
+	AnthropicAPIKey string `env:"ANTHROPIC_API_KEY"`
+	AnthropicProxy  string `env:"ANTHROPIC_PROXY"`
+	AnthropicModel  string `env:"ANTHROPIC_MODEL"`
+
+	// OpenAI-compatible backend (LLM_BACKEND=openai-compat only). OpenAIProxy
+	// is an HTTPS proxy URL: mandatory for the paid personal-key providers
+	// (OpenAI, Groq — see llm.ProxyRequired), optional for other hosts, and
+	// always used when set.
 	OpenAIBaseURL string `env:"OPENAI_BASE_URL"`
 	OpenAIKey     string `env:"OPENAI_API_KEY"`
+	OpenAIProxy   string `env:"OPENAI_PROXY"`
 
 	MaxPapers   int `env:"MAX_PAPERS" envDefault:"15"`
 	Concurrency int `env:"CONCURRENCY" envDefault:"4"`
@@ -65,7 +82,7 @@ type Config struct {
 	// default), full (OA full texts for every paper).
 	TextMode pipeline.TextMode `env:"TEXT_MODE" envDefault:"hybrid"`
 	// HybridPivotalMax caps how many pivotal studies the hybrid mode deepens
-	// with full texts after the first synthesis.
+	// with full texts (the tail of the critique stage, before the synthesis).
 	HybridPivotalMax int `env:"HYBRID_PIVOTAL_MAX" envDefault:"5"`
 	// ConsensusPages caps the Consensus search pages fetched per discovery
 	// query (quota: each HTTP request plausibly consumes one of the plan's
@@ -79,22 +96,77 @@ type Config struct {
 	CritiqueCacheTTLDays int `env:"CRITIQUE_CACHE_TTL_DAYS" envDefault:"30"`
 }
 
-// Validate checks the rules a struct tag cannot express: the backend's
-// credentials and the value ranges.
-func (c *Config) Validate() error {
+// validateBackend checks the credentials of an explicitly chosen backend.
+func (c *Config) validateBackend() []error {
 	var errs []error
 
 	switch c.LLMBackend {
 	case llm.BackendAnthropic:
-		if c.AnthropicAPIKey == "" {
-			errs = append(errs, errors.New("LLM_BACKEND=anthropic requires ANTHROPIC_API_KEY"))
+		for _, f := range []struct{ name, val string }{
+			{"ANTHROPIC_API_KEY", c.AnthropicAPIKey},
+			{"ANTHROPIC_PROXY", c.AnthropicProxy},
+			{"ANTHROPIC_MODEL", c.AnthropicModel},
+		} {
+			if f.val == "" {
+				errs = append(errs, fmt.Errorf("LLM_BACKEND=anthropic requires %s", f.name))
+			}
+		}
+
+		if c.AnthropicProxy != "" {
+			// the error does not quote the value: the proxy URL carries credentials
+			if _, err := llm.ProxyTransport(c.AnthropicProxy); err != nil {
+				errs = append(errs, fmt.Errorf("ANTHROPIC_PROXY is not usable: %w", err))
+			}
 		}
 	case llm.BackendOpenAICompat:
 		if c.OpenAIKey == "" {
 			errs = append(errs, errors.New("LLM_BACKEND=openai-compat requires OPENAI_API_KEY"))
 		}
+
+		errs = append(errs, c.validateOpenAIProxy()...)
 	case llm.BackendAuto, llm.BackendClaudeCLI:
-		// no credentials to check: auto falls back to the claude-cli wrapper
+		// no credentials to check: the claude-cli wrapper holds its own login
+	}
+
+	return errs
+}
+
+// validateOpenAIProxy enforces the owner's rule: a personal paid API key
+// (OpenAI, Groq) never goes out from the local address, only through the VPS
+// proxy. The error texts do not quote the URLs: they may carry credentials.
+func (c *Config) validateOpenAIProxy() []error {
+	var errs []error
+
+	required, err := llm.ProxyRequired(c.OpenAIBaseURL)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("OPENAI_BASE_URL is not usable: %w", err))
+	}
+
+	if required && c.OpenAIProxy == "" {
+		errs = append(errs, errors.New("personal paid API keys never go out directly: set OPENAI_PROXY "+
+			"(OPENAI_BASE_URL points to a provider that requires it)"))
+	}
+
+	if c.OpenAIProxy != "" {
+		if _, err := llm.ProxyTransport(c.OpenAIProxy); err != nil {
+			errs = append(errs, fmt.Errorf("OPENAI_PROXY is not usable: %w", err))
+		}
+	}
+
+	return errs
+}
+
+// Validate checks the rules a struct tag cannot express: the backend's
+// credentials, the wrapper and the value ranges.
+func (c *Config) Validate() error {
+	var errs []error
+
+	errs = append(errs, c.validateBackend()...)
+
+	// The session wrapper and --llm-command are checked where they are
+	// resolved (cmd/internal/app); LLM_COMMAND is checked here.
+	if err := llm.CheckWrapper(c.LLMCommand); err != nil {
+		errs = append(errs, fmt.Errorf("LLM_COMMAND %w", err))
 	}
 
 	if c.LogFormat != LogText && c.LogFormat != LogJSON {

@@ -5,10 +5,7 @@
 package app
 
 import (
-	"cmp"
-	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/roman-redl/verdict/internal/config"
@@ -52,91 +49,29 @@ func PipelineSettings(cfg *config.Config) pipeline.Settings {
 	}
 }
 
-// BuildCompleter picks the LLM backend; model is a per-stage override
-// (empty = the config default). Explicit LLM_BACKEND, otherwise auto —
-// Anthropic API when a key is present, then OpenAI-compatible, else
-// claude-cli (existing Claude Code tariffs, no tokens to buy). Credentials
-// of an explicit backend are checked by config.Validate.
-func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (pipeline.Completer, error) {
-	backend := cfg.LLMBackend
-	if backend == llm.BackendAuto {
-		switch {
-		case cfg.AnthropicAPIKey != "":
-			backend = llm.BackendAnthropic
-		case cfg.OpenAIKey != "":
-			backend = llm.BackendOpenAICompat
-		default:
-			backend = llm.BackendClaudeCLI
-		}
-	}
-
-	switch backend {
-	case llm.BackendAnthropic:
-		m := cmp.Or(model, cfg.LLMModel, cfg.AnthropicModel)
-
-		return llm.NewAnthropic(cfg.AnthropicAPIKey, m), nil
-	case llm.BackendOpenAICompat:
-		m := cmp.Or(model, cfg.LLMModel)
-		if m == "" {
-			return nil, fmt.Errorf("openai-compat requires LLM_MODEL (the endpoint's model name)")
-		}
-
-		return llm.NewOpenAICompat(cfg.OpenAIBaseURL, cfg.OpenAIKey, m), nil
-	case llm.BackendClaudeCLI:
-		if strings.HasPrefix(cfg.LLMCommand, "claude-zai") {
-			log.Warn("claude-zai: the very first request blocks the corporate gateway " +
-				"for hours (one-way cooldown) — make sure corporate models are not needed soon")
-		}
-
-		m := cmp.Or(model, cfg.LLMModel)
-		log.Info("LLM backend", "command", cfg.LLMCommand,
-			"model", cmp.Or(m, "(wrapper default)"))
-
-		return llm.NewClaudeCLI(cfg.LLMCommand, m, cfg.LLMTimeout), nil
-	case llm.BackendAuto:
-		// resolved above; reaching this is a bug in this function
-	}
-
-	log.Error("LLM backend not resolved", "backend", backend)
-
-	return nil, fmt.Errorf("unknown LLM backend %q", backend)
-}
-
 // BuildClients assembles the pipeline's clients from the config and the
-// run options (per-run LLM command/model overrides included). The judge
-// backend defaults to the critic's; a per-stage command or model override
-// (LLM_COMMAND_SYNTHESIS / LLM_MODEL_SYNTHESIS) rebuilds it separately —
-// the cheap-critic + strong-judge split.
+// run options (per-run LLM command/model overrides included). The three
+// pipeline roles get their own backends — a cheap critic reads the abstracts,
+// a strong deep critic re-reads the pivotal studies in full, a strong judge
+// writes the verdict — each with the model and effort of its role.
 func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (pipeline.Clients, error) {
-	cfgRun := *cfg
-	if opts.LLMCommand != "" {
-		cfgRun.LLMCommand = opts.LLMCommand
+	spec := func(role llm.Role, roleModel string) CompleterSpec {
+		return CompleterSpec{Role: role, Command: opts.LLMCommand, Model: roleModel, RunModel: opts.LLMModel, Deep: opts.Deep}
 	}
 
-	cfgCrit := cfgRun
-	if cfgRun.LLMCommandCritique != "" {
-		cfgCrit.LLMCommand = cfgRun.LLMCommandCritique
-	}
-
-	crit, err := BuildCompleter(&cfgCrit, log,
-		cmp.Or(opts.ModelCritique, cfgRun.LLMModelCritique, opts.LLMModel))
+	crit, err := BuildCompleter(cfg, log, spec(llm.RoleCritique, opts.ModelCritique))
 	if err != nil {
 		return pipeline.Clients{}, err
 	}
 
-	synth := crit
+	deep, err := BuildCompleter(cfg, log, spec(llm.RoleDeep, opts.ModelDeep))
+	if err != nil {
+		return pipeline.Clients{}, err
+	}
 
-	if cfgRun.LLMCommandSynthesis != "" || opts.ModelSynthesis != "" || cfgRun.LLMModelSynthesis != "" {
-		cfgSynth := cfgRun
-		if cfgRun.LLMCommandSynthesis != "" {
-			cfgSynth.LLMCommand = cfgRun.LLMCommandSynthesis
-		}
-
-		synth, err = BuildCompleter(&cfgSynth, log,
-			cmp.Or(opts.ModelSynthesis, cfgRun.LLMModelSynthesis, opts.LLMModel))
-		if err != nil {
-			return pipeline.Clients{}, err
-		}
+	synth, err := BuildCompleter(cfg, log, spec(llm.RoleSynthesis, opts.ModelSynthesis))
+	if err != nil {
+		return pipeline.Clients{}, err
 	}
 
 	clients := pipeline.Clients{
@@ -149,6 +84,7 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 		PDFs:         pdf.NewDownloader(),
 		PDFText:      pdf.NewExtractor(log),
 		LLM:          crit,
+		LLMDeep:      deep,
 		LLMSynthesis: synth,
 	}
 

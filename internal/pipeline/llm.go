@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -40,6 +41,18 @@ type Completer interface {
 	Complete(ctx context.Context, system, user string, opts CompleteOptions) (string, Usage, error)
 }
 
+// ErrLLMStop marks a Complete failure after which the backend cannot take
+// more calls in this run: an exhausted subscription quota or a failed login.
+// Retrying or falling back to other calls only burns more of the quota, so
+// the stages stop on it (errors.Is) instead of degrading per study.
+var ErrLLMStop = errors.New("the LLM backend cannot take more calls in this run")
+
+// errLLMStopped is what the user sees when ErrLLMStop ended a stage.
+func errLLMStopped() *UserError {
+	return &UserError{Msg: "the LLM backend refused further calls (usage limit or login): " +
+		"finished critiques are cached — rerun with --resume after the limit resets"}
+}
+
 const jsonInstruct = "\n\nRespond with a single valid JSON object and nothing else."
 
 // retryJSONEchoChars caps how much of a broken answer is quoted back.
@@ -47,6 +60,8 @@ const retryJSONEchoChars = 4000
 
 // AskJSON is Complete with a hard JSON requirement; when the answer is not
 // valid JSON (wrapped in a markdown fence or broken syntax), it retries once.
+// A failed call is not retried here: backend errors, ErrLLMStop included,
+// come back wrapped with %w.
 // The retry resends the original task together with the broken answer: the
 // backends are stateless, so a bare "fix your previous reply" reaches a model
 // that has never seen it.
@@ -58,7 +73,7 @@ func AskJSON(ctx context.Context, c Completer, system, user string, out any, max
 		return usage, fmt.Errorf("calling %s: %w", c.Name(), err)
 	}
 
-	if err := json.Unmarshal(stripFences(text), out); err == nil {
+	if err := json.Unmarshal(extractJSON(text), out); err == nil {
 		return usage, nil
 	}
 
@@ -72,7 +87,7 @@ func AskJSON(ctx context.Context, c Completer, system, user string, out any, max
 		return usage, fmt.Errorf("calling %s: %w", c.Name(), err)
 	}
 
-	if err := json.Unmarshal(stripFences(text), out); err != nil {
+	if err := json.Unmarshal(extractJSON(text), out); err != nil {
 		return usage, fmt.Errorf("%s answered with invalid JSON after a retry: %w", c.Name(), err)
 	}
 
@@ -89,8 +104,11 @@ func capText(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
-// stripFences removes ```json ... ``` around the answer if the model added it.
-func stripFences(s string) []byte {
+// extractJSON pulls the JSON object out of a model answer: it strips a
+// markdown fence and, when prose still surrounds the object ("Here is the
+// result: {...}"), keeps the span from the first "{" to the last "}". Text
+// without braces is returned as is — the caller's Unmarshal reports it.
+func extractJSON(s string) []byte {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "```") {
 		if i := strings.IndexByte(s, '\n'); i >= 0 {
@@ -100,6 +118,17 @@ func stripFences(s string) []byte {
 		if i := strings.LastIndex(s, "```"); i >= 0 {
 			s = s[:i]
 		}
+
+		s = strings.TrimSpace(s)
+	}
+
+	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
+		return []byte(s)
+	}
+
+	first, last := strings.IndexByte(s, '{'), strings.LastIndexByte(s, '}')
+	if first >= 0 && last > first {
+		s = s[first : last+1]
 	}
 
 	return []byte(s)

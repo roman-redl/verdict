@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/roman-redl/verdict/cmd/internal/app"
+	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -25,7 +26,7 @@ func (c *cli) picoCmd() *cobra.Command {
 				return errors.New("--question/-q is required")
 			}
 
-			completer, err := app.BuildCompleter(c.cfg, c.log, "")
+			completer, err := app.BuildCompleter(c.cfg, c.log, app.CompleterSpec{Role: llm.RolePlan})
 			if err != nil {
 				return err
 			}

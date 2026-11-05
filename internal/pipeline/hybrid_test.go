@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,7 +97,8 @@ func TestPivotalStudies(t *testing.T) {
 }
 
 // The deepening pass fetches full texts for the pivotal studies only,
-// re-critiques the changed corpus, re-synthesizes, and accumulates the cost.
+// re-critiques the changed corpus and accumulates the critique cost. It never
+// synthesizes: the synthesis stage runs once, after it.
 func TestHybridDeepen(t *testing.T) {
 	pdfs := &fakePDFs{fetch: func(string) ([]byte, error) { return []byte("%PDF-1.4 fake"), nil }}
 
@@ -115,9 +115,7 @@ func TestHybridDeepen(t *testing.T) {
 	batch := `{"critiques":[` +
 		`{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"},` +
 		`{"doi":"10.1/b","design_quality":"moderate","relevance":"indirect","result_direction":"null"}]}`
-	synthesis := `{"verdict":"moderate","verdict_rationale":"because ` + strings.Repeat("evidence ", 3) +
-		`10.1/a","consensus_status":"emerging","consensus":"leans positive"}`
-	s := &scriptCompleter{replies: []string{batch, synthesis}}
+	s := &scriptCompleter{replies: []string{batch}}
 
 	p := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d, HybridPivotalMax: 2},
 		Clients{LLM: s, PDFs: pdfs, PDFText: fakePDFText{text: "FULL TEXT METHODS AND RESULTS"}}, quietLog())
@@ -139,19 +137,43 @@ func TestHybridDeepen(t *testing.T) {
 
 	assert.Contains(t, s.prompts[0], "FULL TEXT METHODS", "the re-critique prompt must carry the fetched full text")
 
-	require.NotNil(t, st.Report, "re-synthesis missing")
-	assert.Equal(t, "moderate", st.Report.Verdict, "re-synthesis missing")
+	assert.Nil(t, st.Report, "the deepening must not synthesize")
+	assert.Equal(t, 1, s.calls, "want 1 LLM call (the re-critique)")
 
-	assert.Equal(t, 2, s.calls, "want 2 LLM calls (critique + synthesis)")
+	require.NotNil(t, st.Cost.Critique, "the re-critique must be accounted")
+	assert.Equal(t, 1, st.Cost.Critique.Calls)
+	assert.Nil(t, st.Cost.Synthesis, "no synthesis cost: the synthesis stage has not run")
+}
 
-	require.NotNil(t, st.Cost.Critique, "cost must account both stages")
-	require.NotNil(t, st.Cost.Synthesis, "cost must account both stages")
-	assert.Equal(t, 1, st.Cost.Critique.Calls, "cost must account both stages")
-	assert.Equal(t, 1, st.Cost.Synthesis.Calls, "cost must account both stages")
+// The full-text re-critique goes to the deep client, not to the critic that
+// did the abstracts pass; the judge is not asked at all.
+func TestHybridDeepenUsesTheDeepClient(t *testing.T) {
+	pdfs := &fakePDFs{fetch: func(string) ([]byte, error) { return []byte("%PDF-1.4 fake"), nil }}
+
+	a := ep(doiA)
+	a.OALink = oaPDFA
+
+	deepReply := `{"critiques":[{"doi":"10.1/a","design_quality":"high",` +
+		`"relevance":"direct","result_direction":"positive"}]}`
+	critic, deep, judge := &scriptCompleter{}, &scriptCompleter{replies: []string{deepReply}}, &scriptCompleter{}
+
+	p := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, HybridPivotalMax: 2},
+		Clients{LLM: critic, LLMDeep: deep, LLMSynthesis: judge, PDFs: pdfs, PDFText: fakePDFText{text: "FULL TEXT"}},
+		quietLog())
+	st := &State{
+		Question: "q?", Enriched: []model.EnrichedPaper{a},
+		Critiques: []model.Critique{crit(doiA, qualityHigh, relevanceDirect, directionPositive)}, Cost: &CostReport{},
+	}
+
+	require.NoError(t, p.hybridDeepen(context.Background(), params(Options{RunDir: t.TempDir()}), st))
+
+	assert.Equal(t, 0, critic.calls, "the abstracts critic is not asked again")
+	assert.Equal(t, 1, deep.calls, "the deep client re-critiques the pivotal study")
+	assert.Equal(t, 0, judge.calls, "the judge is not asked during the deepening")
 }
 
 // No OA full text for any pivotal study → the pass is a no-op and the
-// abstracts-only verdict stands without extra LLM calls.
+// abstracts critiques stand without extra LLM calls.
 func TestHybridDeepenNoFullTextAvailable(t *testing.T) {
 	tmp := t.TempDir()
 	s := &scriptCompleter{}
@@ -161,10 +183,11 @@ func TestHybridDeepenNoFullTextAvailable(t *testing.T) {
 		Critiques: []model.Critique{crit(doiA, qualityHigh, relevanceDirect, directionPositive)}, Cost: &CostReport{},
 	}
 
-	require.NoError(t, p.hybridDeepen(context.Background(), params(Options{RunDir: tmp}), st))
+	require.NoError(t, p.hybridPass(context.Background(), params(Options{RunDir: tmp}), st))
 
 	assert.Equal(t, 0, s.calls, "no-OA pivotal must skip the pass")
 	assert.Nil(t, st.Report, "no-OA pivotal must skip the pass")
+	assert.True(t, st.HybridDone, "the pass ran: a resume must not repeat it")
 }
 
 // The verdictd submit body carries text_mode; the pipeline Options map it

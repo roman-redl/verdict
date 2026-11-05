@@ -1,14 +1,14 @@
 package llm
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
+	"net/url"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,13 +16,77 @@ import (
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
+//nolint:gosec // a fake proxy URL with a fake password: the tests never touch the network
+const testProxy = "https://user:s3cret@vps.example.org:443"
+
 // The personal key goes to the pinned address, whatever the environment says.
 func TestAnthropicBaseIsPinned(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "https://gateway.corp.example")
 
-	a := NewAnthropic("sk-personal", "claude-sonnet-5")
+	a, err := NewAnthropic("sk-personal", "claude-sonnet-5", testProxy)
+	require.NoError(t, err)
 	assert.Equal(t, "https://api.anthropic.com", a.base)
 	assert.Equal(t, "anthropic:claude-sonnet-5", a.Name())
+}
+
+func TestProxyTransport(t *testing.T) {
+	tr, err := ProxyTransport(testProxy)
+	require.NoError(t, err)
+
+	got, err := tr.Proxy(&http.Request{URL: mustParse(t, "https://api.anthropic.com/v1/messages")})
+	require.NoError(t, err)
+	assert.Equal(t, "vps.example.org:443", got.Host)
+	assert.Equal(t, "user", got.User.Username())
+
+	assert.False(t, tr.ForceAttemptHTTP2, "h2 is switched off: the proxy is spoken to over HTTP/1.1")
+	assert.NotNil(t, tr.TLSNextProto)
+	assert.Empty(t, tr.TLSNextProto)
+	assert.Equal(t, []string{"http/1.1"}, tr.TLSClientConfig.NextProtos)
+}
+
+// A bad proxy is refused without echoing it: the URL carries the credentials.
+func TestProxyTransportRejectsBadURLs(t *testing.T) {
+	for _, bad := range []string{"", "vps.example.org:443", "socks5://u:p@h:1", "https://", "http://u:s3cret@ho st:1"} {
+		t.Run(bad, func(t *testing.T) {
+			_, err := ProxyTransport(bad)
+			require.ErrorIs(t, err, ErrBadProxy)
+			assert.NotContains(t, err.Error(), "s3cret") //nolint:forbidigo // checks the message text for a secret
+		})
+	}
+}
+
+// The request leaves through the proxy, with the proxy credentials; the
+// target is the pinned host, here replaced by a fake one.
+func TestAnthropicGoesThroughTheProxy(t *testing.T) {
+	var gotHost, gotAuth string
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost, gotAuth = r.Host, r.Header.Get("Proxy-Authorization")
+
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"via proxy"}],"usage":{"input_tokens":1}}`))
+	}))
+	defer proxy.Close()
+
+	rt, err := ProxyTransport(strings.Replace(proxy.URL, "http://", "http://user:pw@", 1))
+	require.NoError(t, err)
+
+	a := newAnthropic("http://api.anthropic.test", "k", "m", rt)
+
+	text, _, err := a.Complete(t.Context(), "s", "u", pipeline.CompleteOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "via proxy", text)
+	assert.Equal(t, "api.anthropic.test", gotHost)
+	assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("user:pw")), gotAuth)
+}
+
+func mustParse(t *testing.T, raw string) *url.URL {
+	t.Helper()
+
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+
+	return u
 }
 
 func TestAnthropicComplete(t *testing.T) {
@@ -43,7 +107,7 @@ func TestAnthropicComplete(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	a := newAnthropic(srv.URL, "sk-test", "claude-test")
+	a := newAnthropic(srv.URL, "sk-test", "claude-test", nil)
 
 	text, usage, err := a.Complete(t.Context(), "SYSTEM", "USER", pipeline.CompleteOptions{})
 	require.NoError(t, err)
@@ -65,7 +129,9 @@ func TestAnthropicHonorsMaxTokensAndReportsEmptyAnswers(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := newAnthropic(srv.URL, "k", "m").Complete(t.Context(), "s", "u", pipeline.CompleteOptions{MaxTokens: 123})
+	a := newAnthropic(srv.URL, "k", "m", nil)
+
+	_, _, err := a.Complete(t.Context(), "s", "u", pipeline.CompleteOptions{MaxTokens: 123})
 
 	require.ErrorContains(t, err, "max_tokens", "the stop reason explains the empty answer")
 	assert.Equal(t, 123, gotMax)
@@ -77,7 +143,7 @@ func TestAnthropicHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := newAnthropic(srv.URL, "bad", "m").Complete(t.Context(), "s", "u", pipeline.CompleteOptions{})
+	_, _, err := newAnthropic(srv.URL, "bad", "m", nil).Complete(t.Context(), "s", "u", pipeline.CompleteOptions{})
 	require.ErrorContains(t, err, "401")
 }
 
@@ -95,7 +161,8 @@ func TestOpenAICompatComplete(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	o := NewOpenAICompat(srv.URL+"/v1", "sk-test", "gpt-test")
+	o, err := NewOpenAICompat(srv.URL+"/v1", "sk-test", "gpt-test", "")
+	require.NoError(t, err)
 	assert.Equal(t, "openai-compat:gpt-test", o.Name())
 
 	text, usage, err := o.Complete(t.Context(), "SYSTEM", "USER", pipeline.CompleteOptions{})
@@ -110,96 +177,91 @@ func TestOpenAICompatEmptyCompletionAndDefaultBase(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := NewOpenAICompat(srv.URL, "k", "m").Complete(t.Context(), "s", "u", pipeline.CompleteOptions{})
-	require.ErrorContains(t, err, "empty completion")
-
-	assert.Equal(t, "https://api.openai.com/v1", NewOpenAICompat("", "k", "m").base)
-}
-
-// fakeCLI writes an executable that stands in for a Claude Code wrapper: it
-// echoes its stdin and the system prompt file into the JSON envelope, or
-// fails the way the scenario asks.
-func fakeCLI(t *testing.T, scenario string) *ClaudeCLI {
-	t.Helper()
-
-	script := map[string]string{
-		"ok": `
-sp=""
-while [ $# -gt 0 ]; do
-  if [ "$1" = "--system-prompt-file" ]; then sp="$2"; fi
-  if [ "$1" = "--model" ]; then model="$2"; fi
-  shift
-done
-stdin=$(cat)
-usage='"usage":{"input_tokens":3,"cache_read_input_tokens":4,"output_tokens":2}'
-printf '{"result":"stdin=%s;system=%s;model=%s",%s}' "$stdin" "$(cat "$sp")" "$model" "$usage"
-`,
-		"error-flag": `printf '{"result":"quota exceeded","is_error":true}'`,
-		"empty":      `printf '{"result":"   "}'`,
-		"garbage":    `echo not json at all`,
-		"exit-1":     `echo "boom" >&2; exit 1`,
-		"slow":       `sleep 5`,
-	}[scenario]
-
-	path := filepath.Join(t.TempDir(), "fake-claude")
-	body := []byte("#!/bin/sh\n" + script)
-	require.NoError(t, os.WriteFile(path, body, 0o700)) //nolint:gosec // a test script must be executable
-
-	c := NewClaudeCLI(path, "claude-test", 0)
-	c.shell = []string{"sh", "-c"}
-
-	return c
-}
-
-func TestClaudeCLIComplete(t *testing.T) {
-	c := fakeCLI(t, "ok")
-	assert.Contains(t, c.Name(), "claude-cli:")
-
-	text, usage, err := c.Complete(t.Context(), "THE SYSTEM PROMPT", "THE USER PROMPT", pipeline.CompleteOptions{})
+	o, err := NewOpenAICompat(srv.URL, "k", "m", "")
 	require.NoError(t, err)
 
-	assert.Equal(t, "stdin=THE USER PROMPT;system=THE SYSTEM PROMPT;model=claude-test", text,
-		"the user prompt goes through stdin, the system prompt through a file, the model by exact name")
-	assert.Equal(t, pipeline.Usage{Calls: 1, InputTokens: 7, OutputTokens: 2}, usage,
-		"cached reads count as input")
+	_, _, err = o.Complete(t.Context(), "s", "u", pipeline.CompleteOptions{})
+	require.ErrorContains(t, err, "empty completion")
+
+	def, err := NewOpenAICompat("", "k", "m", "https://user:pw@vps.example.org:443")
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.openai.com/v1", def.base)
 }
 
-func TestClaudeCLIFailures(t *testing.T) {
+// A paid personal-key provider without a proxy is refused by the constructor
+// itself, not only by config.Validate.
+func TestOpenAICompatRefusesPaidProviderWithoutProxy(t *testing.T) {
+	for _, base := range []string{"", "https://api.openai.com/v1", "https://api.groq.com/openai/v1"} {
+		_, err := NewOpenAICompat(base, "k", "m", "")
+		require.ErrorIs(t, err, ErrProxyRequired, base)
+	}
+
+	_, err := NewOpenAICompat("https://api.deepseek.com/v1", "k", "m", "")
+	require.NoError(t, err)
+}
+
+// With a proxy every request leaves through it, with the proxy credentials.
+func TestOpenAICompatGoesThroughTheProxy(t *testing.T) {
+	var gotHost, gotAuth string
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost, gotAuth = r.Host, r.Header.Get("Proxy-Authorization")
+
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"via proxy"}}]}`))
+	}))
+	defer proxy.Close()
+
+	o, err := NewOpenAICompat("http://llm.example.test/v1", "k", "m",
+		strings.Replace(proxy.URL, "http://", "http://user:pw@", 1))
+	require.NoError(t, err)
+
+	text, _, err := o.Complete(t.Context(), "s", "u", pipeline.CompleteOptions{})
+	require.NoError(t, err)
+
+	assert.Equal(t, "via proxy", text)
+	assert.Equal(t, "llm.example.test", gotHost)
+	assert.Equal(t, "Basic "+base64.StdEncoding.EncodeToString([]byte("user:pw")), gotAuth)
+}
+
+func TestOpenAICompatRejectsABadProxy(t *testing.T) {
+	_, err := NewOpenAICompat("", "k", "m", "vps.example.org:443")
+	require.ErrorIs(t, err, ErrBadProxy)
+}
+
+// The paid personal-key providers are reached only through the proxy; other
+// hosts may use one optionally.
+func TestProxyRequired(t *testing.T) {
 	tests := []struct {
-		scenario string
-		want     string
+		base string
+		want bool
 	}{
-		{"error-flag", "quota exceeded"},
-		{"empty", "empty answer"},
-		{"garbage", "other than the JSON envelope"},
-		{"exit-1", "boom"},
+		{"", true}, // the default base is api.openai.com
+		{"https://api.openai.com/v1", true},
+		{"https://API.OpenAI.com/v1", true},
+		{"https://api.openai.com.:443/v1", true},
+		{"https://eu.api.openai.com/v1", true},
+		{"https://openai.com", true},
+		{"https://api.groq.com/openai/v1", true},
+		{"https://x.groq.com", true},
+		{"https://api.deepseek.com/v1", false},
+		{"https://openrouter.ai/api/v1", false},
+		{"http://localhost:8000/v1", false},
+		{"https://notopenai.com/v1", false},
+		{"https://openai.com.evil.test/v1", false},
+		{"https://gateway.test/openai.com/v1", false},
+		{"https://gateway.test/v1?host=api.groq.com", false},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.scenario, func(t *testing.T) {
-			_, _, err := fakeCLI(t, tt.scenario).Complete(t.Context(), "s", "u", pipeline.CompleteOptions{})
-			require.ErrorContains(t, err, tt.want)
+		t.Run(tt.base, func(t *testing.T) {
+			got, err := ProxyRequired(tt.base)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
-}
 
-func TestClaudeCLITimeout(t *testing.T) {
-	c := fakeCLI(t, "slow")
-	c.timeout = 100 * time.Millisecond
-
-	start := time.Now()
-	_, _, err := c.Complete(t.Context(), "s", "u", pipeline.CompleteOptions{})
-
-	require.ErrorContains(t, err, "timed out")
-	assert.Less(t, time.Since(start), 3*time.Second)
-}
-
-func TestClaudeCLIDefaults(t *testing.T) {
-	c := NewClaudeCLI("", "", 0)
-
-	assert.Equal(t, "claude-cli:claude-zai", c.Name())
-	assert.Equal(t, 10*time.Minute, c.timeout)
-	assert.Equal(t, []string{"zsh", "-ic"}, c.shell)
-	assert.NotContains(t, c.script("/tmp/sp.md"), "--model", "no model flag without a model")
-	assert.Contains(t, c.script("/tmp/sp.md"), `--system-prompt-file "/tmp/sp.md"`)
+	for _, bad := range []string{"://nope", "not a url", "https://"} {
+		_, err := ProxyRequired(bad)
+		require.ErrorIs(t, err, ErrBadBaseURL, bad)
+	}
 }

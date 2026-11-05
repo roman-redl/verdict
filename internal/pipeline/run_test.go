@@ -1,6 +1,8 @@
 package pipeline
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -168,12 +170,25 @@ func TestRunStopAfterWritesContext(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(runDir, "2-enrichment.json"))
 }
 
-// Hybrid: abstracts first, then full texts for the pivotal study, a
-// re-critique of it and a second synthesis; one pass per state.
-func TestRunHybridDeepensOnce(t *testing.T) {
-	recritique := `{"critiques":[{"doi":"10.1000/a","design_quality":"high","relevance":"direct",` +
-		`"result_direction":"negative","concerns":["dropout hidden in the methods"]}]}`
-	p, _, llm := runFakes(t, batchReply, synthesisReply, recritique, synthesisReply)
+const recritiqueReply = `{"critiques":[{"doi":"10.1000/a","design_quality":"high","relevance":"direct",` +
+	`"result_direction":"negative","concerns":["dropout hidden in the methods"]}]}`
+
+// loadCritiqueArtifact reads the critique-stage artifact of a run directory
+// back into a state.
+func loadCritiqueArtifact(t *testing.T, runDir string) *State {
+	t.Helper()
+
+	st := &State{}
+	require.NoError(t, loadJSON(filepath.Join(runDir, stageCritique+".json"), st))
+
+	return st
+}
+
+// Hybrid: abstracts critique, then full texts for the pivotal study and a
+// re-critique of it (all inside the critique stage), then ONE synthesis on the
+// final critiques.
+func TestRunHybridSynthesizesOnce(t *testing.T) {
+	p, _, llm := runFakes(t, batchReply, recritiqueReply, synthesisReply)
 	runDir := filepath.Join(t.TempDir(), "run")
 
 	st, _, err := p.Run(t.Context(), Options{
@@ -181,15 +196,21 @@ func TestRunHybridDeepensOnce(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, 4, llm.calls, "critique, synthesis, re-critique of the pivotal study, re-synthesis")
+	assert.Equal(t, 3, llm.calls, "critique, re-critique of the pivotal study, one synthesis")
+	assert.Contains(t, llm.prompts[2], "dropout hidden", "the synthesis sees the deepened critique")
 	assert.True(t, st.HybridDone)
 	assert.Equal(t, "FULL TEXT", st.Enriched[0].FullText, "the pivotal study read in full")
 	assert.Empty(t, st.Enriched[1].FullText, "the indirect study stays on its abstract")
 	assert.Equal(t, 2, st.Cost.Critique.Calls)
-	assert.Equal(t, 2, st.Cost.Synthesis.Calls)
+	assert.Equal(t, 1, st.Cost.Synthesis.Calls)
 	assert.FileExists(t, filepath.Join(runDir, "fulltext", "10.1000_a.pdf"))
 
-	// resuming a finished state does not repeat the pass
+	crit := loadCritiqueArtifact(t, runDir)
+	assert.True(t, crit.HybridDone, "the critique artifact records the finished deepening")
+	assert.Nil(t, crit.Report, "the critique artifact predates the synthesis")
+	assert.Equal(t, "FULL TEXT", crit.Enriched[0].FullText)
+
+	// resuming a finished state does not repeat any pass
 	p2, _, llm2 := runFakes(t)
 
 	_, _, err = p2.Run(t.Context(), Options{
@@ -197,6 +218,108 @@ func TestRunHybridDeepensOnce(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Zero(t, llm2.calls)
+}
+
+// No pivotal study yields a full text: the deepening is a no-op that still
+// counts as run, the abstracts critiques stand and the synthesis runs once.
+func TestRunHybridWithoutFullTextSynthesizesOnce(t *testing.T) {
+	p, _, llm := runFakes(t, batchReply, synthesisReply)
+	p.clients.PDFs = &fakePDFs{fetch: func(string) ([]byte, error) { return nil, errors.New("not a PDF") }}
+	runDir := filepath.Join(t.TempDir(), "run")
+
+	st, _, err := p.Run(t.Context(), Options{
+		DOIFile: doiList(t, listDOIA, listDOIB), RunDir: runDir, TextMode: TextHybrid,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, llm.calls, "critique and one synthesis, no re-critique")
+	assert.True(t, st.HybridDone, "the pass ran, even though there was nothing to deepen")
+	assert.Empty(t, st.Enriched[0].FullText)
+	assert.Equal(t, 1, st.Cost.Critique.Calls)
+	assert.Equal(t, 1, st.Cost.Synthesis.Calls)
+	assert.True(t, loadCritiqueArtifact(t, runDir).HybridDone)
+}
+
+// A critique artifact without HybridDone and without a synthesis (written by
+// older code, or by a run stopped after the abstracts critique) gets the
+// deepening on --resume, before the single synthesis; the artifact is saved
+// again.
+func TestRunResumeDeepensOldStyleCritiqueArtifact(t *testing.T) {
+	list := doiList(t, listDOIA, listDOIB)
+	runDir := filepath.Join(t.TempDir(), "run")
+
+	// lean through the critique: the artifact has HybridDone == false
+	p1, _, llm1 := runFakes(t, batchReply)
+	_, _, err := p1.Run(t.Context(), Options{DOIFile: list, RunDir: runDir, StopAfter: "3", TextMode: TextLean})
+	require.NoError(t, err)
+	require.Equal(t, 1, llm1.calls)
+	require.False(t, loadCritiqueArtifact(t, runDir).HybridDone)
+	require.NoFileExists(t, filepath.Join(runDir, stageSynthesis+".json"))
+
+	p2, _, llm2 := runFakes(t, recritiqueReply, synthesisReply)
+
+	st, _, err := p2.Run(t.Context(), Options{DOIFile: list, RunDir: runDir, Resume: true, TextMode: TextHybrid})
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, llm2.calls, "re-critique of the pivotal study, one synthesis")
+	assert.Contains(t, llm2.prompts[1], "dropout hidden", "the synthesis sees the deepened critique")
+	assert.True(t, st.HybridDone)
+	assert.Equal(t, "FULL TEXT", st.Enriched[0].FullText)
+	assert.Equal(t, 1, st.Cost.Synthesis.Calls)
+
+	crit := loadCritiqueArtifact(t, runDir)
+	assert.True(t, crit.HybridDone, "3-critique.json is saved again after the deepening")
+	assert.Equal(t, "FULL TEXT", crit.Enriched[0].FullText)
+}
+
+// A resume never repeats the pass once the synthesis exists, and a --stop-after
+// at an earlier stage starts nothing after it.
+func TestRunResumeLeavesFinishedRunsAlone(t *testing.T) {
+	list := doiList(t, listDOIA, listDOIB)
+	runDir := filepath.Join(t.TempDir(), "run")
+
+	// a complete lean run: HybridDone == false, the synthesis artifact present
+	p1, _, _ := runFakes(t, batchReply, synthesisReply)
+	_, _, err := p1.Run(t.Context(), Options{DOIFile: list, RunDir: runDir, TextMode: TextLean})
+	require.NoError(t, err)
+
+	for name, stop := range map[string]string{"complete": "", "stop-after 2": "2"} {
+		p, _, llm := runFakes(t)
+
+		st, _, err := p.Run(t.Context(), Options{
+			DOIFile: list, RunDir: runDir, Resume: true, StopAfter: stop, TextMode: TextHybrid,
+		})
+		require.NoError(t, err, name)
+
+		assert.Zero(t, llm.calls, name)
+		assert.False(t, st.HybridDone, name)
+		assert.Empty(t, st.Enriched[0].FullText, name)
+	}
+}
+
+// A usage limit during the deepening ends the run with the same user error as
+// in the abstracts critique: no synthesis, and the critique artifact is not
+// saved as a finished stage.
+func TestRunHybridStopDuringDeepening(t *testing.T) {
+	p, _, _ := runFakes(t)
+	stop := &stopCompleter{reply: func(call int, _ string) (string, error) {
+		if call == 1 {
+			return batchReply, nil
+		}
+
+		return "", fmt.Errorf("usage limit reached: %w", ErrLLMStop)
+	}}
+	p.clients.LLM = stop
+	runDir := filepath.Join(t.TempDir(), "run")
+
+	_, _, err := p.Run(t.Context(), Options{
+		DOIFile: doiList(t, listDOIA, listDOIB), RunDir: runDir, TextMode: TextHybrid,
+	})
+	requireStopError(t, err)
+
+	assert.Equal(t, 2, stop.count(), "the abstracts critique and the refused re-critique, nothing after")
+	assert.NoFileExists(t, filepath.Join(runDir, stageCritique+".json"))
+	assert.NoFileExists(t, filepath.Join(runDir, stageSynthesis+".json"))
 }
 
 // Run validates its input before touching any source.

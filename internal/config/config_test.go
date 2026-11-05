@@ -9,6 +9,13 @@ import (
 	"github.com/roman-redl/verdict/internal/llm"
 )
 
+const (
+	//nolint:gosec // a fake proxy URL with a fake password: the tests never touch the network
+	testProxy    = "https://user:s3cret@vps.example.org:443"
+	apiModel     = "claude-x"
+	deepseekBase = "https://api.deepseek.com/v1"
+)
+
 // valid returns a configuration that passes Validate, as env.Parse would
 // build it from an empty environment.
 func valid() Config {
@@ -36,12 +43,66 @@ func TestValidate(t *testing.T) {
 		}},
 		{name: "anthropic needs a key", wantErr: "ANTHROPIC_API_KEY", mutate: func(c *Config) {
 			c.LLMBackend = llm.BackendAnthropic
+			c.AnthropicProxy, c.AnthropicModel = testProxy, apiModel
 		}},
-		{name: "anthropic with a key", mutate: func(c *Config) {
-			c.LLMBackend, c.AnthropicAPIKey = llm.BackendAnthropic, "k"
+		{name: "anthropic needs a proxy", wantErr: "ANTHROPIC_PROXY", mutate: func(c *Config) {
+			c.LLMBackend = llm.BackendAnthropic
+			c.AnthropicAPIKey, c.AnthropicModel = "k", apiModel
+		}},
+		{name: "anthropic needs a model, there is no default", wantErr: "ANTHROPIC_MODEL", mutate: func(c *Config) {
+			c.LLMBackend = llm.BackendAnthropic
+			c.AnthropicAPIKey, c.AnthropicProxy = "k", testProxy
+		}},
+		{name: "anthropic with key, proxy and model", mutate: func(c *Config) {
+			c.LLMBackend = llm.BackendAnthropic
+			c.AnthropicAPIKey, c.AnthropicProxy, c.AnthropicModel = "k", testProxy, apiModel
+		}},
+		{name: "anthropic proxy must be a URL", wantErr: "ANTHROPIC_PROXY is not usable", mutate: func(c *Config) {
+			c.LLMBackend = llm.BackendAnthropic
+			c.AnthropicAPIKey, c.AnthropicProxy, c.AnthropicModel = "k", "vps.example.org:443", apiModel
+		}},
+		{name: "an Anthropic key alone does not switch the backend", mutate: func(c *Config) {
+			c.AnthropicAPIKey = "k"
+		}},
+		{name: "a wrapper command passes", mutate: func(c *Config) { c.LLMCommand = "claude-zai-flash" }},
+		{name: "the bare claude CLI is no wrapper", wantErr: "LLM_COMMAND must name a wrapper such as claude-max, " +
+			"not the bare claude CLI", mutate: func(c *Config) {
+			c.LLMCommand = "claude"
+		}},
+		{name: "a path to the bare claude CLI is no wrapper", wantErr: "not the bare claude CLI", mutate: func(c *Config) {
+			c.LLMCommand = "/usr/local/bin/claude"
 		}},
 		{name: "openai-compat needs a key", wantErr: "OPENAI_API_KEY", mutate: func(c *Config) {
-			c.LLMBackend = llm.BackendOpenAICompat
+			c.LLMBackend, c.OpenAIProxy = llm.BackendOpenAICompat, testProxy
+		}},
+		{name: "openai default host needs the proxy", wantErr: "OPENAI_PROXY", mutate: func(c *Config) {
+			c.LLMBackend, c.OpenAIKey = llm.BackendOpenAICompat, "k"
+		}},
+		{name: "explicit openai host needs the proxy", wantErr: "never go out directly", mutate: func(c *Config) {
+			c.LLMBackend, c.OpenAIKey, c.OpenAIBaseURL = llm.BackendOpenAICompat, "k", "https://api.openai.com/v1"
+		}},
+		{name: "a groq subdomain needs the proxy", wantErr: "OPENAI_PROXY", mutate: func(c *Config) {
+			c.LLMBackend, c.OpenAIKey, c.OpenAIBaseURL = llm.BackendOpenAICompat, "k", "https://eu.API.groq.com/openai/v1"
+		}},
+		{name: "openai with the proxy", mutate: func(c *Config) {
+			c.LLMBackend, c.OpenAIKey, c.OpenAIProxy = llm.BackendOpenAICompat, "k", testProxy
+		}},
+		{name: "deepseek needs no proxy", mutate: func(c *Config) {
+			c.LLMBackend, c.OpenAIKey, c.OpenAIBaseURL = llm.BackendOpenAICompat, "k", deepseekBase
+		}},
+		{name: "deepseek may use the proxy", mutate: func(c *Config) {
+			c.LLMBackend, c.OpenAIKey, c.OpenAIBaseURL = llm.BackendOpenAICompat, "k", deepseekBase
+			c.OpenAIProxy = testProxy
+		}},
+		{name: "a malformed base URL", wantErr: "OPENAI_BASE_URL is not usable", mutate: func(c *Config) {
+			c.LLMBackend, c.OpenAIKey, c.OpenAIBaseURL = llm.BackendOpenAICompat, "k", "not a url"
+		}},
+		{name: "a malformed openai proxy", wantErr: "OPENAI_PROXY is not usable", mutate: func(c *Config) {
+			c.LLMBackend, c.OpenAIKey, c.OpenAIBaseURL = llm.BackendOpenAICompat, "k", deepseekBase
+			c.OpenAIProxy = "vps.example.org:443"
+		}},
+		{name: "an OpenAI key alone does not switch the backend", mutate: func(c *Config) {
+			c.OpenAIKey = "k"
 		}},
 		{name: "json logs", mutate: func(c *Config) {
 			c.LogFormat = LogJSON
@@ -91,5 +152,20 @@ func TestValidateReportsAllProblems(t *testing.T) {
 
 	err := c.Validate()
 	require.ErrorContains(t, err, "ANTHROPIC_API_KEY")
+	require.ErrorContains(t, err, "ANTHROPIC_PROXY")
+	require.ErrorContains(t, err, "ANTHROPIC_MODEL")
 	require.ErrorContains(t, err, "MAX_PAPERS")
+}
+
+// The proxy URL carries credentials: an invalid one is never echoed.
+func TestValidateDoesNotLeakTheProxy(t *testing.T) {
+	t.Parallel()
+
+	c := valid()
+	c.LLMBackend, c.AnthropicAPIKey, c.AnthropicModel = llm.BackendAnthropic, "k", apiModel
+	c.AnthropicProxy = "ftp://user:s3cret@vps.example.org"
+
+	err := c.Validate()
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "s3cret") //nolint:forbidigo // checks the message text for a secret
 }
