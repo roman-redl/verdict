@@ -38,6 +38,6 @@ Copied verbatim from the SSOT note «Программное обеспечени
 
 ## Verification
 
-`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint; locally requires golangci-lint 2.13.2 — brew).
+`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint; locally requires golangci-lint 2.15.0 or newer — brew; older releases cannot typecheck against Go 1.27.2+).
 
 Live-run verifications: Scite `/tallies` — done 2026-09-07 (request body is a bare JSON array; response uses the `{"tallies": ...}` envelope); clean stdout from `~/.zshrc` — done; Consensus `/v1/search` — done 2026-10-10 (`x-api-key` auth; the `page`/`page_size`/`is_end`/`next_page` envelope; `page_size` in the response is the plan-applied value).

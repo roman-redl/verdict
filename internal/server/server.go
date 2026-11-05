@@ -168,8 +168,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSubmitBytes)
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
+		if _, tooBig := errors.AsType[*http.MaxBytesError](err); tooBig {
 			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
