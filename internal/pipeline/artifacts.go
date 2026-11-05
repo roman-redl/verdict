@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 )
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
@@ -48,7 +47,7 @@ func (p *Pipeline) prepareDir(opts Options) (string, error) {
 		parts = append(parts, topic)
 	}
 
-	dir := filepath.Join(append(parts, name+"-"+time.Now().Format("20060102-150405"))...)
+	dir := filepath.Join(append(parts, name+"-"+p.now().Format("20060102-150405"))...)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("creating %s: %w", dir, err)
 	}

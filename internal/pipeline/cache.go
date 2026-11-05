@@ -54,9 +54,9 @@ type CacheEntry struct {
 	Notes     []string  `json:"notes,omitempty"`
 }
 
-// LoadEnrichCache reads the cache and drops entries older than ttl.
+// LoadEnrichCache reads the cache and drops entries older than ttl as of now.
 // A missing file is an empty cache, not an error.
-func LoadEnrichCache(path string, ttl time.Duration, log *slog.Logger) EnrichCache {
+func LoadEnrichCache(path string, ttl time.Duration, now time.Time, log *slog.Logger) EnrichCache {
 	out := EnrichCache{}
 	if path == "" {
 		return out
@@ -67,7 +67,7 @@ func LoadEnrichCache(path string, ttl time.Duration, log *slog.Logger) EnrichCac
 		return out
 	}
 
-	cutoff := time.Now().Add(-ttl)
+	cutoff := now.Add(-ttl)
 	for doi, e := range c {
 		if e.CheckedAt.After(cutoff) {
 			out[doi] = e
@@ -126,9 +126,9 @@ type CritiqueCacheEntry struct {
 	Critique  model.Critique `json:"critique"`
 }
 
-// LoadCritiqueCache reads the cache and drops entries older than ttl
-// (ttl <= 0 disables the cache entirely). A missing file is an empty cache.
-func LoadCritiqueCache(path string, ttl time.Duration, log *slog.Logger) CritiqueCache {
+// LoadCritiqueCache reads the cache and drops entries older than ttl as of
+// now (ttl <= 0 disables the cache entirely). A missing file is an empty cache.
+func LoadCritiqueCache(path string, ttl time.Duration, now time.Time, log *slog.Logger) CritiqueCache {
 	out := CritiqueCache{}
 	if path == "" || ttl <= 0 {
 		return out
@@ -139,7 +139,7 @@ func LoadCritiqueCache(path string, ttl time.Duration, log *slog.Logger) Critiqu
 		return out
 	}
 
-	cutoff := time.Now().Add(-ttl)
+	cutoff := now.Add(-ttl)
 	for k := range c {
 		if c[k].CheckedAt.After(cutoff) {
 			out[k] = c[k]

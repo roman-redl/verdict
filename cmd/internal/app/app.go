@@ -33,7 +33,7 @@ func BuildPipeline(cfg *config.Config, log *slog.Logger, opts pipeline.Options) 
 		return nil, err
 	}
 
-	return pipeline.New(PipelineSettings(cfg), clients, log), nil
+	return pipeline.New(PipelineSettings(cfg), clients, log, time.Now)
 }
 
 // PipelineSettings maps the environment configuration onto the pipeline's

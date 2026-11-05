@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -42,7 +41,7 @@ func (p *Pipeline) critique(ctx context.Context, rp runParams, st *State) error 
 	p.pickupFullTexts(ctx, rp.dir, st)
 
 	r := &critiqueRun{st: st, cachePath: critiqueCachePath(rp.opts), cost: st.critiqueCost()}
-	r.cache = LoadCritiqueCache(r.cachePath, p.set.CritiqueCacheTTL, p.log)
+	r.cache = LoadCritiqueCache(r.cachePath, p.set.CritiqueCacheTTL, p.now(), p.log)
 
 	pending := p.planCritiques(r)
 
@@ -145,7 +144,7 @@ func (p *Pipeline) commitChunk(r *critiqueRun, chunk []int, usage Usage) {
 	for _, idx := range chunk {
 		e := &r.st.Enriched[idx]
 		if c := r.critiques[idx]; c.Error == "" && model.NormalizeDOI(e.DOI) != "" {
-			r.cache[critiqueCacheKey(*e, r.st.Question)] = CritiqueCacheEntry{CheckedAt: time.Now(), Critique: c}
+			r.cache[critiqueCacheKey(*e, r.st.Question)] = CritiqueCacheEntry{CheckedAt: p.now(), Critique: c}
 			added = true
 		}
 	}

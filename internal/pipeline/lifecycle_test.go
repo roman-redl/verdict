@@ -36,7 +36,7 @@ func TestRunInterruptedDoesNotSaveStageArtifact(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	p := New(Settings{Concurrency: 2}, Clients{Works: &fakeWorks{}}, quietLog())
+	p := newTest(t, Settings{Concurrency: 2}, Clients{Works: &fakeWorks{}}, quietLog())
 
 	runDir := filepath.Join(t.TempDir(), "run")
 	_, _, err := p.Run(ctx, Options{DOIFile: doiList(t, "10.1000/a", "10.1000/b"), RunDir: runDir})
@@ -48,7 +48,7 @@ func TestRunInterruptedDoesNotSaveStageArtifact(t *testing.T) {
 // The run directory is a parameter of the run, not state of the instance: one
 // Pipeline serves several runs, each writing into its own directory.
 func TestOnePipelineServesTwoRuns(t *testing.T) {
-	p := New(Settings{Concurrency: 1}, Clients{Works: &fakeWorks{}}, quietLog())
+	p := newTest(t, Settings{Concurrency: 1}, Clients{Works: &fakeWorks{}}, quietLog())
 	list := doiList(t, "10.1000/a")
 
 	base := t.TempDir()
@@ -73,7 +73,7 @@ func TestCorruptCacheIsLogged(t *testing.T) {
 
 	log := slog.New(slog.NewTextHandler(&logs, nil))
 
-	assert.Empty(t, LoadEnrichCache(path, ttl30d, log))
-	assert.Empty(t, LoadCritiqueCache(path, ttl30d, log))
+	assert.Empty(t, LoadEnrichCache(path, ttl30d, testNow, log))
+	assert.Empty(t, LoadCritiqueCache(path, ttl30d, testNow, log))
 	assert.Contains(t, logs.String(), "cache corrupt")
 }

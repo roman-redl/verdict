@@ -49,6 +49,19 @@ const (
 // ttl30d is the default cache freshness window the tests run with.
 const ttl30d = 30 * 24 * time.Hour
 
+// testNow is the pinned clock of the tests.
+var testNow = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+
+// newTest builds a pipeline on the pinned clock.
+func newTest(t *testing.T, set Settings, clients Clients, log *slog.Logger) *Pipeline {
+	t.Helper()
+
+	p, err := New(set, clients, log, func() time.Time { return testNow })
+	require.NoError(t, err)
+
+	return p
+}
+
 // params builds the run parameters a stage takes; the run directory is the
 // options' RunDir.
 func params(opts Options) runParams { return runParams{opts: opts, dir: opts.RunDir} }
@@ -87,7 +100,7 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 		return map[string]model.CitationTally{doiRetr: {Total: 10, Supporting: 1, Contradicting: 2}}, nil
 	}}
 
-	p := New(Settings{Concurrency: 4}, Clients{Citations: citations, Works: works, Notices: notices}, quietLog())
+	p := newTest(t, Settings{Concurrency: 4}, Clients{Citations: citations, Works: works, Notices: notices}, quietLog())
 
 	st := &State{Papers: []model.Paper{
 		{DOI: "10.1/oa", Source: model.SourceOpenAlex}, // discovery already queried it
@@ -117,7 +130,7 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 // A DOI list above the default runs whole (user-curated), but the run gets a
 // warning with the real LLM cost; an explicit --max-papers truncates.
 func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
-	p := New(Settings{MaxPapers: 3}, Clients{Works: &fakeWorks{}}, quietLog()) // every DOI unknown: all stubs
+	p := newTest(t, Settings{MaxPapers: 3}, Clients{Works: &fakeWorks{}}, quietLog()) // every DOI unknown: all stubs
 
 	f := filepath.Join(t.TempDir(), "dois.txt")
 	list := []string{listDOIA, listDOIB, "10.1000/c", "10.1000/d", "10.1000/e"}
@@ -150,7 +163,7 @@ func TestDiscoverByDOIsKeepsStubs(t *testing.T) {
 
 		return nil, nil //nolint:nilnil // the port's "no data" answer
 	}}
-	p := New(Settings{MaxPapers: 10, Concurrency: 2}, Clients{Works: works}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 10, Concurrency: 2}, Clients{Works: works}, quietLog())
 
 	f := filepath.Join(t.TempDir(), "dois.txt")
 	require.NoError(t, os.WriteFile(f, []byte("10.1000/a\n10.1000/b\n10.1000/c\n"), 0o600))
@@ -169,7 +182,7 @@ func TestDiscoverByDOIsKeepsStubs(t *testing.T) {
 }
 
 func TestDiscoverByDOIsRejectsEmptyList(t *testing.T) {
-	p := New(Settings{MaxPapers: 3}, Clients{Works: &fakeWorks{}}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 3}, Clients{Works: &fakeWorks{}}, quietLog())
 
 	f := filepath.Join(t.TempDir(), "dois.txt")
 	require.NoError(t, os.WriteFile(f, []byte("no identifiers in here\n"), 0o600))
@@ -195,12 +208,12 @@ func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
 	pdf := filepath.Join(runDir, "fulltext", "10.1_cached.pdf")
 	require.NoError(t, os.WriteFile(pdf, []byte("%PDF-1.4 stub"), 0o600))
 
-	seeded := EnrichCache{"10.1/cached": {CheckedAt: time.Now(), Abstract: cachedAbstract}}
+	seeded := EnrichCache{"10.1/cached": {CheckedAt: testNow, Abstract: cachedAbstract}}
 	require.NoError(t, seeded.Save(filepath.Join(tmp, "cache.json"))) // Dir(RunDir)/cache.json
 
 	works := &fakeWorks{}
 	pdfs := &fakePDFs{}
-	p := New(Settings{Concurrency: 4, EnrichCacheTTL: ttl30d}, Clients{
+	p := newTest(t, Settings{Concurrency: 4, EnrichCacheTTL: ttl30d}, Clients{
 		Citations: &fakeCitations{},
 		Works:     works,
 		PDFs:      pdfs,
@@ -233,7 +246,7 @@ func TestEnrichBackfillsFromScholar(t *testing.T) {
 			doiB: {Abstract: "s2 abstract B", OAPDF: "https://x/b.pdf"},
 		}, nil
 	}}
-	p := New(Settings{Concurrency: 2}, Clients{Works: works, Scholar: scholar}, quietLog())
+	p := newTest(t, Settings{Concurrency: 2}, Clients{Works: works, Scholar: scholar}, quietLog())
 
 	st := &State{Papers: []model.Paper{
 		{DOI: doiA, Source: sourceManual},
@@ -269,7 +282,7 @@ func TestEnrichOptionalSources(t *testing.T) {
 		return "PubPeer commentary (2 comments): https://pubpeer.com/t/1", nil
 	}}
 
-	p := New(Settings{Concurrency: 2}, Clients{Citations: citations, Commentary: commentary}, quietLog())
+	p := newTest(t, Settings{Concurrency: 2}, Clients{Citations: citations, Commentary: commentary}, quietLog())
 	st := &State{Papers: []model.Paper{{DOI: doiA, Source: sourceManual}, {DOI: doiB, Source: sourceManual}}}
 
 	require.NoError(t, p.enrich(context.Background(), params(Options{}), st))
@@ -284,7 +297,7 @@ func TestEnrichOptionalSources(t *testing.T) {
 	// without the keys the same steps stay off
 	citations2 := &fakeCitations{tallies: citations.tallies}
 	commentary2 := &fakeCommentary{}
-	p2 := New(Settings{Concurrency: 2}, Clients{Citations: citations2, Commentary: commentary2}, quietLog())
+	p2 := newTest(t, Settings{Concurrency: 2}, Clients{Citations: citations2, Commentary: commentary2}, quietLog())
 	st2 := &State{Papers: []model.Paper{{DOI: doiA, Source: sourceManual}}}
 
 	require.NoError(t, p2.enrich(context.Background(), params(Options{}), st2))
@@ -318,7 +331,7 @@ func TestEnrichSurvivesScitOutage(t *testing.T) {
 	citations := &fakeCitations{tallies: func([]string) (map[string]model.CitationTally, error) {
 		return nil, errors.New("scite down")
 	}}
-	p := New(Settings{Concurrency: 2}, Clients{Citations: citations}, quietLog())
+	p := newTest(t, Settings{Concurrency: 2}, Clients{Citations: citations}, quietLog())
 	st := &State{Papers: []model.Paper{{DOI: doiA, Source: sourceManual}}}
 
 	require.NoError(t, p.enrich(context.Background(), params(Options{}), st))

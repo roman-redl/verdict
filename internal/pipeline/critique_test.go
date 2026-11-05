@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,7 +72,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	cachePath := filepath.Join(tmp, "critique-cache.json")
 	seeded := CritiqueCache{
 		critiqueCacheKey(ep(doiA), "q?"): {
-			CheckedAt: time.Now(), Critique: crit(doiA, qualityHigh, relevanceDirect, directionPositive),
+			CheckedAt: testNow, Critique: crit(doiA, qualityHigh, relevanceDirect, directionPositive),
 		},
 	}
 
@@ -82,7 +81,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	batch := `{"critiques":[{"doi":"10.1/b","design_quality":"low",` +
 		`"relevance":"tangential","result_direction":"unclear"}]}`
 	s := &scriptCompleter{replies: []string{batch}}
-	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
+	p := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s}, quietLog())
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA), ep(doiB)}}
 
@@ -97,12 +96,12 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	require.NotNil(t, st.Cost.Critique, "cost must count only real calls")
 	require.Equal(t, 1, st.Cost.Critique.Calls, "cost must count only real calls")
 
-	saved := LoadCritiqueCache(cachePath, ttl30d, quietLog())
+	saved := LoadCritiqueCache(cachePath, ttl30d, testNow, quietLog())
 	assert.Contains(t, saved, critiqueCacheKey(ep(doiB), "q?"), "fresh critique not written back")
 
 	// A second critique stage over the same corpus: pure cache, zero calls.
 	s2 := &scriptCompleter{}
-	p2 := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
+	p2 := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s2}, quietLog())
 	st2 := &State{Question: "q?", Enriched: st.Enriched}
 
@@ -116,7 +115,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	withFT := ep(doiA)
 	withFT.FullText = "Methods and results of the full paper..."
 	s3 := &scriptCompleter{}
-	p3 := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
+	p3 := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s3}, quietLog())
 	st3 := &State{Question: "q?", Enriched: []model.EnrichedPaper{withFT}}
 
@@ -141,7 +140,7 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 	cachePath := filepath.Join(tmp, "critique-cache.json")
 	seeded := CritiqueCache{
 		critiqueCacheKey(ep(doiA), "q?"): {
-			CheckedAt: time.Now(), Critique: crit(doiA, qualityHigh, relevanceDirect, directionPositive),
+			CheckedAt: testNow, Critique: crit(doiA, qualityHigh, relevanceDirect, directionPositive),
 		},
 	}
 
@@ -149,7 +148,7 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 
 	batch := `{"critiques":[{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"}]}`
 	s := &scriptCompleter{replies: []string{batch}}
-	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
+	p := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s, PDFText: fakePDFText{text: "DROPPED PDF FULL TEXT"}}, quietLog())
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)}} // no FullText yet
 

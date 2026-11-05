@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -44,7 +43,7 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 
 	r := model.Report{
 		Question:         st.Question,
-		GeneratedAt:      time.Now().UTC(),
+		GeneratedAt:      p.now().UTC(),
 		Verdict:          jr.Verdict,
 		VerdictRationale: jr.VerdictRationale,
 		ConsensusStatus:  jr.ConsensusStatus,

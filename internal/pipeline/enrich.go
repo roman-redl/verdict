@@ -12,7 +12,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -55,7 +54,7 @@ func (p *Pipeline) enrich(ctx context.Context, rp runParams, st *State) error {
 		dir:     rp.dir,
 		tallies: tallies,
 		scholar: p.fetchScholar(ctx, st.Papers),
-		cache:   LoadEnrichCache(cachePath, p.set.EnrichCacheTTL, p.log),
+		cache:   LoadEnrichCache(cachePath, p.set.EnrichCacheTTL, p.now(), p.log),
 		// OA downloads happen in full mode only (hybrid fetches its full texts
 		// after the first synthesis, lean never); a pre-placed PDF is read in
 		// every mode — see fetchFullText.
@@ -127,7 +126,7 @@ func (p *Pipeline) enrichPaper(
 	p.drillDownContradictions(ctx, &e)
 
 	return e, cacheUpdate{doi: doi, entry: CacheEntry{
-		CheckedAt: time.Now(),
+		CheckedAt: p.now(),
 		Abstract:  e.Abstract,
 		OALink:    e.OALink,
 		Retracted: e.Flags.Retracted,

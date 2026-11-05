@@ -28,7 +28,7 @@ func pdfServer() *fakePDFs {
 func TestFetchFullText(t *testing.T) {
 	runDir := t.TempDir()
 	pdfs := pdfServer()
-	p := New(Settings{Concurrency: 4}, Clients{
+	p := newTest(t, Settings{Concurrency: 4}, Clients{
 		PDFs:    pdfs,
 		PDFText: fakePDFText{text: "METHODS We randomized 240 patients. RESULTS No effect."},
 	}, quietLog())
@@ -53,7 +53,7 @@ func TestFetchFullText(t *testing.T) {
 // Without the download permission an OA link is not followed.
 func TestFetchFullTextNoDownloadWhenNotAllowed(t *testing.T) {
 	pdfs := pdfServer()
-	p := New(Settings{}, Clients{PDFs: pdfs, PDFText: fakePDFText{text: "x"}}, quietLog())
+	p := newTest(t, Settings{}, Clients{PDFs: pdfs, PDFText: fakePDFText{text: "x"}}, quietLog())
 
 	e := &model.EnrichedPaper{DOI: listDOIA, OALink: oaPDFA}
 
@@ -97,7 +97,7 @@ func TestFetchFullTextFailuresAreRecorded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := New(Settings{}, Clients{PDFs: tt.pdfs, PDFText: tt.pdftext}, quietLog())
+			p := newTest(t, Settings{}, Clients{PDFs: tt.pdfs, PDFText: tt.pdftext}, quietLog())
 			e := &model.EnrichedPaper{DOI: listDOIA, OALink: oaPDFA}
 
 			assert.Empty(t, p.fetchFullText(context.Background(), t.TempDir(), e, true))
@@ -113,7 +113,7 @@ func TestFetchFullTextFailuresAreRecorded(t *testing.T) {
 func TestLoadVisionNotes(t *testing.T) {
 	dir := t.TempDir()
 	st := &State{}
-	p := New(Settings{}, Clients{}, quietLog())
+	p := newTest(t, Settings{}, Clients{}, quietLog())
 	p.loadVisionNotes(dir, st) // no file at all
 
 	require.Empty(t, st.VisionNotes, "no artifact must yield no notes")
@@ -140,7 +140,7 @@ func TestLoadVisionNotes(t *testing.T) {
 func TestFetchFullTextPreplaced(t *testing.T) {
 	runDir := t.TempDir()
 	pdfs := pdfServer()
-	p := New(Settings{Concurrency: 4}, Clients{
+	p := newTest(t, Settings{Concurrency: 4}, Clients{
 		PDFs:    pdfs,
 		PDFText: fakePDFText{text: "USER-SUPPLIED full text of a paywalled paper"},
 	}, quietLog())

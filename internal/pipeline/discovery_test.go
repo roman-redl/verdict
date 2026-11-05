@@ -32,7 +32,7 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 
 		return pageOf(true, hit("10.1/c", "C")), nil
 	}}
-	p := New(Settings{ConsensusPages: 3, MaxPapers: 50}, Clients{Search: search}, quietLog())
+	p := newTest(t, Settings{ConsensusPages: 3, MaxPapers: 50}, Clients{Search: search}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q"}))
@@ -62,7 +62,7 @@ func TestDiscoverConsensusPagesCapTruncates(t *testing.T) {
 	search := &fakeSearch{key: true, page: func(_ string, page int) (model.SearchPage, error) {
 		return pageOf(false, hit("10.1/p"+strconv.Itoa(page), "P")), nil
 	}}
-	p := New(Settings{MaxPapers: 50}, Clients{Search: search}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 50}, Clients{Search: search}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q", ConsensusPages: 2}))
@@ -79,7 +79,7 @@ func TestDiscoverConsensusStopsAtMaxPapers(t *testing.T) {
 	search := &fakeSearch{key: true, page: func(string, int) (model.SearchPage, error) {
 		return pageOf(false, hit("10.1/a", "A"), hit("10.1/b", "B"), hit("10.1/c", "C")), nil
 	}}
-	p := New(Settings{MaxPapers: 50}, Clients{Search: search}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 50}, Clients{Search: search}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q", MaxPapers: 1}))
@@ -101,7 +101,7 @@ func TestDiscoverConsensusDedupesAndDropsNoDOI(t *testing.T) {
 
 		return pageOf(true, hit("10.1/a", "A"), hit("10.1/b", "B")), nil
 	}}
-	p := New(Settings{MaxPapers: 50}, Clients{Search: search}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 50}, Clients{Search: search}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st, Options{
@@ -122,7 +122,7 @@ func TestDiscoverDefaultsToConsensusWhenKeyPresent(t *testing.T) {
 		return pageOf(true, hit("10.1/a", "A")), nil
 	}}
 	works := &fakeWorks{}
-	p := New(Settings{MaxPapers: 50}, Clients{Search: search, Works: works}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 50}, Clients{Search: search, Works: works}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q"}))
@@ -138,7 +138,7 @@ func TestDiscoverDefaultsToConsensusWhenKeyPresent(t *testing.T) {
 func TestDiscoverFallsBackToOpenAlexWithoutKey(t *testing.T) {
 	search := &fakeSearch{key: false} // present but keyless
 	works := &fakeWorks{}
-	p := New(Settings{MaxPapers: 50}, Clients{Search: search, Works: works}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 50}, Clients{Search: search, Works: works}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q"}))
@@ -161,7 +161,7 @@ func TestDiscoverOpenAlexPassesTheLimit(t *testing.T) {
 
 		return []model.Paper{{DOI: "10.1/a", Title: "A", Source: model.SourceOpenAlex}}, nil
 	}}
-	p := New(Settings{MaxPapers: 15}, Clients{Works: works}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 15}, Clients{Works: works}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "does it work?", MaxPapers: 7}))
@@ -175,7 +175,7 @@ func TestDiscoverOpenAlexPassesTheLimit(t *testing.T) {
 func TestDiscoverEngineOverride(t *testing.T) {
 	search := &fakeSearch{key: true}
 	works := &fakeWorks{}
-	p := New(Settings{MaxPapers: 50}, Clients{Search: search, Works: works}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 50}, Clients{Search: search, Works: works}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q", Engine: EngineOpenAlex}))
@@ -197,7 +197,7 @@ func TestDiscoverConsensusErrorIsLoud(t *testing.T) {
 		return model.SearchPage{}, errors.New("HTTP 401 from consensus: bad key")
 	}}
 	works := &fakeWorks{}
-	p := New(Settings{MaxPapers: 50}, Clients{Search: search, Works: works}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 50}, Clients{Search: search, Works: works}, quietLog())
 
 	err := p.discoverWith(context.Background(), &State{}, Options{Question: "q"})
 	require.Error(t, err, "consensus 401 must fail the stage")
@@ -229,7 +229,7 @@ func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
 
 		return mkPage("f"), nil
 	}}
-	p := New(Settings{ConsensusPages: 3, MaxPapers: 10}, Clients{Search: search}, quietLog())
+	p := newTest(t, Settings{ConsensusPages: 3, MaxPapers: 10}, Clients{Search: search}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st,
@@ -258,7 +258,7 @@ func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
 
 // A run needs a question or a DOI list, and the metadata source it uses.
 func TestDiscoverValidatesInput(t *testing.T) {
-	p := New(Settings{MaxPapers: 5}, Clients{}, quietLog())
+	p := newTest(t, Settings{MaxPapers: 5}, Clients{}, quietLog())
 
 	var ue *UserError
 

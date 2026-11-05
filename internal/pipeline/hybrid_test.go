@@ -119,7 +119,7 @@ func TestHybridDeepen(t *testing.T) {
 		`10.1/a","consensus_status":"emerging","consensus":"leans positive"}`
 	s := &scriptCompleter{replies: []string{batch, synthesis}}
 
-	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d, HybridPivotalMax: 2},
+	p := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d, HybridPivotalMax: 2},
 		Clients{LLM: s, PDFs: pdfs, PDFText: fakePDFText{text: "FULL TEXT METHODS AND RESULTS"}}, quietLog())
 	st := &State{
 		Question: "q?", Enriched: []model.EnrichedPaper{a, b},
@@ -155,7 +155,7 @@ func TestHybridDeepen(t *testing.T) {
 func TestHybridDeepenNoFullTextAvailable(t *testing.T) {
 	tmp := t.TempDir()
 	s := &scriptCompleter{}
-	p := New(Settings{LLMConcurrency: 1, HybridPivotalMax: 2}, Clients{LLM: s}, quietLog())
+	p := newTest(t, Settings{LLMConcurrency: 1, HybridPivotalMax: 2}, Clients{LLM: s}, quietLog())
 	st := &State{
 		Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)},
 		Critiques: []model.Critique{crit(doiA, qualityHigh, relevanceDirect, directionPositive)}, Cost: &CostReport{},

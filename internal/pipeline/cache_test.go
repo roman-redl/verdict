@@ -25,14 +25,15 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 	cachePath := filepath.Join(tmp, "cache.json")
 	prewarmed := EnrichCache{
 		"10.1000/cached": {
-			CheckedAt: time.Now(), Abstract: cachedAbstract,
+			CheckedAt: testNow, Abstract: cachedAbstract,
 			OALink: "https://x/cached.pdf", Retracted: false,
 		},
 	}
 
 	require.NoError(t, prewarmed.Save(cachePath))
 
-	p := New(Settings{Concurrency: 4, EnrichCacheTTL: ttl30d}, Clients{Works: works, Notices: &fakeNotices{}}, quietLog())
+	p := newTest(t, Settings{Concurrency: 4, EnrichCacheTTL: ttl30d},
+		Clients{Works: works, Notices: &fakeNotices{}}, quietLog())
 
 	st := &State{Papers: []model.Paper{
 		{DOI: "10.1000/cached", Source: sourceManual},
@@ -49,7 +50,7 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 	assert.Zero(t, works.calls.get("ByDOI:10.1000/cached"), "cached DOI must not be re-queried")
 	assert.Equal(t, 1, works.calls.get("ByDOI:10.1000/new"))
 	// the cache now also covers the fresh DOI
-	saved := LoadEnrichCache(cachePath, ttl30d, quietLog())
+	saved := LoadEnrichCache(cachePath, ttl30d, testNow, quietLog())
 	assert.Contains(t, saved, "10.1000/new", "fetched DOI not written back to the cache")
 }
 
@@ -60,14 +61,14 @@ func TestEnrichCacheCarriesFlags(t *testing.T) {
 
 	prewarmed := EnrichCache{
 		doiRetr: {
-			CheckedAt: time.Now(), Retracted: true, Reason: "Crossref/retraction-watch: retraction notice 10.1/n",
+			CheckedAt: testNow, Retracted: true, Reason: "Crossref/retraction-watch: retraction notice 10.1/n",
 			Notes: []string{noteCorrection},
 		},
 	}
 
 	require.NoError(t, prewarmed.Save(cachePath))
 
-	p := New(Settings{Concurrency: 1, EnrichCacheTTL: ttl30d}, Clients{}, quietLog())
+	p := newTest(t, Settings{Concurrency: 1, EnrichCacheTTL: ttl30d}, Clients{}, quietLog())
 	st := &State{Papers: []model.Paper{{DOI: doiRetr, Source: sourceManual}}}
 
 	require.NoError(t, p.enrich(context.Background(), params(Options{RunDir: filepath.Join(tmp, "run")}), st))
@@ -81,29 +82,29 @@ func TestEnrichCacheCarriesFlags(t *testing.T) {
 func TestLoadEnrichCacheDropsStale(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")
 	seeded := EnrichCache{
-		"10.1/fresh": {CheckedAt: time.Now().Add(-time.Hour)},
-		"10.1/stale": {CheckedAt: time.Now().Add(-100 * 24 * time.Hour)},
+		"10.1/fresh": {CheckedAt: testNow.Add(-time.Hour)},
+		"10.1/stale": {CheckedAt: testNow.Add(-100 * 24 * time.Hour)},
 	}
 
 	require.NoError(t, seeded.Save(path))
 
-	got := LoadEnrichCache(path, ttl30d, quietLog())
+	got := LoadEnrichCache(path, ttl30d, testNow, quietLog())
 	assert.Contains(t, got, "10.1/fresh", "fresh entry dropped")
 
 	assert.NotContains(t, got, "10.1/stale", "stale entry kept")
 
-	assert.Empty(t, LoadEnrichCache(filepath.Join(t.TempDir(), "missing.json"), time.Hour, quietLog()),
+	assert.Empty(t, LoadEnrichCache(filepath.Join(t.TempDir(), "missing.json"), time.Hour, testNow, quietLog()),
 		"missing cache file must yield an empty cache")
 }
 
 // A disabled critique cache (TTL zero) loads nothing even from a full file.
 func TestCritiqueCacheDisabledByZeroTTL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "critique-cache.json")
-	seeded := CritiqueCache{"k": {CheckedAt: time.Now()}}
+	seeded := CritiqueCache{"k": {CheckedAt: testNow}}
 
 	require.NoError(t, seeded.Save(path))
-	assert.Empty(t, LoadCritiqueCache(path, 0, quietLog()))
-	assert.NotEmpty(t, LoadCritiqueCache(path, ttl30d, quietLog()))
+	assert.Empty(t, LoadCritiqueCache(path, 0, testNow, quietLog()))
+	assert.NotEmpty(t, LoadCritiqueCache(path, ttl30d, testNow, quietLog()))
 }
 
 func TestCachePaths(t *testing.T) {

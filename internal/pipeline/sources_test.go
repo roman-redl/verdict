@@ -26,7 +26,7 @@ func TestEnrichLogsSourceFailures(t *testing.T) {
 	var logs bytes.Buffer
 
 	log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	p := New(Settings{Concurrency: 1}, Clients{Works: works, Notices: notices}, log)
+	p := newTest(t, Settings{Concurrency: 1}, Clients{Works: works, Notices: notices}, log)
 
 	st := &State{Papers: []model.Paper{{DOI: "10.1/fail", Source: sourceManual}}}
 	require.NoError(t, p.enrich(context.Background(), params(Options{}), st))

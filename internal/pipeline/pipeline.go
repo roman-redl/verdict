@@ -7,6 +7,7 @@ package pipeline
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -93,10 +94,21 @@ type Pipeline struct {
 	set     Settings
 	clients Clients
 	log     *slog.Logger
+	now     func() time.Time
 }
 
-func New(set Settings, clients Clients, log *slog.Logger) *Pipeline {
-	return &Pipeline{set: set, clients: clients, log: log}
+// New builds a pipeline. now is the clock: it stamps cache entries, reports
+// and run directory names, and tests pin it.
+func New(set Settings, clients Clients, log *slog.Logger, now func() time.Time) (*Pipeline, error) {
+	if log == nil {
+		return nil, errors.New("the pipeline needs a logger")
+	}
+
+	if now == nil {
+		return nil, errors.New("the pipeline needs a clock")
+	}
+
+	return &Pipeline{set: set, clients: clients, log: log, now: now}, nil
 }
 
 // runParams are the parameters of one run that every stage needs besides the
