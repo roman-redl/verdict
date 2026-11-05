@@ -23,7 +23,9 @@ import (
 )
 
 const (
-	attempts = 4
+	// defaultTimeout is the timeout of one request.
+	defaultTimeout = 90 * time.Second
+	attempts       = 4
 	// defaultBackoff is the pause before the second attempt; it doubles with
 	// every further one.
 	defaultBackoff = 400 * time.Millisecond
@@ -58,16 +60,35 @@ type Client struct {
 	backoff time.Duration
 }
 
+// Option adjusts a Client at construction.
+type Option func(*http.Client)
+
+// WithTimeout sets the timeout of one request (the default is 90 seconds):
+// a model completion of thousands of tokens takes longer.
+func WithTimeout(d time.Duration) Option {
+	return func(hc *http.Client) { hc.Timeout = d }
+}
+
+// WithTransport replaces the HTTP transport (a proxy, for instance).
+func WithTransport(rt http.RoundTripper) Option {
+	return func(hc *http.Client) { hc.Transport = rt }
+}
+
 // New returns a client with a limit of qps requests per second
 // (burst equals qps, at least 1). name identifies the API in errors.
-func New(name string, qps int) *Client {
+func New(name string, qps int, opts ...Option) *Client {
 	if qps < 1 {
 		qps = 1
 	}
 
+	hc := &http.Client{Timeout: defaultTimeout}
+	for _, o := range opts {
+		o(hc)
+	}
+
 	return &Client{
 		name:    name,
-		hc:      &http.Client{Timeout: 90 * time.Second},
+		hc:      hc,
 		rl:      rate.NewLimiter(rate.Limit(qps), qps),
 		backoff: defaultBackoff,
 	}

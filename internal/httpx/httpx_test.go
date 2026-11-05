@@ -309,3 +309,29 @@ func TestURLKeepsDOICharacters(t *testing.T) {
 	assert.Empty(t, parsed.RawQuery, "a '?' inside a DOI must not start a query")
 	assert.Empty(t, parsed.Fragment)
 }
+
+// roundTripFunc is a transport that never touches the network.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestNewOptions(t *testing.T) {
+	assert.Equal(t, defaultTimeout, New("t", 1).hc.Timeout, "the default timeout applies without options")
+	assert.Nil(t, New("t", 1).hc.Transport)
+
+	rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
+			Header: http.Header{},
+		}, nil
+	})
+	c := New("t", 1, WithTimeout(8*time.Minute), WithTransport(rt))
+	assert.Equal(t, 8*time.Minute, c.hc.Timeout)
+
+	var out struct {
+		OK bool `json:"ok"`
+	}
+
+	require.NoError(t, c.DoJSON(t.Context(), http.MethodGet, "http://api.test/x", nil, &out, nil))
+	assert.True(t, out.OK, "the request went through the given transport")
+}
