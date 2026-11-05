@@ -183,7 +183,7 @@ func (c *Client) attempt(ctx context.Context, r request) ([]byte, error) {
 	}
 
 	// the body is read below; a failure to close a read body changes nothing
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { _ = resp.Body.Close() }() // the body is already read; a close failure loses nothing
 
 	data, err := readCapped(resp.Body, r.maxBytes)
 	if err != nil {
