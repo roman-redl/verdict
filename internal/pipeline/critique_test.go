@@ -117,7 +117,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	require.NotNil(t, st.Cost.Critique, "cost must count only real calls")
 	require.Equal(t, 1, st.Cost.Critique.Calls, "cost must count only real calls")
 
-	saved := LoadCritiqueCache(cachePath, 30*24*time.Hour)
+	saved := LoadCritiqueCache(cachePath, ttl30d, quietLog())
 	assert.Contains(t, saved, critiqueCacheKey(ep(doiB), "q?"), "fresh critique not written back")
 
 	// A second critique stage over the same corpus: pure cache, zero calls.
@@ -202,7 +202,8 @@ func TestSynthesisUserPromptAbstractDiet(t *testing.T) {
 		crit("10.1/direct", qualityHigh, relevanceDirect, directionPositive),
 		crit("10.1/indirect", qualityLow, relevanceIndirect, directionNull),
 	}
-	out := synthesisUserPrompt(st)
+	out, err := synthesisUserPrompt(st)
+	require.NoError(t, err)
 
 	var parsed struct {
 		Studies []struct {

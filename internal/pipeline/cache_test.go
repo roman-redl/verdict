@@ -62,7 +62,7 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 
 	assert.Equal(t, 1, oaHits, "cached DOI must not be re-queried")
 	// the cache now also covers the fresh DOI
-	saved := LoadEnrichCache(cachePath, 30*24*time.Hour)
+	saved := LoadEnrichCache(cachePath, ttl30d, quietLog())
 	assert.Contains(t, saved, "10.1000/new", "fetched DOI not written back to the cache")
 }
 
@@ -75,11 +75,11 @@ func TestLoadEnrichCacheDropsStale(t *testing.T) {
 
 	require.NoError(t, seeded.Save(path))
 
-	got := LoadEnrichCache(path, 30*24*time.Hour)
+	got := LoadEnrichCache(path, ttl30d, quietLog())
 	assert.Contains(t, got, "10.1/fresh", "fresh entry dropped")
 
 	assert.NotContains(t, got, "10.1/stale", "stale entry kept")
 
-	assert.Empty(t, LoadEnrichCache(filepath.Join(t.TempDir(), "missing.json"), time.Hour),
+	assert.Empty(t, LoadEnrichCache(filepath.Join(t.TempDir(), "missing.json"), time.Hour, quietLog()),
 		"missing cache file must yield an empty cache")
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/roman-redl/verdict/internal/model"
@@ -65,27 +66,28 @@ func RenderMarkdown(st *State) string {
 
 // RenderCSV renders the matrix in a machine-readable form (for the
 // ecosystem / downstream processing).
-func RenderCSV(r *model.Report) string {
-	var buf bytes.Buffer
-
-	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{
+func RenderCSV(r *model.Report) (string, error) {
+	records := make([][]string, 0, len(r.Matrix)+1)
+	records = append(records, []string{
 		"doi", "title", "year", "design", "sample_size",
 		"supporting", "contradicting", "total_citations", "direction", "design_quality", "relevance", "note",
 	})
 
 	for i := range r.Matrix {
 		m := &r.Matrix[i]
-		_ = w.Write([]string{
-			m.DOI, m.Title, fmt.Sprintf("%d", m.Year), m.Design, fmt.Sprintf("%d", m.SampleSize),
-			fmt.Sprintf("%d", m.Supporting), fmt.Sprintf("%d", m.Contradicting),
-			fmt.Sprintf("%d", m.TotalCitations), m.Direction, m.DesignQuality, m.Relevance, m.Note,
+		records = append(records, []string{
+			m.DOI, m.Title, strconv.Itoa(m.Year), m.Design, strconv.Itoa(m.SampleSize),
+			strconv.Itoa(m.Supporting), strconv.Itoa(m.Contradicting),
+			strconv.Itoa(m.TotalCitations), m.Direction, m.DesignQuality, m.Relevance, m.Note,
 		})
 	}
 
-	w.Flush()
+	var buf bytes.Buffer
+	if err := csv.NewWriter(&buf).WriteAll(records); err != nil {
+		return "", fmt.Errorf("encoding the matrix as CSV: %w", err)
+	}
 
-	return buf.String()
+	return buf.String(), nil
 }
 
 // RenderContext is a compact digest of a run: everything an analyst needs to

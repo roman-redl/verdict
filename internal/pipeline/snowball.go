@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"sort"
 
 	"golang.org/x/sync/errgroup"
@@ -27,7 +29,7 @@ type SnowballCandidate struct {
 // the seeds (newer evidence). A candidate qualifies when either shared count
 // reaches minShared; results are capped at maxOut, strongest signal first.
 func Snowball(
-	ctx context.Context, oa *openalex.Client, dois []string, minShared, maxOut int,
+	ctx context.Context, oa *openalex.Client, dois []string, minShared, maxOut int, log *slog.Logger,
 ) ([]SnowballCandidate, error) {
 	if minShared < 1 {
 		minShared = 2
@@ -45,15 +47,20 @@ func Snowball(
 	for i, doi := range dois {
 		g.Go(func() error {
 			w, err := oa.ByDOI(gctx, model.NormalizeDOI(doi))
-			if err == nil {
-				works[i] = w
+			if err != nil {
+				log.Warn("snowball: seed lookup failed, the seed is skipped", "doi", doi, "err", err)
+				return nil
 			}
 
-			return nil // an unknown seed is skipped, not fatal
+			works[i] = w // nil for a DOI OpenAlex does not know
+
+			return nil
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("looking up the seed papers: %w", err)
+	}
 
 	seedDOIs := map[string]bool{}
 	for i, doi := range dois {
@@ -106,15 +113,22 @@ func Snowball(
 
 		g.Go(func() error {
 			ws, err := oa.CitesWork(gctx, works[i].ID, 100)
-			if err == nil {
-				citing[i] = ws
+			if err != nil {
+				log.Warn("snowball: citing-works lookup failed, the seed adds no forward links",
+					"doi", works[i].DOI, "err", err)
+
+				return nil // best-effort per seed
 			}
 
-			return nil // best-effort per seed
+			citing[i] = ws
+
+			return nil
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("looking up the citing works: %w", err)
+	}
 
 	for _, ws := range citing {
 		seenInSeed := map[string]bool{}
@@ -153,10 +167,13 @@ func Snowball(
 	}
 
 	if len(sharedIDs) > 0 {
-		if ws, err := oa.ByIDs(ctx, sharedIDs); err == nil {
-			for i := range ws {
-				add(&ws[i], refCount[ws[i].ID], 0) // cited by that many seeds
-			}
+		ws, err := oa.ByIDs(ctx, sharedIDs)
+		if err != nil {
+			log.Warn("snowball: reference lookup failed, the backward half is missing", "err", err)
+		}
+
+		for i := range ws {
+			add(&ws[i], refCount[ws[i].ID], 0) // cited by that many seeds
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -236,10 +237,16 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// the copy is required: the worker may have started already
-	snap, _ := s.snapshot(id)
+	snap, ok := s.snapshot(id)
+	if !ok {
+		s.log.Error("a job vanished right after it was created", "job", id)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
 
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(snap)
+	s.writeJSON(w, snap)
 }
 
 // writeDOIList stores the submitted DOIs where the pipeline reads them
@@ -256,7 +263,8 @@ func (s *Server) writeDOIList(dois []string) (string, error) {
 
 	for _, d := range dois {
 		if _, err := fmt.Fprintln(f, d); err != nil {
-			_ = f.Close()
+			_ = f.Close() // the write error below is the one that matters
+
 			return "", fmt.Errorf("writing %s: %w", f.Name(), err)
 		}
 	}
@@ -270,14 +278,15 @@ func (s *Server) writeDOIList(dois []string) (string, error) {
 
 func (s *Server) list(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	out := make([]Job, 0, len(s.jobs))
 	for _, j := range s.jobs {
 		out = append(out, *j)
 	}
 
-	writeJSON(w, out)
+	s.mu.Unlock()
+
+	s.writeJSON(w, out)
 }
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +296,7 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, j)
+	s.writeJSON(w, j)
 }
 
 // artifactWhitelist guards the artifact endpoint against path traversal:
@@ -310,14 +319,25 @@ func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 	//nolint:gosec // the file name passed the artifact whitelist, the directory is the service's own state
 	b, err := os.ReadFile(filepath.Join(j.Dir, name))
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			s.log.Error("reading an artifact failed", "job", j.ID, "file", name, "err", err)
+		}
+
 		http.NotFound(w, r)
+
 		return
 	}
 	//nolint:gosec // the response is a run artifact read from disk; the name passed the whitelist
-	_, _ = w.Write(b)
+	if _, err := w.Write(b); err != nil {
+		s.log.Warn("writing the artifact response failed", "job", j.ID, "file", name, "err", err)
+	}
 }
 
-func writeJSON(w http.ResponseWriter, v any) {
+func (s *Server) writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+
+	// a failure here is a client that went away mid-response
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		s.log.Warn("writing the JSON response failed", "err", err)
+	}
 }

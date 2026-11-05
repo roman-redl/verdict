@@ -96,7 +96,7 @@ func run() error {
 			if st.Report != nil {
 				fmt.Printf("Verdict: %s\nReport: %s/report.md\nMatrix: %s/matrix.csv\n",
 					st.Report.Verdict, dir, dir)
-				recordRun(cmd.Context(), dir, st, paperCount(st))
+				recordRun(cmd.Context(), log, dir, st, paperCount(st))
 			} else {
 				fmt.Printf("Stage artifacts: %s\n", dir)
 			}
@@ -149,8 +149,8 @@ func run() error {
 		Use:   "verdict",
 		Short: "Evidence assessment for scientific claims: discovery → Scite/OpenAlex → LLM",
 	}
-	root.AddCommand(runCmd, webCmd(), doisCmd(), resolveCmd(&cfg), snowballCmd(&cfg),
-		addpdfCmd(), askCmd(&cfg), briefCmd(&cfg), picoCmd(&cfg), indexCmd())
+	root.AddCommand(runCmd, webCmd(), doisCmd(), resolveCmd(&cfg), snowballCmd(&cfg, log),
+		addpdfCmd(), askCmd(&cfg, log), briefCmd(&cfg, log), picoCmd(&cfg, log), indexCmd(log))
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		return errReported
@@ -299,7 +299,7 @@ func stripBullet(line string) string {
 // snowballCmd — citation-chaining corpus expansion: finds works connected to
 // several seed papers at once (cited by them or citing them). Prints
 // candidates for curation; nothing is added to any corpus automatically.
-func snowballCmd(cfg *config.Config) *cobra.Command {
+func snowballCmd(cfg *config.Config, log *slog.Logger) *cobra.Command {
 	var minShared, maxOut int
 
 	cmd := &cobra.Command{
@@ -319,7 +319,7 @@ func snowballCmd(cfg *config.Config) *cobra.Command {
 
 			oa := openalex.New(cfg.OpenAlexEmail)
 
-			cands, err := pipeline.Snowball(cmd.Context(), oa, dois, minShared, maxOut)
+			cands, err := pipeline.Snowball(cmd.Context(), oa, dois, minShared, maxOut, log)
 			if err != nil {
 				return err
 			}
@@ -359,15 +359,13 @@ func readInput(cmd *cobra.Command, args []string) ([]byte, error) {
 // askCmd — Q&A with an analyst holding the run's context: the same LLM
 // backend the pipeline used (by default the Claude Code tariff). REPL or a
 // single question.
-func askCmd(cfg *config.Config) *cobra.Command {
+func askCmd(cfg *config.Config, log *slog.Logger) *cobra.Command {
 	var runDir, question string
 
 	cmd := &cobra.Command{
 		Use:   "ask",
 		Short: "Ask an analyst about a finished run (papers, citations, verdict)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {
 				return err
@@ -375,7 +373,7 @@ func askCmd(cfg *config.Config) *cobra.Command {
 
 			var runs []pipeline.RunState
 
-			runs, err = pipeline.LoadRuns(runDir)
+			runs, err = pipeline.LoadRuns(runDir, log)
 			if err != nil {
 				return err
 			}
@@ -412,11 +410,16 @@ func askCmd(cfg *config.Config) *cobra.Command {
 				return fmt.Errorf("starting readline: %w", err)
 			}
 
-			defer func() { _ = rl.Close() }()
+			defer func() { _ = rl.Close() }() // quitting anyway: a terminal restore failure changes nothing
 
 			for {
 				line, err := rl.Readline()
-				if err != nil { // Ctrl-D (io.EOF) or a reader failure
+				if err != nil {
+					// Ctrl-D (io.EOF) and Ctrl-C end the dialogue; anything else is a reader failure
+					if !errors.Is(err, io.EOF) && !errors.Is(err, readline.ErrInterrupt) {
+						log.Warn("reading the question failed, ending the dialogue", "err", err)
+					}
+
 					break
 				}
 
@@ -457,7 +460,7 @@ func askCmd(cfg *config.Config) *cobra.Command {
 	cmd.Flags().StringVar(&runDir, "run-dir", "",
 		"a topic directory (loads all its runs, newest first) or a single run directory")
 
-	_ = cmd.MarkFlagRequired("run-dir")
+	_ = cmd.MarkFlagRequired("run-dir") // fails only for an undefined flag; it is defined just above
 	cmd.Flags().StringVarP(&question, "question", "q", "", "a single question, no interactive mode")
 
 	return cmd
@@ -482,15 +485,14 @@ func orDash(s string) string {
 
 // recordRun indexes the finished run in the SQLite run database (best
 // effort — the stage artifacts on disk remain the source of truth).
-func recordRun(ctx context.Context, dir string, st *pipeline.State, papers int) {
+func recordRun(ctx context.Context, log *slog.Logger, dir string, st *pipeline.State, papers int) {
 	d, err := db.Open(ctx, filepath.Join("runs", "verdict.db"))
 	if err != nil {
+		log.Warn("run index not updated: cannot open the database", "dir", dir, "err", err)
 		return
 	}
 
-	defer func() { _ = d.Close() }()
-
-	_ = d.Record(ctx, db.Row{
+	err = d.Record(ctx, db.Row{
 		Topic:       filepath.Base(filepath.Dir(dir)),
 		Run:         filepath.Base(dir),
 		Dir:         dir,
@@ -500,6 +502,13 @@ func recordRun(ctx context.Context, dir string, st *pipeline.State, papers int) 
 		Papers:      papers,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 	})
+	if err != nil {
+		log.Warn("run index not updated: cannot record the run", "dir", dir, "err", err)
+	}
+
+	if err := d.Close(); err != nil {
+		log.Warn("closing the run index failed", "err", err)
+	}
 }
 
 // addpdfCmd — drop a paper PDF (e.g. straight from ~/Downloads) into a
@@ -548,14 +557,14 @@ func addpdfCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&runDir, "run-dir", "", "the run directory (runs/<topic>/<run>)")
-	_ = cmd.MarkFlagRequired("run-dir")
+	_ = cmd.MarkFlagRequired("run-dir") // fails only for an undefined flag; it is defined just above
 
 	return cmd
 }
 
 // indexCmd — the run index: topics, verdicts and paper counts without
 // walking runs/ on disk.
-func indexCmd() *cobra.Command {
+func indexCmd(log *slog.Logger) *cobra.Command {
 	return &cobra.Command{
 		Use:   "index [topic]",
 		Short: "List indexed runs (topics, verdicts, paper counts)",
@@ -571,7 +580,11 @@ func indexCmd() *cobra.Command {
 				return err
 			}
 
-			defer func() { _ = d.Close() }()
+			defer func() {
+				if err := d.Close(); err != nil {
+					log.Warn("closing the run index failed", "err", err)
+				}
+			}()
 
 			rows, err := d.Runs(cmd.Context(), topic)
 			if err != nil {
@@ -599,7 +612,7 @@ func indexCmd() *cobra.Command {
 // becomes PICO components plus ready-to-run queries — a PubMed-style
 // keyword query (mode A) and 1-3 semantic queries (mode B/C: run through
 // the Consensus API via `run --queries`, or the free web UI).
-func picoCmd(cfg *config.Config) *cobra.Command {
+func picoCmd(cfg *config.Config, log *slog.Logger) *cobra.Command {
 	var question string
 
 	cmd := &cobra.Command{
@@ -609,8 +622,6 @@ func picoCmd(cfg *config.Config) *cobra.Command {
 			if question == "" {
 				return fmt.Errorf("--question/-q is required")
 			}
-
-			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {
@@ -628,14 +639,14 @@ func picoCmd(cfg *config.Config) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&question, "question", "q", "", "the research question (any form)")
-	_ = cmd.MarkFlagRequired("question")
+	_ = cmd.MarkFlagRequired("question") // fails only for an undefined flag; it is defined just above
 
 	return cmd
 }
 
 // briefCmd — triage a messy problem description: agent-solvable tasks stay
 // with the agent, scientific questions are handed to `verdict run`.
-func briefCmd(cfg *config.Config) *cobra.Command {
+func briefCmd(cfg *config.Config, log *slog.Logger) *cobra.Command {
 	var outDir string
 
 	cmd := &cobra.Command{
@@ -643,8 +654,6 @@ func briefCmd(cfg *config.Config) *cobra.Command {
 		Short: "Turn a messy problem description into agent tasks + evidence questions",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {
 				return err

@@ -161,10 +161,11 @@ func PDFDOIs(b []byte) []string {
 // loadVisionNotes picks up the optional agent-written chart critique
 // (3b-vision.json): the agent renders the run's PDF pages and inspects them
 // via the vision MCP (GLM text models must not read images), then synthesis
-// weighs the notes as data. A broken or missing file is simply "no notes".
-func loadVisionNotes(dir string, st *State) {
-	p := filepath.Join(dir, "3b-vision.json")
-	if !fileExists(p) {
+// weighs the notes as data. A missing file is simply "no notes"; a broken
+// one is logged and also yields no notes — it must not kill the run.
+func (p *Pipeline) loadVisionNotes(dir string, st *State) {
+	path := filepath.Join(dir, "3b-vision.json")
+	if !fileExists(path) {
 		return
 	}
 
@@ -172,7 +173,8 @@ func loadVisionNotes(dir string, st *State) {
 		VisionNotes []model.VisionNote `json:"vision_notes"`
 	}
 
-	if err := loadJSON(p, &v); err != nil {
+	if err := loadJSON(path, &v); err != nil {
+		p.log.Warn("vision notes ignored: unreadable artifact", "path", path, "err", err)
 		return
 	}
 

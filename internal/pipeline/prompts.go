@@ -146,7 +146,7 @@ func hasCritique(c model.Critique) bool {
 // studies, and studies whose critique is missing or failed (the abstract is
 // then all the judge has). Everywhere else the critique already carries what
 // the abstract said; resending the text would pay twice for the same read.
-func synthesisUserPrompt(st *State) string {
+func synthesisUserPrompt(st *State) (string, error) {
 	type item struct {
 		DOI                  string               `json:"doi"`
 		Title                string               `json:"title"`
@@ -202,9 +202,12 @@ func synthesisUserPrompt(st *State) string {
 		items = append(items, it)
 	}
 
-	b, _ := json.Marshal(map[string]any{"question": st.Question, "studies": items})
+	b, err := json.Marshal(map[string]any{"question": st.Question, "studies": items})
+	if err != nil {
+		return "", fmt.Errorf("encoding the dataset: %w", err)
+	}
 
-	return "Build the evidence assessment for this dataset:\n\n" + string(b)
+	return "Build the evidence assessment for this dataset:\n\n" + string(b), nil
 }
 
 func truncate(s string, n int) string {

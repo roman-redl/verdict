@@ -84,21 +84,22 @@ func TestPdfTextReal(t *testing.T) {
 func TestLoadVisionNotes(t *testing.T) {
 	dir := t.TempDir()
 	st := &State{}
-	loadVisionNotes(dir, st) // no file at all
+	p := New(Settings{}, Clients{}, quietLog())
+	p.loadVisionNotes(dir, st) // no file at all
 
 	require.Empty(t, st.VisionNotes, "no artifact must yield no notes")
 
 	broken := filepath.Join(dir, "3b-vision.json")
 	require.NoError(t, os.WriteFile(broken, []byte("{not json"), 0o600))
 
-	loadVisionNotes(dir, st)
+	p.loadVisionNotes(dir, st)
 
 	require.Empty(t, st.VisionNotes, "broken artifact must yield no notes")
 
 	good := `{"vision_notes":[{"doi":"10.1/x","findings":["y-axis truncated at 40% (fig 2)"]}]}`
 	require.NoError(t, os.WriteFile(broken, []byte(good), 0o600))
 
-	loadVisionNotes(dir, st)
+	p.loadVisionNotes(dir, st)
 
 	require.Len(t, st.VisionNotes, 1)
 	require.Equal(t, "10.1/x", st.VisionNotes[0].DOI)

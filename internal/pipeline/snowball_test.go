@@ -42,7 +42,7 @@ func TestSnowball(t *testing.T) {
 	defer srv.Close()
 
 	cands, err := Snowball(context.Background(), openalex.NewWithBase(srv.URL, ""),
-		[]string{"10.1000/seed1", "10.1000/seed2"}, 2, 10)
+		[]string{"10.1000/seed1", "10.1000/seed2"}, 2, 10, quietLog())
 	require.NoError(t, err)
 
 	byDOI := map[string]SnowballCandidate{}

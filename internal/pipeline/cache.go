@@ -2,13 +2,39 @@ package pipeline
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/roman-redl/verdict/internal/model"
 )
+
+// readCache decodes a cache file into v. It reports false when there is
+// nothing usable: a missing file is a normal cold start, an unreadable or
+// corrupt one is logged (a cold cache costs API calls, so it must not be
+// silent).
+func readCache(path string, v any, log *slog.Logger) bool {
+	//nolint:gosec // the cache path is built inside the package from runs/<topic>, not from external input
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			log.Warn("cache unreadable, starting cold", "path", path, "err", err)
+		}
+
+		return false
+	}
+
+	if err := json.Unmarshal(b, v); err != nil {
+		log.Warn("cache corrupt, starting cold", "path", path, "err", err)
+		return false
+	}
+
+	return true
+}
 
 // EnrichCache memoizes per-DOI deterministic lookups (OpenAlex metadata,
 // Crossref integrity notices) across runs of one topic: a challenge re-run
@@ -30,20 +56,15 @@ type CacheEntry struct {
 
 // LoadEnrichCache reads the cache and drops entries older than ttl.
 // A missing file is an empty cache, not an error.
-func LoadEnrichCache(path string, ttl time.Duration) EnrichCache {
+func LoadEnrichCache(path string, ttl time.Duration, log *slog.Logger) EnrichCache {
 	out := EnrichCache{}
 	if path == "" {
 		return out
 	}
-	//nolint:gosec // путь кэша собран внутри пакета из runs/<topic>, не из внешнего ввода
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return out
-	}
 
 	var c EnrichCache
-	if json.Unmarshal(b, &c) != nil {
-		return out // a corrupt cache is a cold cache
+	if !readCache(path, &c, log) {
+		return out
 	}
 
 	cutoff := time.Now().Add(-ttl)
@@ -107,20 +128,15 @@ type CritiqueCacheEntry struct {
 
 // LoadCritiqueCache reads the cache and drops entries older than ttl
 // (ttl <= 0 disables the cache entirely). A missing file is an empty cache.
-func LoadCritiqueCache(path string, ttl time.Duration) CritiqueCache {
+func LoadCritiqueCache(path string, ttl time.Duration, log *slog.Logger) CritiqueCache {
 	out := CritiqueCache{}
 	if path == "" || ttl <= 0 {
 		return out
 	}
-	//nolint:gosec // путь кэша собран внутри пакета из runs/<topic>, не из внешнего ввода
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return out
-	}
 
 	var c CritiqueCache
-	if json.Unmarshal(b, &c) != nil {
-		return out // a corrupt cache is a cold cache
+	if !readCache(path, &c, log) {
+		return out
 	}
 
 	cutoff := time.Now().Add(-ttl)

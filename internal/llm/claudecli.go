@@ -65,10 +65,10 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 		return "", Usage{}, fmt.Errorf("%s: system prompt tempfile: %w", c.Name(), err)
 	}
 
-	defer func() { _ = os.Remove(spFile.Name()) }()
+	defer func() { _ = os.Remove(spFile.Name()) }() // a leftover temp file is harmless and cleaned by the OS
 
 	if _, err := spFile.WriteString(system); err != nil {
-		_ = spFile.Close()
+		_ = spFile.Close() // the write error below is the one that matters
 		return "", Usage{}, fmt.Errorf("%s: system prompt tempfile: %w", c.Name(), err)
 	}
 

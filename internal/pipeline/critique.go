@@ -141,7 +141,14 @@ func critiquePaper(
 		Relevance:       valueUnknown,
 		ResultDirection: valueUnclear,
 	}
-	b, _ := json.Marshal(critiqueInput(e, question))
+
+	b, err := json.Marshal(critiqueInput(e, question))
+	if err != nil {
+		err = fmt.Errorf("encoding study %s: %w", e.DOI, err)
+		c.Error = persistedErr(err)
+
+		return c, llm.Usage{}, err
+	}
 
 	var out model.Critique
 
@@ -172,7 +179,10 @@ func critiqueBatch(
 		p.Studies[i] = critiqueInput(papers[i], question)
 	}
 
-	b, _ := json.Marshal(p)
+	b, err := json.Marshal(p)
+	if err != nil {
+		return nil, llm.Usage{}, fmt.Errorf("encoding the studies: %w", err)
+	}
 
 	var out struct {
 		Critiques []model.Critique `json:"critiques"`
@@ -265,7 +275,7 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 	p.pickupFullTexts(ctx, st)
 
 	cachePath := critiqueCachePath(opts)
-	cache := LoadCritiqueCache(cachePath, p.set.CritiqueCacheTTL)
+	cache := LoadCritiqueCache(cachePath, p.set.CritiqueCacheTTL, p.log)
 
 	critiques := make([]model.Critique, len(st.Enriched))
 
@@ -372,7 +382,10 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("critiquing the studies: %w", err)
+	}
+
 	st.Critiques = critiques
 
 	p.log.Info("critique llm usage", "calls", cost.Calls,
