@@ -9,6 +9,8 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	_ "modernc.org/sqlite"
@@ -29,6 +31,10 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	// the driver splits its DSN at the first '?'
 	if strings.Contains(path, "?") {
 		return nil, fmt.Errorf("database path %q must not contain '?'", path)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return nil, fmt.Errorf("creating the directory of %s: %w", path, err)
 	}
 
 	pragmas := url.Values{"_pragma": {"journal_mode(WAL)", "busy_timeout(5000)", "foreign_keys(1)"}}

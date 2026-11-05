@@ -285,7 +285,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("interrupted: %w", ctx.Err())
+		return fmt.Errorf("waiting was interrupted: %w", ctx.Err())
 	case <-t.C:
 		return nil
 	}

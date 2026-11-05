@@ -2,7 +2,8 @@
 // evidence-assessment runs over HTTP, watch status, fetch artifacts.
 // The CLI stays the primary interface; both share the client assembly
 // (cmd/internal/app). One run executes at a time — LLM concurrency lives
-// inside the pipeline stages.
+// inside the pipeline stages. Jobs are kept in runs/verdict.db, next to the
+// run index.
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 
 	"github.com/roman-redl/verdict/cmd/internal/app"
 	"github.com/roman-redl/verdict/internal/config"
+	"github.com/roman-redl/verdict/internal/db"
 	"github.com/roman-redl/verdict/internal/pipeline"
 	"github.com/roman-redl/verdict/internal/server"
 )
@@ -36,6 +39,8 @@ const (
 	idleTimeout       = 2 * time.Minute
 	// shutdownTimeout is how long in-flight HTTP requests get to finish.
 	shutdownTimeout = 30 * time.Second
+
+	runsDir = "runs"
 )
 
 // version is stamped by the Makefile (-ldflags "-X main.version=...").
@@ -73,6 +78,17 @@ func run() error {
 		return err
 	}
 
+	store, err := db.Open(ctx, filepath.Join(runsDir, "verdict.db"))
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Warn("closing the database failed", "err", err)
+		}
+	}()
+
 	runner := func(ctx context.Context, opts pipeline.Options) (*pipeline.State, string, error) {
 		p, err := app.BuildPipeline(&cfg, log, opts)
 		if err != nil {
@@ -82,13 +98,20 @@ func run() error {
 		return p.Run(ctx, opts)
 	}
 
-	svc, err := server.New(runner, "runs", log)
+	svc, err := server.New(ctx, runner, store.Jobs(time.Now), runsDir, log)
 	if err != nil {
-		return fmt.Errorf("creating the server: %w", err)
+		return err
 	}
 
+	return serve(ctx, log, svc, *addr)
+}
+
+// serve runs the worker and the HTTP server until ctx is canceled or one of
+// them fails, then shuts the listener down and lets the worker interrupt the
+// running job.
+func serve(ctx context.Context, log *slog.Logger, svc *server.Server, addr string) error {
 	srv := &http.Server{
-		Addr:              *addr,
+		Addr:              addr,
 		Handler:           svc.Handler(),
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       idleTimeout,
@@ -96,12 +119,12 @@ func run() error {
 
 	var lc net.ListenConfig
 
-	ln, err := lc.Listen(ctx, "tcp", *addr)
+	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
-		return fmt.Errorf("listening on %s: %w", *addr, err)
+		return fmt.Errorf("listening on %s: %w", addr, err)
 	}
 
-	log.Info("verdictd listening", "addr", *addr,
+	log.Info("verdictd listening", "addr", addr,
 		"endpoints", "POST /runs, GET /runs, GET /runs/{id}, GET /runs/{id}/{artifact}")
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -112,7 +135,7 @@ func run() error {
 	})
 	g.Go(func() error {
 		if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("serving: %w", err)
+			return fmt.Errorf("serving HTTP: %w", err)
 		}
 
 		return nil
@@ -133,7 +156,7 @@ func run() error {
 	})
 
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("verdictd: %w", err)
+		return fmt.Errorf("running the daemon: %w", err)
 	}
 
 	return nil

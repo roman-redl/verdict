@@ -16,6 +16,7 @@ import (
 const (
 	topicCreatine = "creatine"
 	verdictWeak   = "weak"
+	questionWork  = "does it work"
 )
 
 // stamp formats an index timestamp the way the CLI does.
@@ -151,6 +152,16 @@ func TestOpenSetsConnectionPragmas(t *testing.T) {
 	require.Equal(t, 1, d.sql.Stats().MaxOpenConnections)
 }
 
+// A fresh checkout has no runs/ yet; Open creates the directory.
+func TestOpenCreatesTheDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runs", "nested", "verdict.db")
+
+	d, err := Open(t.Context(), path)
+	require.NoError(t, err)
+	require.NoError(t, d.Close())
+	require.FileExists(t, path)
+}
+
 func TestOpenRejectsQuestionMarkInPath(t *testing.T) {
 	_, err := Open(t.Context(), filepath.Join(t.TempDir(), "a?b.db"))
 	require.Error(t, err)
@@ -164,7 +175,7 @@ func TestRecordRun(t *testing.T) {
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 
 	st := &pipeline.State{
-		Question: "does it work",
+		Question: questionWork,
 		Papers:   []model.Paper{{DOI: "10.1/a"}, {DOI: "10.1/b"}, {DOI: "10.1/c"}},
 		Enriched: []model.EnrichedPaper{{DOI: "10.1/a"}, {DOI: "10.1/b"}},
 		Report:   &model.Report{Verdict: verdictWeak, ConsensusStatus: "contested"},
@@ -177,7 +188,7 @@ func TestRecordRun(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Equal(t, Row{
 		Topic: topicCreatine, Run: "does-it-work-1", Dir: filepath.Join("runs", topicCreatine, "does-it-work-1"),
-		Question: "does it work", Verdict: verdictWeak, Consensus: "contested", Papers: 2,
+		Question: questionWork, Verdict: verdictWeak, Consensus: "contested", Papers: 2,
 		GeneratedAt: "2026-11-01T12:00:00Z",
 	}, rows[0])
 

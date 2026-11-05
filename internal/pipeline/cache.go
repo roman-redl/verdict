@@ -83,20 +83,16 @@ func (c EnrichCache) Save(path string) error {
 		return nil
 	}
 
+	return writeCache(path, c)
+}
+
+// writeCache stores a cache file, creating its directory.
+func writeCache(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("cache: create dir: %w", err)
+		return fmt.Errorf("creating the cache directory: %w", err)
 	}
 
-	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return fmt.Errorf("cache: marshal: %w", err)
-	}
-
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return fmt.Errorf("cache: write %s: %w", path, err)
-	}
-
-	return nil
+	return saveJSON(path, v)
 }
 
 // enrichCachePath places the cache next to the runs of a topic. No topic
@@ -155,20 +151,7 @@ func (c CritiqueCache) Save(path string) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return fmt.Errorf("cache: create dir: %w", err)
-	}
-
-	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return fmt.Errorf("cache: marshal: %w", err)
-	}
-
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return fmt.Errorf("cache: write %s: %w", path, err)
-	}
-
-	return nil
+	return writeCache(path, c)
 }
 
 // critiqueCachePath places the cache next to the runs of a topic, mirroring
