@@ -4,7 +4,7 @@ BINARY := bin/verdict
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X main.version=$(VERSION)
 
-.PHONY: build test lint fmt vet check run web ask clean
+.PHONY: build test lint fmt vet tidy vuln check run web ask clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/verdict
@@ -23,8 +23,15 @@ lint:
 fmt:
 	golangci-lint fmt
 
-# Full check before a commit: build + static analysis + tests + linter.
-check: build vet test lint
+tidy:
+	go mod tidy
+
+# Known vulnerabilities in the code that is actually reachable (govulncheck is a go.mod tool).
+vuln:
+	go tool govulncheck ./...
+
+# Full check before a commit: build + static analysis + tests + linter + vulnerabilities.
+check: build vet test lint vuln
 
 # Run a full assessment: make run QUESTION="does creatine improve cognition"
 run: build
