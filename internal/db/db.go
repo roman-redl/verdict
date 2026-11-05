@@ -8,37 +8,44 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
+	"net/url"
+	"strings"
 
 	_ "modernc.org/sqlite"
 
 	sq "github.com/Masterminds/squirrel"
 )
 
+// DB is the SQLite database of the run index.
 type DB struct {
 	sql *sql.DB
 }
 
+// Open opens (creating if needed) the database at path and migrates the
+// schema to the latest version. Driver and pool settings are explicit: the
+// defaults have no lock wait ("database is locked" on the first concurrent
+// write), no foreign keys and a rollback journal that blocks readers.
 func Open(ctx context.Context, path string) (*DB, error) {
-	d, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, fmt.Errorf("db: open: %w", err)
+	// the driver splits its DSN at the first '?'
+	if strings.Contains(path, "?") {
+		return nil, fmt.Errorf("database path %q must not contain '?'", path)
 	}
 
-	if _, err := d.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS runs (
-		id          INTEGER PRIMARY KEY AUTOINCREMENT,
-		topic       TEXT NOT NULL DEFAULT '',
-		run         TEXT NOT NULL,
-		dir         TEXT NOT NULL UNIQUE,
-		question    TEXT NOT NULL DEFAULT '',
-		verdict     TEXT NOT NULL DEFAULT '',
-		consensus   TEXT NOT NULL DEFAULT '',
-		papers      INTEGER NOT NULL DEFAULT 0,
-		generated_at TEXT NOT NULL DEFAULT '',
-		created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-	)`); err != nil {
-		_ = d.Close()
-		return nil, fmt.Errorf("db: create schema: %w", err)
+	pragmas := url.Values{"_pragma": {"journal_mode(WAL)", "busy_timeout(5000)", "foreign_keys(1)"}}
+
+	d, err := sql.Open("sqlite", path+"?"+pragmas.Encode())
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+
+	// one connection: SQLite serializes writers anyway, and a second
+	// connection would only turn contention into busy errors
+	d.SetMaxOpenConns(1)
+
+	if err := migrate(ctx, d); err != nil {
+		_ = d.Close() // the migration error is the one worth returning
+
+		return nil, err
 	}
 
 	return &DB{sql: d}, nil
@@ -46,7 +53,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 
 func (db *DB) Close() error {
 	if err := db.sql.Close(); err != nil {
-		return fmt.Errorf("db: close: %w", err)
+		return fmt.Errorf("closing the database: %w", err)
 	}
 
 	return nil
@@ -70,19 +77,25 @@ type Row struct {
 const runsCols = "topic, run, dir, question, verdict, consensus, papers, generated_at"
 
 // recordSQL upserts a run row keyed by the run directory.
-const recordSQL = `INSERT INTO runs (` + runsCols + `)
+const recordSQL = `
+	INSERT INTO runs (` + runsCols + `)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(dir) DO UPDATE SET
-		topic=excluded.topic, run=excluded.run, question=excluded.question,
-		verdict=excluded.verdict, consensus=excluded.consensus,
-		papers=excluded.papers, generated_at=excluded.generated_at`
+	ON CONFLICT (dir) DO UPDATE SET
+		topic = excluded.topic,
+		run = excluded.run,
+		question = excluded.question,
+		verdict = excluded.verdict,
+		consensus = excluded.consensus,
+		papers = excluded.papers,
+		generated_at = excluded.generated_at
+`
 
 // Record indexes a finished run (upsert keyed by the run directory).
 func (db *DB) Record(ctx context.Context, r Row) error {
 	_, err := db.sql.ExecContext(ctx, recordSQL,
 		r.Topic, r.Run, r.Dir, r.Question, r.Verdict, r.Consensus, r.Papers, r.GeneratedAt)
 	if err != nil {
-		return fmt.Errorf("db: record run: %w", err)
+		return fmt.Errorf("recording run %s: %w", r.Dir, err)
 	}
 
 	return nil
@@ -102,15 +115,15 @@ func (db *DB) Runs(ctx context.Context, topic string) ([]Row, error) {
 
 	query, args, err := b.OrderBy("id DESC").ToSql()
 	if err != nil {
-		return nil, fmt.Errorf("db: build runs query: %w", err)
+		return nil, fmt.Errorf("building the runs query: %w", err)
 	}
 
 	rows, err := db.sql.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("db: query runs: %w", err)
+		return nil, fmt.Errorf("querying runs: %w", err)
 	}
 
-	defer func() { _ = rows.Close() }()
+	defer func() { _ = rows.Close() }() // read-only cursor: a close failure loses nothing
 
 	var out []Row
 
@@ -120,18 +133,15 @@ func (db *DB) Runs(ctx context.Context, topic string) ([]Row, error) {
 			&r.Topic, &r.Run, &r.Dir, &r.Question,
 			&r.Verdict, &r.Consensus, &r.Papers, &r.GeneratedAt,
 		); err != nil {
-			return nil, fmt.Errorf("db: %w", err)
+			return nil, fmt.Errorf("reading a run row: %w", err)
 		}
 
 		out = append(out, r)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("db: scan runs: %w", err)
+		return nil, fmt.Errorf("reading runs: %w", err)
 	}
 
 	return out, nil
 }
-
-// stamp formats the index timestamp column.
-func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
