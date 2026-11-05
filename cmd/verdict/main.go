@@ -532,7 +532,7 @@ func addpdfCmd() *cobra.Command {
 			}
 
 			for _, f := range args {
-				//nolint:gosec // путь — аргумент локального CLI, файл задаёт сам пользователь
+				//nolint:gosec // the path is an argument of the local CLI: the user names the file
 				b, err := os.ReadFile(f)
 				if err != nil {
 					return err //nolint:wrapcheck // CLI input: the os error already names the file and operation
@@ -549,7 +549,7 @@ func addpdfCmd() *cobra.Command {
 
 				name := strings.ReplaceAll(model.NormalizeDOI(dois[0]), "/", "_") + ".pdf"
 				dst := filepath.Join(dir, name)
-				//nolint:gosec // путь собран из флага --run-dir и DOI, вычитанного из самого PDF
+				//nolint:gosec // the path is built from the --run-dir flag and a DOI read from the PDF itself
 				if err := os.WriteFile(dst, b, 0o600); err != nil {
 					return fmt.Errorf("writing %s: %w", dst, err)
 				}

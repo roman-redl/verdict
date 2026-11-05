@@ -83,7 +83,7 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 	if c.model != "" {
 		script += ` --model ` + c.model // exact name only: aliases do not resolve
 	}
-	//nolint:gosec // команда-обёртка приходит из доверенного конфига пользователя (.env), а не извне
+	//nolint:gosec // the wrapper command comes from the user's trusted configuration (.env), not from outside
 	cmd := exec.CommandContext(callCtx, "zsh", "-ic", script)
 	cmd.Stdin = strings.NewReader(user)
 

@@ -220,7 +220,7 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 		if err != nil {
 			return nil, dir, fmt.Errorf("reading %s: %w", opts.DOIFile, err)
 		}
-		//nolint:gosec // аудиторский след запуска: фиксированное имя в каталоге запуска, пишется копия входного файла
+		//nolint:gosec // the run's audit trail: a fixed name inside the run directory, a copy of the input file
 		if err := os.WriteFile(filepath.Join(dir, "0-input.txt"), raw, 0o600); err != nil {
 			return nil, dir, fmt.Errorf("writing input copy: %w", err)
 		}
@@ -421,7 +421,7 @@ func LoadRuns(dir string, log *slog.Logger) ([]RunState, error) {
 
 // --- stage 1: discovery ---
 
-// Движки обнаружения (флаг --engine, DiscoveryInfo.Engine).
+// Discovery engines (the --engine flag, DiscoveryInfo.Engine).
 const (
 	engineConsensus = "consensus"
 	engineOpenAlex  = "openalex"
@@ -1136,7 +1136,7 @@ func saveJSON(path string, v any) error {
 }
 
 func loadJSON(path string, v any) error {
-	//nolint:gosec // путь — внутренний артефакт запуска (state.json и т.п.), не внешний ввод
+	//nolint:gosec // the path is an internal run artifact (a stage JSON), not external input
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
@@ -1150,7 +1150,7 @@ func loadJSON(path string, v any) error {
 }
 
 func readDOIFile(path string) ([]string, error) {
-	//nolint:gosec // путь задан флагом --dois локального CLI (файл самого пользователя)
+	//nolint:gosec // the path comes from the --dois flag of the local CLI (the user's own file)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)

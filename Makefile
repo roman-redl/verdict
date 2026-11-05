@@ -10,7 +10,7 @@ build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/verdict
 	go build -ldflags "$(LDFLAGS)" -o bin/verdictd ./cmd/verdictd
 
-# Тесты с гонками: сервер крутит воркер параллельно с HTTP-хендлерами.
+# Tests run with the race detector: the server's worker runs next to the HTTP handlers.
 test:
 	go test -race ./...
 
@@ -23,7 +23,7 @@ lint:
 fmt:
 	golangci-lint fmt
 
-# Полная проверка перед коммитом: сборка + статанализ + тесты + линтер.
+# Full check before a commit: build + static analysis + tests + linter.
 check: build vet test lint
 
 # Run a full assessment: make run QUESTION="does creatine improve cognition"

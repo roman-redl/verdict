@@ -91,8 +91,8 @@ modes A/B/C are a different thing — see docs/usage.md.)
 8. **Deep mode — extra depth beyond the default run.** The default
    `--text-mode hybrid` already reads full texts for the pivotal studies
    (direct + highest design quality, capped by `HYBRID_PIVOTAL_MAX`, 5) and
-   re-synthesizes. What is left when the user asks for more ("со всеми
-   текстами", "исчерпывающе"):
+   re-synthesizes. What is left when the user asks for more ("with all
+   the texts", "exhaustively"):
    - **A paywalled pivotal paper** the hybrid pass could not download: take
      the file from the user, `bin/verdict addpdf <file> --run-dir ...` (the
      DOI is read from the PDF itself), delete `3-critique.json` +

@@ -13,7 +13,7 @@ import (
 	"github.com/roman-redl/verdict/internal/httpx"
 )
 
-// studyTypeMetaAnalysis — повторяющееся значение фикстур (goconst).
+// studyTypeMetaAnalysis is a fixture value repeated across tests (goconst).
 const studyTypeMetaAnalysis = "meta-analysis"
 
 // SearchPage must send the API key header and encode every set filter,

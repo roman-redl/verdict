@@ -42,7 +42,7 @@ func TestBuildAskSystemCompactOlderRuns(t *testing.T) {
 	assert.Contains(t, sys, "10.1/old-only", "a paper unique to the old run must stay listed")
 
 	var old string
-	if compactAt >= 0 { // заголовок есть — берём хвост от него
+	if compactAt >= 0 { // the header is there — take the tail from it
 		old = sys[compactAt:]
 	}
 

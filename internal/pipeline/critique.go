@@ -11,7 +11,7 @@ package pipeline
 
 import (
 	"context"
-	"crypto/sha1" //nolint:gosec // не криптография: отпечаток входа для ключа кэша критик
+	"crypto/sha1" //nolint:gosec // not cryptography: a fingerprint of the input for the critique cache key
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -23,12 +23,12 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
-// Значения словаря критик, общие для нескольких стадий (заполнение по
-// умолчанию, отбор ключевых исследований, подсчёт направлений).
+// Critique vocabulary values shared by several stages (defaults, pivotal
+// study selection, direction counts).
 const (
-	valueUnknown    = "unknown" // design_quality / relevance — данных нет
-	valueUnclear    = "unclear" // sample_adequacy / result_direction — данных нет
-	relevanceDirect = "direct"  // релевантность: исследование прямо о вопросе
+	valueUnknown    = "unknown" // design_quality / relevance — no data
+	valueUnclear    = "unclear" // sample_adequacy / result_direction — no data
+	relevanceDirect = "direct"  // relevance: the study is directly about the question
 )
 
 // critiqueSystemPrompt — the single-study form, used as the fallback for
@@ -241,7 +241,7 @@ func critiqueBatch(
 // the cache; a PDF dropped into fulltext/, a changed abstract or design tag
 // misses it, so the study is re-critiqued instead of being served stale.
 func critiqueCacheKey(e model.EnrichedPaper, question string) string {
-	//nolint:gosec // некриптографический отпечаток входа в ключе кэша; смена алгоритма инвалидировала бы готовые кэши
+	//nolint:gosec // a non-cryptographic fingerprint in the cache key; another algorithm would invalidate existing caches
 	h := sha1.Sum([]byte(e.Abstract + "\x1f" + truncate(e.FullText, 12000) + "\x1f" + e.StudyDesign))
 	return model.NormalizeDOI(e.DOI) + "\x00" + question + "\x00" + fmt.Sprintf("%x", h)[:12]
 }

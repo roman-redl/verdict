@@ -69,7 +69,7 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 	path := filepath.Join(p.dir, "fulltext", name)
 
 	var body []byte
-	//nolint:gosec // путь собран из каталога запуска и нормализованного DOI (файл, положенный самим пользователем)
+	//nolint:gosec // the path is built from the run directory and a normalized DOI (a file the user placed)
 	if b, err := os.ReadFile(path); err == nil {
 		body = b // user-supplied: the paywall workaround for a specific paper
 	} else if !download || e.OALink == "" {
@@ -102,7 +102,7 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 			p.sourceFailed(e, "fulltext", err)
 			return ""
 		}
-		//nolint:gosec // путь собран из каталога запуска и нормализованного DOI
+		//nolint:gosec // the path is built from the run directory and a normalized DOI
 		if err := os.WriteFile(path, body, 0o600); err != nil {
 			p.sourceFailed(e, "fulltext", err)
 			return ""

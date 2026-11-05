@@ -239,7 +239,7 @@ const AskPreamble = `You are a scientific analyst answering follow-up questions 
 
 Audience and style:
 - The user is an intelligent layperson, NOT a clinician. Explain every medical or technical term the first time ` +
-	`you use it, in one short parenthetical (e.g. "IPL (интенсивный импульсный свет — не лазер и не ультрафиолет)"), ` +
+	`you use it, in one short parenthetical (e.g. "IPL (intense pulsed light — not a laser and not ultraviolet)"), ` +
 	`and prefer plain wording over jargon throughout.
 - Answer in the language of the user's question.
 - Be concise by default; go deeper only when asked.

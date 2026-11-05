@@ -25,9 +25,9 @@ import (
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-// Повторяющиеся значения фикстур общих тестов (goconst): DOI-заглушки,
-// источники корпусов и словарь критик. Словарные значения релевантности и
-// движков переиспользуют константы пакета (relevanceDirect, engine*).
+// Fixture values repeated across the shared tests (goconst): placeholder
+// DOIs, corpus sources and the critique vocabulary. The relevance and engine
+// values reuse the package constants (relevanceDirect, engine*).
 const (
 	doiA              = "10.1/a"
 	doiB              = "10.1/b"
@@ -72,7 +72,7 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 		case doiRetr:
 			_, _ = w.Write([]byte(`{"doi":"https://doi.org/10.1/retr","display_name":"Later retracted"}`))
 		default:
-			//nolint:gosec // фейк-сервер теста: doi приходит из запроса к httptest, не пользовательский ввод
+			//nolint:gosec // a test fake server: the doi comes from the request to httptest, not from a user
 			_, _ = w.Write([]byte(`{"doi":"https://doi.org/` + doi + `","display_name":"Study ` + doi + `",
 				"abstract_inverted_index":{"abstract":[0],"text":[1]}}`))
 		}
