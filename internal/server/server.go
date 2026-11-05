@@ -123,12 +123,26 @@ func (s *Server) execute(ctx context.Context, q queuedJob) {
 		s.update(id, func(j *Job) { j.Status, j.Dir = statusInterrupted, dir })
 	case err != nil:
 		log.Error("job failed", "err", err)
-		s.update(id, func(j *Job) { j.Status, j.Error = statusFailed, err.Error() })
+
+		msg := userMessage(err)
+
+		s.update(id, func(j *Job) { j.Status, j.Error = statusFailed, msg })
 	case st != nil && st.Report != nil:
 		s.update(id, func(j *Job) { j.Status, j.Dir, j.Verdict = statusDone, dir, st.Report.Verdict })
 	default:
 		s.update(id, func(j *Job) { j.Status, j.Dir = statusDone, dir })
 	}
+}
+
+// userMessage is what a client may read about a failed run: the text of a
+// request error, otherwise a generic line (SQL, paths and upstream API
+// answers stay in the daemon log).
+func userMessage(err error) string {
+	if ue, ok := errors.AsType[*pipeline.UserError](err); ok {
+		return ue.Msg
+	}
+
+	return "the run failed; details are in the daemon log"
 }
 
 func (s *Server) update(id string, fn func(*Job)) {
@@ -173,7 +187,8 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+		s.log.Warn("rejected a malformed request body", "err", err)
+		http.Error(w, "the request body is not valid JSON", http.StatusBadRequest)
 
 		return
 	}
@@ -195,7 +210,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		file, err := s.writeDOIList(req.DOIs)
 		if err != nil {
 			s.log.Error("saving the DOI list failed", "err", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "internal error: the DOI list could not be stored", http.StatusInternalServerError)
 
 			return
 		}

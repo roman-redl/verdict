@@ -194,7 +194,7 @@ func resolveTextMode(opt, cfg string) (string, error) {
 		return m, nil
 	}
 
-	return "", fmt.Errorf("unknown --text-mode %q (want lean | hybrid | full)", m)
+	return "", &UserError{Msg: fmt.Sprintf("unknown text mode %q (want lean | hybrid | full)", m)}
 }
 
 // Run executes all stages; returns the final state and the artifact directory.
@@ -416,7 +416,7 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 	}
 
 	if opts.Question == "" {
-		return fmt.Errorf("--question or --dois is required")
+		return &UserError{Msg: "a question or a DOI list is required"}
 	}
 
 	st.Question = opts.Question
@@ -457,7 +457,7 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 		return nil
 	}
 
-	return fmt.Errorf("unknown --engine %q (want consensus | openalex)", opts.Engine)
+	return &UserError{Msg: fmt.Sprintf("unknown engine %q (want consensus | openalex)", opts.Engine)}
 }
 
 // discoverByDOIs is the manual-corpus mode: metadata comes from OpenAlex;
@@ -469,7 +469,7 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, st *State, opts Options) 
 	}
 
 	if len(dois) == 0 {
-		return fmt.Errorf("no DOIs found in %s", opts.DOIFile)
+		return &UserError{Msg: "no DOIs found in the input list"}
 	}
 	// An explicit --max-papers truncates; without it the whole user-curated
 	// list runs, but a corpus above the default is flagged with its real LLM

@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -143,6 +145,62 @@ func TestListRuns(t *testing.T) {
 
 	require.Len(t, jobs, 1)
 	require.Equal(t, "t", jobs[0].Topic)
+}
+
+// A client never reads err.Error() of an internal failure (paths, SQL, API
+// answers); a request error keeps its own text.
+func TestJobErrorsAreSafeForClients(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantMsg string
+	}{
+		{
+			name:    "internal error is generic",
+			err:     fmt.Errorf("stage 2-enrichment: open /home/me/runs/x.json: %w", errors.New("secret token=abc")),
+			wantMsg: "the run failed; details are in the daemon log",
+		},
+		{
+			name:    "request error keeps its text",
+			err:     fmt.Errorf("stage 1-discovery: %w", &pipeline.UserError{Msg: "unknown engine \"bing\""}),
+			wantMsg: "unknown engine \"bing\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := startServer(t, func(context.Context, pipeline.Options) (*pipeline.State, string, error) {
+				return nil, "", tt.err
+			})
+
+			resp, err := postJSON(srv.URL+"/runs", stringsReader(`{"question":"q"}`))
+			require.NoError(t, err)
+
+			var job Job
+
+			_ = json.NewDecoder(resp.Body).Decode(&job)
+			_ = resp.Body.Close()
+
+			job = waitForJob(t, srv.URL, job.ID, statusFailed)
+			require.Equal(t, tt.wantMsg, job.Error)
+		})
+	}
+}
+
+// Parser details of a malformed body are not echoed back.
+func TestSubmitMalformedJSONHidesParserDetails(t *testing.T) {
+	srv := startServer(t, func(context.Context, pipeline.Options) (*pipeline.State, string, error) {
+		return nil, "", nil
+	})
+
+	resp, err := postJSON(srv.URL+"/runs", stringsReader(`{"question": `))
+	require.NoError(t, err)
+
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.NotContains(t, string(body), "unexpected EOF")
 }
 
 // An oversized body is cut off by MaxBytesReader before it is decoded.
