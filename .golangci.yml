@@ -56,7 +56,7 @@ linters:
       statements: 50
     gocognit:
       min-complexity: 20
-    # lll: line length is the default 120 (lll has no settings in v2.13.2)
+    # lll: line length is the default 120 (lll has no settings)
     wsl_v5:
       # blank lines between logical blocks; the settings are the recommended
       # migration (the linter's own hint when moving off wsl v4)
@@ -71,8 +71,8 @@ linters:
       # replace them and logs the impossible state
       default-signifies-exhaustive: false
     forbidigo:
-      # analyze-types: fires only on values of type error (checked on
-      # v2.13.2), own types with an Error() method are not touched. The own
+      # analyze-types: fires only on values of type error,
+      # own types with an Error() method are not touched. The own
       # forbid list replaces the built-in fmt.Print* ban: printing a CLI
       # result to stdout is allowed
       analyze-types: true
@@ -106,8 +106,7 @@ linters:
     depguard:
       rules:
         # general rule: only cmd/* reads the config, adapters receive plain
-        # values (checked on v2.13.2: tests of the config package itself are
-        # not affected)
+        # values (tests of the config package itself are not affected)
         config-only-in-cmd:
           files: ["$all", "!**/cmd/**", "!**/internal/config/**"]
           deny:

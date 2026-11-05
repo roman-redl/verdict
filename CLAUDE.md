@@ -37,6 +37,7 @@ Copied verbatim from the SSOT note «Программное обеспечени
 - Style: `regexp.MustCompile` only in package variables; repeated literals are package constants. A comment explains the non-obvious (a reason, a constraint, an invariant), never restates the name; a stale comment is fixed in the same commit.
 - Commits: conventional prefixes, text only, no auto-trailers; only on an explicit user command.
 - Documentation and comment language: private repo — Russian, public — English; identifiers are always English.
+- CLAUDE.md outside this block holds project specifics only; do not write Go, linter or dependency versions — they live in `go.mod`, CI and the Dockerfile.
 <!-- END go-standard -->
 
 ## Rules
@@ -59,6 +60,6 @@ Copied verbatim from the SSOT note «Программное обеспечени
 
 ## Verification
 
-`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint + govulncheck; locally requires golangci-lint v2.15.0 or newer — brew or `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`; older releases cannot typecheck against Go 1.27.2+).
+`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint + govulncheck).
 
 Live-run verifications: Scite `/tallies` — done 2026-09-07 (request body is a bare JSON array; response uses the `{"tallies": ...}` envelope); clean stdout from `~/.zshrc` — done; Consensus `/v1/search` — done 2026-10-10 (`x-api-key` auth; the `page`/`page_size`/`is_end`/`next_page` envelope; `page_size` in the response is the plan-applied value).
