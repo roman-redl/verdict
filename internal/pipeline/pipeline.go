@@ -710,7 +710,7 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 
 				switch {
 				case err != nil:
-					e.Errors = append(e.Errors, "openalex: "+err.Error())
+					p.sourceFailed(&e, "openalex", err)
 				case w != nil:
 					if w.IsRetracted {
 						e.Flags.Retracted = true
@@ -734,7 +734,7 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 
 				switch {
 				case err != nil:
-					e.Errors = append(e.Errors, "crossref: "+err.Error())
+					p.sourceFailed(&e, "crossref", err)
 				default:
 					for _, u := range ups {
 						switch {
@@ -853,7 +853,7 @@ func (p *Pipeline) fetchTallies(ctx context.Context, papers []model.Paper) (
 
 	if sciteErr != nil {
 		p.log.Warn("scite unavailable: tallies skipped", "err", sciteErr)
-		return tallies, []string{"Scite unavailable, citation analytics incomplete: " + sciteErr.Error()}
+		return tallies, []string{"Scite unavailable, citation analytics incomplete: " + persistedErr(sciteErr)}
 	}
 
 	return tallies, nil
@@ -956,6 +956,23 @@ func (p *Pipeline) synthesize(ctx context.Context, st *State, _ Options) error {
 }
 
 // --- helpers ---
+
+// persistedErr renders an error as text for the saved artifacts (the Errors
+// and Warnings lists, Critique.Error). It is the single place where an error
+// becomes a string for stored data; everywhere else errors travel as error.
+func persistedErr(err error) string {
+	return err.Error() //nolint:forbidigo // output boundary: the JSON artifacts store error text
+}
+
+// sourceFailed records a data-source failure for a paper: a warning in the
+// log with the full error and a line in the paper's Errors (the artifact
+// trail). A failed source never stops the stage — synthesis proceeds on
+// partial data — so the log is the only place the failure is visible live.
+func (p *Pipeline) sourceFailed(e *model.EnrichedPaper, source string, err error) {
+	p.log.Warn("source failed", "source", source, "doi", e.DOI, "err", err)
+
+	e.Errors = append(e.Errors, source+": "+persistedErr(err))
+}
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 

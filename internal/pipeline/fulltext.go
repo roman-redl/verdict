@@ -3,6 +3,7 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -78,7 +79,7 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 
 		b, err := hc.Get(ctx, e.OALink, pdfMaxBytes)
 		if err != nil {
-			e.Errors = append(e.Errors, "fulltext: "+err.Error())
+			p.sourceFailed(e, "fulltext", err)
 			return ""
 		}
 
@@ -91,26 +92,31 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 			src = e.OALink
 		}
 
-		e.Errors = append(e.Errors, "fulltext: "+src+" is not a PDF (landing page?)")
+		p.sourceFailed(e, "fulltext", fmt.Errorf("%s is not a PDF (landing page?)", src))
 
 		return ""
 	}
 
 	if !fileExists(path) { // keep downloaded PDFs on disk for the vision stage
 		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			e.Errors = append(e.Errors, "fulltext: "+err.Error())
+			p.sourceFailed(e, "fulltext", err)
 			return ""
 		}
 		//nolint:gosec // путь собран из каталога запуска и нормализованного DOI
 		if err := os.WriteFile(path, body, 0o600); err != nil {
-			e.Errors = append(e.Errors, "fulltext: "+err.Error())
+			p.sourceFailed(e, "fulltext", err)
 			return ""
 		}
 	}
 
 	text, err := pdfTextExtractor(body, fullTextMaxChars)
-	if err != nil || text == "" {
-		e.Errors = append(e.Errors, fmt.Sprintf("fulltext: PDF saved but text extraction failed (%v)", err))
+
+	switch {
+	case err != nil:
+		p.sourceFailed(e, "fulltext", fmt.Errorf("PDF saved but text extraction failed: %w", err))
+		return ""
+	case text == "":
+		p.sourceFailed(e, "fulltext", errors.New("PDF saved but holds no extractable text"))
 		return ""
 	}
 

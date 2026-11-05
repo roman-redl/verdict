@@ -127,12 +127,12 @@ func normalizeCritique(c model.Critique, e model.EnrichedPaper) model.Critique {
 }
 
 // critiquePaper reviews a single paper in its own call; a call failure does
-// not panic — it is returned in Critique.Error and the stage keeps working.
-// The second return is the call's token usage (zeroed when the backend
-// reports none).
+// not stop the stage — it is recorded in Critique.Error and returned as the
+// third value for the caller to log. The second return is the call's token
+// usage (zeroed when the backend reports none).
 func critiquePaper(
 	ctx context.Context, client llm.Completer, e model.EnrichedPaper, question string,
-) (model.Critique, llm.Usage) {
+) (model.Critique, llm.Usage, error) {
 	c := model.Critique{
 		DOI:             e.DOI,
 		Title:           e.Title,
@@ -147,21 +147,21 @@ func critiquePaper(
 
 	usage, err := llm.AskJSON(ctx, client, critiqueSystemPrompt, "Assess this study:\n\n"+string(b), &out, 2000)
 	if err != nil {
-		c.Error = err.Error()
-		return c, usage
+		c.Error = persistedErr(err)
+		return c, usage, err
 	}
 
-	return normalizeCritique(out, e), usage
+	return normalizeCritique(out, e), usage, nil
 }
 
 // critiqueBatch assesses several studies in one call. Critiques are matched
 // back to the studies by DOI (position as a fallback when counts line up);
 // studies the batch omitted are simply absent from the result, and the
 // caller falls back to single calls for them. A total call failure returns a
-// nil map — every study of the chunk then falls back.
+// nil map and the error — every study of the chunk then falls back.
 func critiqueBatch(
 	ctx context.Context, client llm.Completer, papers []model.EnrichedPaper, question string,
-) (map[string]model.Critique, llm.Usage) {
+) (map[string]model.Critique, llm.Usage, error) {
 	type payload struct {
 		Question string           `json:"question"`
 		Studies  []map[string]any `json:"studies"`
@@ -183,7 +183,7 @@ func critiqueBatch(
 	usage, err := llm.AskJSON(ctx, client, batchCritiqueSystemPrompt,
 		"Assess each study independently:\n\n"+string(b), &out, maxTokens)
 	if err != nil {
-		return nil, usage
+		return nil, usage, err
 	}
 
 	slots := make([]*model.Critique, len(papers)) // matched critique per study
@@ -222,7 +222,7 @@ func critiqueBatch(
 		}
 	}
 
-	return res, usage
+	return res, usage, nil
 }
 
 // critiqueCacheKey identifies the critique of one study for one question:
@@ -322,7 +322,11 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 				papers[i] = chunk[i].paper
 			}
 
-			got, u := critiqueBatch(gctx, p.clients.LLM, papers, st.Question)
+			got, u, batchErr := critiqueBatch(gctx, p.clients.LLM, papers, st.Question)
+			if batchErr != nil {
+				p.log.Warn("critique batch failed: falling back to single calls",
+					"studies", len(papers), "err", batchErr)
+			}
 
 			var singles []int
 
@@ -336,12 +340,12 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 			}
 
 			for _, i := range singles {
-				c, u1 := critiquePaper(gctx, p.clients.LLM, chunk[i].paper, st.Question)
+				c, u1, err := critiquePaper(gctx, p.clients.LLM, chunk[i].paper, st.Question)
 				u = u.Add(u1)
 				critiques[chunk[i].idx] = c
 
-				if c.Error != "" {
-					p.log.Warn("critique failed", "doi", chunk[i].paper.DOI, "err", c.Error)
+				if err != nil {
+					p.log.Warn("critique failed", "doi", chunk[i].paper.DOI, "err", err)
 				}
 			}
 

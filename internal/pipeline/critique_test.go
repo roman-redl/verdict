@@ -59,10 +59,12 @@ func TestCritiqueBatchFallsBackForDroppedStudies(t *testing.T) {
 	single := `{"doi":"10.1/c","design_quality":"low","relevance":"tangential","result_direction":"unclear"}`
 	s := &scriptCompleter{replies: []string{batch, single}}
 
-	got, _ := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA), ep(doiB)}, "q")
+	got, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA), ep(doiB)}, "q")
+	require.NoError(t, err)
 	require.Len(t, got, 2, "batch must return its two studies")
 
-	fb, _ := critiquePaper(context.Background(), s, ep("10.1/c"), "q")
+	fb, _, err := critiquePaper(context.Background(), s, ep("10.1/c"), "q")
+	require.NoError(t, err)
 
 	assert.Equal(t, qualityHigh, got[doiA].DesignQuality)
 	assert.Equal(t, relevanceDirect, got[doiA].Relevance)
@@ -79,7 +81,8 @@ func TestCritiqueBatchFallsBackForDroppedStudies(t *testing.T) {
 func TestCritiqueBatchTotalFailureReturnsNil(t *testing.T) {
 	s := &scriptCompleter{replies: []string{"complete garbage, not json at all", "still not json"}}
 
-	got, _ := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA)}, "q")
+	got, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA)}, "q")
+	require.Error(t, err, "the failure must be reported, not swallowed")
 	require.Nil(t, got, "failed batch must return nil map")
 
 	require.Equal(t, 2, s.calls, "the ask + the (payload-carrying) retry")
