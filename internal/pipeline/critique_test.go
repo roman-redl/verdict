@@ -38,7 +38,7 @@ func (s *scriptCompleter) Complete(_ context.Context, _, user string, _ llm.Opti
 func ep(doi string) model.EnrichedPaper {
 	return model.EnrichedPaper{
 		DOI: doi, Title: "Study " + doi, Year: 2023, Abstract: "A randomized trial on " + doi,
-		StudyDesign: "rct", Source: engineConsensus,
+		StudyDesign: "rct", Source: model.SourceConsensus,
 	}
 }
 

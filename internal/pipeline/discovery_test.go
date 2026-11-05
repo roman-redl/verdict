@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/roman-redl/verdict/internal/consensus"
+	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/openalex"
 )
 
@@ -62,7 +63,7 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 
 	d := st.Discovery
 	require.NotNil(t, d, "discovery info")
-	assert.Equal(t, engineConsensus, d.Engine, "discovery info")
+	assert.Equal(t, EngineConsensus, d.Engine, "discovery info")
 	assert.Equal(t, 2, d.PagesFetched, "discovery info")
 	assert.Equal(t, 3, d.PapersFound, "discovery info")
 	assert.False(t, d.Truncated, "discovery info")
@@ -71,7 +72,7 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 	assert.Equal(t, "q", d.Queries[0], "queries not recorded")
 
 	for _, pp := range st.Papers {
-		assert.Equal(t, engineConsensus, pp.Source, "paper mapping")
+		assert.Equal(t, model.SourceConsensus, pp.Source, "paper mapping")
 		assert.Equal(t, "rct", pp.StudyDesign, "paper mapping")
 	}
 }
@@ -183,7 +184,7 @@ func TestDiscoverDefaultsToConsensusWhenKeyPresent(t *testing.T) {
 	assert.Positive(t, csHits, "consensus must be queried")
 	assert.Zero(t, oaHits, "no openalex fallback")
 
-	assert.Equal(t, engineConsensus, st.Discovery.Engine)
+	assert.Equal(t, EngineConsensus, st.Discovery.Engine)
 }
 
 // Without a key the bare -q path stays mode A (keyword OpenAlex) with a
@@ -209,7 +210,7 @@ func TestDiscoverFallsBackToOpenAlexWithoutKey(t *testing.T) {
 	assert.Equal(t, int32(1), oaHits)
 
 	require.NotNil(t, st.Discovery)
-	assert.Equal(t, engineOpenAlex, st.Discovery.Engine)
+	assert.Equal(t, EngineOpenAlex, st.Discovery.Engine)
 }
 
 // --engine forces the keyword path even with a key; an unknown value errors.
@@ -234,7 +235,7 @@ func TestDiscoverEngineOverride(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q", Engine: engineOpenAlex}))
+	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q", Engine: EngineOpenAlex}))
 
 	assert.Equal(t, int32(1), oaHits)
 	assert.Zero(t, csHits)

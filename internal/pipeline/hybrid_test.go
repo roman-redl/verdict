@@ -19,11 +19,11 @@ import (
 // The text mode resolves flag → config → hybrid, case-insensitively, and a
 // typo is a loud error, never a silent default.
 func TestResolveTextMode(t *testing.T) {
-	for _, tc := range []struct{ opt, cfg, want string }{
-		{"", "", "hybrid"},
-		{"", modeLean, modeLean},
-		{"full", modeLean, "full"},
-		{" HYBRID ", "", "hybrid"},
+	for _, tc := range []struct{ opt, cfg, want TextMode }{
+		{"", "", TextHybrid},
+		{"", TextLean, TextLean},
+		{TextFull, TextLean, TextFull},
+		{" HYBRID ", "", TextHybrid},
 	} {
 		got, err := resolveTextMode(tc.opt, tc.cfg)
 		require.NoError(t, err, "resolveTextMode(%q,%q)", tc.opt, tc.cfg)
@@ -32,6 +32,34 @@ func TestResolveTextMode(t *testing.T) {
 
 	_, err := resolveTextMode("abstracts", "")
 	require.ErrorContains(t, err, "lean | hybrid | full", "unknown mode must name the valid values")
+}
+
+func TestParseTextModeAndEngine(t *testing.T) {
+	m, err := ParseTextMode(" Lean ")
+	require.NoError(t, err)
+	assert.Equal(t, TextLean, m)
+
+	m, err = ParseTextMode("")
+	require.NoError(t, err, "empty means not set")
+	assert.Empty(t, m)
+
+	_, err = ParseTextMode("deep")
+	require.ErrorContains(t, err, "lean | hybrid | full")
+
+	e, err := ParseEngine("OpenAlex")
+	require.NoError(t, err)
+	assert.Equal(t, EngineOpenAlex, e)
+
+	_, err = ParseEngine("bing")
+	require.ErrorContains(t, err, "consensus | openalex")
+
+	_, err = ParseEngine("dois")
+	require.Error(t, err, "dois is recorded for DOI-list runs, never selected by name")
+
+	var tm TextMode
+	require.NoError(t, tm.UnmarshalText([]byte("full")), "the environment parser path")
+	assert.Equal(t, TextFull, tm)
+	require.Error(t, tm.UnmarshalText([]byte("nope")))
 }
 
 // Pivotal = direct studies first, then design quality, then citation heat —

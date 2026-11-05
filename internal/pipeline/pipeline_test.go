@@ -42,8 +42,7 @@ const (
 	directionNegative = "negative"
 	directionMixed    = "mixed"
 	directionNull     = "null"
-	sourceManual      = "manual"
-	modeLean          = "lean"
+	sourceManual      = model.SourceManual
 	cachedAbstract    = "cached abstract"
 )
 
@@ -103,10 +102,10 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 	}, quietLog())
 
 	st := &State{Papers: []model.Paper{
-		{DOI: "10.1/oa", Source: engineOpenAlex}, // discovery already queried it
-		{DOI: "10.1/el", Source: sourceManual},   // never queried
-		{DOI: doiVoid, Source: sourceManual},     // discovery lookup failed — one retry
-		{DOI: doiRetr, Source: sourceManual},     // OpenAlex misses it, Crossref flags it
+		{DOI: "10.1/oa", Source: model.SourceOpenAlex}, // discovery already queried it
+		{DOI: "10.1/el", Source: sourceManual},         // never queried
+		{DOI: doiVoid, Source: sourceManual},           // discovery lookup failed — one retry
+		{DOI: doiRetr, Source: sourceManual},           // OpenAlex misses it, Crossref flags it
 	}}
 	require.NoError(t, p.enrich(context.Background(), st, Options{}))
 

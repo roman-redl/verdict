@@ -288,6 +288,6 @@ func (w *Work) ToPaper(doi string) model.Paper {
 		OALink:       oaLink,
 		CitedByCount: w.CitedByCount,
 		Retracted:    w.IsRetracted,
-		Source:       "openalex",
+		Source:       model.SourceOpenAlex,
 	}
 }

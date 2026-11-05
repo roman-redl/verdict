@@ -32,8 +32,17 @@ type Paper struct {
 	// Retracted is known already at discovery when the source was OpenAlex
 	// (the enrichment stage then skips re-querying it).
 	Retracted bool   `json:"retracted,omitempty"`
-	Source    string `json:"source"` // openalex | consensus | manual
+	Source    Source `json:"source"`
 }
+
+// Source is where a paper entered the corpus.
+type Source string
+
+const (
+	SourceOpenAlex  Source = "openalex"  // keyword discovery (mode A)
+	SourceConsensus Source = "consensus" // semantic discovery (mode B)
+	SourceManual    Source = "manual"    // a user-supplied DOI list (mode C)
+)
 
 // CitationTally is a paper's Scite smart-citation breakdown.
 type CitationTally struct {

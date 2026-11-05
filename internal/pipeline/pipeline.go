@@ -5,6 +5,7 @@
 package pipeline
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -44,7 +45,7 @@ type Options struct {
 
 	// Discovery controls.
 	Queries        []string // semantic queries for mode B (repeatable --queries); defaults to -q
-	Engine         string   // "" (auto: consensus when the key is present, else openalex) | consensus | openalex
+	Engine         Engine   // "" (auto: consensus when the key is present, else openalex) | consensus | openalex
 	ConsensusPages int      // max Consensus pages per query (defaults to CONSENSUS_PAGES, 3)
 
 	LLMCommand     string // claude-cli wrapper override for this run
@@ -62,7 +63,7 @@ type Options struct {
 	// studies after the first synthesis (one deepening pass); full — OA full
 	// texts for every paper at enrichment. A PDF pre-placed in the run's
 	// fulltext/ is read in every mode: an explicit user action beats the mode.
-	TextMode string
+	TextMode TextMode
 }
 
 type Clients struct {
@@ -147,7 +148,7 @@ func (c *CostReport) Markdown() string {
 // DiscoveryInfo records where the corpus came from — the audit trail for
 // "which engine, which queries, at what cost" (nil on pre-mode-B artifacts).
 type DiscoveryInfo struct {
-	Engine  string   `json:"engine"`            // consensus | openalex | dois
+	Engine  Engine   `json:"engine"`            // consensus | openalex | dois
 	Queries []string `json:"queries,omitempty"` // the queries as actually run
 	// PagesFetched counts successful Consensus pages — each plausibly one
 	// API use spent (NOT "uses billed": retries and rejected pages differ).
@@ -166,7 +167,7 @@ type Settings struct {
 	LLMChunk       int // studies per critique call
 	ConsensusPages int // Consensus pages per discovery query
 	// TextMode is the default text mode ("" = hybrid).
-	TextMode string
+	TextMode TextMode
 	// HybridPivotalMax caps the pivotal studies the hybrid mode deepens.
 	HybridPivotalMax int
 	// EnrichCacheTTL and CritiqueCacheTTL are the freshness windows of the
@@ -187,15 +188,10 @@ func New(set Settings, clients Clients, log *slog.Logger) *Pipeline {
 }
 
 // resolveTextMode settles the effective text mode: the run's flag, else the
-// config's, else hybrid — validated so a typo fails loudly, never silently.
-func resolveTextMode(opt, cfg string) (string, error) {
-	m := strings.ToLower(strings.TrimSpace(firstNonEmpty(opt, cfg, "hybrid")))
-	switch m {
-	case "lean", "hybrid", "full":
-		return m, nil
-	}
-
-	return "", &UserError{Msg: fmt.Sprintf("unknown text mode %q (want lean | hybrid | full)", m)}
+// config's, else hybrid. The result is validated again because Options and
+// Settings can be built in code, not only parsed from user input.
+func resolveTextMode(opt, cfg TextMode) (TextMode, error) {
+	return ParseTextMode(string(cmp.Or(opt, cfg, TextHybrid)))
 }
 
 // Run executes all stages; returns the final state and the artifact directory.
@@ -281,7 +277,7 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 	// texts for the pivotal studies, re-critique exactly those (the cache keys
 	// changed) and re-synthesize. One pass per state — resume does not repeat
 	// it; a --stop-after before synthesis skips it (st.Report is nil then).
-	if st.Report != nil && opts.TextMode == "hybrid" && !st.HybridDone && synthesisRanFresh {
+	if st.Report != nil && opts.TextMode == TextHybrid && !st.HybridDone && synthesisRanFresh {
 		if err := p.hybridDeepen(ctx, st, opts); err != nil {
 			return nil, dir, fmt.Errorf("hybrid deepening: %w", err)
 		}
@@ -421,16 +417,10 @@ func LoadRuns(dir string, log *slog.Logger) ([]RunState, error) {
 
 // --- stage 1: discovery ---
 
-// Discovery engines (the --engine flag, DiscoveryInfo.Engine).
-const (
-	engineConsensus = "consensus"
-	engineOpenAlex  = "openalex"
-)
-
 func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error {
 	if opts.DOIFile != "" {
 		st.Question = firstNonEmpty(opts.Question, "Evidence assessment over a given DOI list")
-		st.Discovery = &DiscoveryInfo{Engine: "dois"}
+		st.Discovery = &DiscoveryInfo{Engine: EngineDOIs}
 
 		return p.discoverByDOIs(ctx, st, opts)
 	}
@@ -443,9 +433,9 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 
 	engine := opts.Engine
 	if engine == "" {
-		engine = engineOpenAlex
+		engine = EngineOpenAlex
 		if p.clients.Consensus != nil && p.clients.Consensus.HasKey() {
-			engine = engineConsensus
+			engine = EngineConsensus
 		}
 	}
 
@@ -455,9 +445,9 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 	}
 
 	switch engine {
-	case engineConsensus:
+	case EngineConsensus:
 		return p.discoverConsensus(ctx, st, opts, queries)
-	case engineOpenAlex:
+	case EngineOpenAlex:
 		// The auto path lands here only when no key is configured; an
 		// explicit --engine openalex is a deliberate keyword opt-out.
 		if opts.Engine == "" {
@@ -471,13 +461,18 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 			return err
 		}
 
-		st.Discovery = &DiscoveryInfo{Engine: engineOpenAlex, Queries: queries}
+		st.Discovery = &DiscoveryInfo{Engine: EngineOpenAlex, Queries: queries}
 		st.Papers = papers
 
 		return nil
+	case EngineDOIs:
+		// a DOI list is selected with Options.DOIFile, never by engine name
 	}
 
-	return &UserError{Msg: fmt.Sprintf("unknown engine %q (want consensus | openalex)", opts.Engine)}
+	// unreachable for engines that went through ParseEngine
+	p.log.Error("unknown discovery engine", "engine", engine)
+
+	return &UserError{Msg: fmt.Sprintf("unknown engine %q (want consensus | openalex)", engine)}
 }
 
 // discoverByDOIs is the manual-corpus mode: metadata comes from OpenAlex;
@@ -513,13 +508,13 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, st *State, opts Options) 
 			w, err := p.clients.OpenAlex.ByDOI(gctx, doi)
 			if err != nil {
 				p.log.Warn("openalex lookup failed", "doi", doi, "err", err)
-				papers[i] = model.Paper{DOI: doi, Source: "manual"}
+				papers[i] = model.Paper{DOI: doi, Source: model.SourceManual}
 
 				return nil
 			}
 
 			if w == nil {
-				papers[i] = model.Paper{DOI: doi, Source: "manual"}
+				papers[i] = model.Paper{DOI: doi, Source: model.SourceManual}
 				return nil
 			}
 
@@ -550,7 +545,7 @@ func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Option
 	maxPages := orDefault(opts.ConsensusPages, p.set.ConsensusPages)
 	maxPages = min(maxPages, 50) // (page+1)*page_size <= 1000: page 49 is the last legal one
 	lim := orDefault(opts.MaxPapers, p.set.MaxPapers)
-	info := &DiscoveryInfo{Engine: engineConsensus, Queries: queries}
+	info := &DiscoveryInfo{Engine: EngineConsensus, Queries: queries}
 	// Papers pooled per query, deduped by DOI across queries. Recall comes
 	// from the reformulations, so page 0 of EVERY query is fetched before
 	// page 1 of any — no query may be crowded out of the corpus by another
@@ -693,7 +688,7 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 	// OA downloads happen in full mode only (hybrid fetches its full texts
 	// after the first synthesis, lean never); a pre-placed PDF is read in
 	// every mode — see fetchFullText.
-	download := opts.TextMode == "full"
+	download := opts.TextMode == TextFull
 
 	enriched := make([]model.EnrichedPaper, len(st.Papers))
 	g, gctx := errgroup.WithContext(ctx)
@@ -745,7 +740,7 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 				e.Flags.Reason = "OpenAlex: is_retracted"
 			}
 
-			if pp.DOI != "" && p.clients.OpenAlex != nil && pp.Source != "openalex" {
+			if pp.DOI != "" && p.clients.OpenAlex != nil && pp.Source != model.SourceOpenAlex {
 				w, err := p.clients.OpenAlex.ByDOI(gctx, model.NormalizeDOI(pp.DOI))
 
 				switch {

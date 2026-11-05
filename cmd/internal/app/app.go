@@ -58,30 +58,30 @@ func PipelineSettings(cfg *config.Config) pipeline.Settings {
 // of an explicit backend are checked by config.Validate.
 func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Completer, error) {
 	backend := cfg.LLMBackend
-	if backend == "" {
+	if backend == llm.BackendAuto {
 		switch {
 		case cfg.AnthropicAPIKey != "":
-			backend = "anthropic"
+			backend = llm.BackendAnthropic
 		case cfg.OpenAIKey != "":
-			backend = "openai-compat"
+			backend = llm.BackendOpenAICompat
 		default:
-			backend = "claude-cli"
+			backend = llm.BackendClaudeCLI
 		}
 	}
 
 	switch backend {
-	case "anthropic":
+	case llm.BackendAnthropic:
 		m := cmp.Or(model, cfg.LLMModel, cfg.AnthropicModel)
 
 		return llm.NewAnthropic(cfg.AnthropicAPIKey, m), nil
-	case "openai-compat":
+	case llm.BackendOpenAICompat:
 		m := cmp.Or(model, cfg.LLMModel)
 		if m == "" {
 			return nil, fmt.Errorf("openai-compat requires LLM_MODEL (the endpoint's model name)")
 		}
 
 		return llm.NewOpenAICompat(cfg.OpenAIBaseURL, cfg.OpenAIKey, m), nil
-	case "claude-cli":
+	case llm.BackendClaudeCLI:
 		if strings.HasPrefix(cfg.LLMCommand, "claude-zai") {
 			log.Warn("claude-zai: the very first request blocks the corporate gateway " +
 				"for hours (one-way cooldown) — make sure corporate models are not needed soon")
@@ -92,9 +92,13 @@ func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Com
 			"model", cmp.Or(m, "(wrapper default)"))
 
 		return llm.NewClaudeCLI(cfg.LLMCommand, m, cfg.LLMTimeout), nil
+	case llm.BackendAuto:
+		// resolved above; reaching this is a bug in this function
 	}
 
-	return nil, fmt.Errorf("unknown LLM_BACKEND: %s", backend)
+	log.Error("LLM backend not resolved", "backend", backend)
+
+	return nil, fmt.Errorf("unknown LLM backend %q", backend)
 }
 
 // BuildClients assembles the pipeline's clients from the config and the

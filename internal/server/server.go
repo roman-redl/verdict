@@ -24,13 +24,15 @@ import (
 // kilobytes, anything near the cap is a mistake or abuse.
 const maxSubmitBytes = 1 << 20
 
-// Job statuses.
+// JobStatus is a job's place in its lifecycle.
+type JobStatus string
+
 const (
-	statusQueued      = "queued"
-	statusRunning     = "running"
-	statusDone        = "done"
-	statusFailed      = "failed"
-	statusInterrupted = "interrupted"
+	JobQueued      JobStatus = "queued"
+	JobRunning     JobStatus = "running"
+	JobDone        JobStatus = "done"
+	JobFailed      JobStatus = "failed"
+	JobInterrupted JobStatus = "interrupted"
 )
 
 // Runner executes one pipeline run (injected; cmd/verdictd wires the real
@@ -39,13 +41,13 @@ type Runner func(ctx context.Context, opts pipeline.Options) (*pipeline.State, s
 
 // Job is a submitted run's lifecycle.
 type Job struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"` // queued | running | done | failed | interrupted
-	Question string `json:"question"`
-	Topic    string `json:"topic,omitempty"`
-	Dir      string `json:"dir,omitempty"`
-	Verdict  string `json:"verdict,omitempty"`
-	Error    string `json:"error,omitempty"`
+	ID       string    `json:"id"`
+	Status   JobStatus `json:"status"`
+	Question string    `json:"question"`
+	Topic    string    `json:"topic,omitempty"`
+	Dir      string    `json:"dir,omitempty"`
+	Verdict  string    `json:"verdict,omitempty"`
+	Error    string    `json:"error,omitempty"`
 }
 
 type queuedJob struct {
@@ -114,24 +116,24 @@ func (s *Server) execute(ctx context.Context, q queuedJob) {
 	id := q.job.ID
 	log := s.log.With("job", id)
 
-	s.update(id, func(j *Job) { j.Status = statusRunning })
+	s.update(id, func(j *Job) { j.Status = JobRunning })
 
 	st, dir, err := s.run(ctx, q.opts)
 
 	switch {
 	case err != nil && ctx.Err() != nil:
 		log.Warn("job interrupted by shutdown", "err", err)
-		s.update(id, func(j *Job) { j.Status, j.Dir = statusInterrupted, dir })
+		s.update(id, func(j *Job) { j.Status, j.Dir = JobInterrupted, dir })
 	case err != nil:
 		log.Error("job failed", "err", err)
 
 		msg := userMessage(err)
 
-		s.update(id, func(j *Job) { j.Status, j.Error = statusFailed, msg })
+		s.update(id, func(j *Job) { j.Status, j.Error = JobFailed, msg })
 	case st != nil && st.Report != nil:
-		s.update(id, func(j *Job) { j.Status, j.Dir, j.Verdict = statusDone, dir, st.Report.Verdict })
+		s.update(id, func(j *Job) { j.Status, j.Dir, j.Verdict = JobDone, dir, st.Report.Verdict })
 	default:
-		s.update(id, func(j *Job) { j.Status, j.Dir = statusDone, dir })
+		s.update(id, func(j *Job) { j.Status, j.Dir = JobDone, dir })
 	}
 }
 
@@ -199,11 +201,17 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mode, err := pipeline.ParseTextMode(req.TextMode)
+	if err != nil {
+		http.Error(w, userMessage(err), http.StatusBadRequest)
+		return
+	}
+
 	opts := pipeline.Options{
 		Question:  req.Question,
 		Topic:     req.Topic,
 		MaxPapers: req.MaxPapers,
-		TextMode:  req.TextMode,
+		TextMode:  mode,
 		StopAfter: req.StopAfter,
 	}
 
@@ -226,14 +234,14 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("%d", s.nextID)
-	job := &Job{ID: id, Status: statusQueued, Question: opts.Question, Topic: req.Topic}
+	job := &Job{ID: id, Status: JobQueued, Question: opts.Question, Topic: req.Topic}
 	s.jobs[id] = job
 	s.mu.Unlock()
 
 	select {
 	case s.queue <- queuedJob{job: job, opts: opts}:
 	default:
-		s.update(id, func(j *Job) { j.Status, j.Error = statusFailed, "queue full" })
+		s.update(id, func(j *Job) { j.Status, j.Error = JobFailed, "queue full" })
 	}
 
 	// the copy is required: the worker may have started already

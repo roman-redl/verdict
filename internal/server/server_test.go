@@ -82,11 +82,11 @@ func TestSubmitRunLifecycle(t *testing.T) {
 
 	require.Equal(t, http.StatusAccepted, resp.StatusCode, "submit")
 	require.NotEmpty(t, job.ID, "submit")
-	require.Contains(t, []string{statusQueued, statusRunning}, job.Status, "submit")
+	require.Contains(t, []JobStatus{JobQueued, JobRunning}, job.Status, "submit")
 
-	job = waitForJob(t, srv.URL, job.ID, statusDone, statusFailed)
+	job = waitForJob(t, srv.URL, job.ID, JobDone, JobFailed)
 
-	require.Equal(t, statusDone, job.Status, "job did not finish")
+	require.Equal(t, JobDone, job.Status, "job did not finish")
 	require.Equal(t, "moderate", job.Verdict, "job did not finish")
 	require.NotEmpty(t, job.Dir, "job did not finish")
 
@@ -133,7 +133,7 @@ func TestListRuns(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&job)
 	_ = resp.Body.Close()
 
-	waitForJob(t, srv.URL, job.ID, statusDone, statusFailed)
+	waitForJob(t, srv.URL, job.ID, JobDone, JobFailed)
 
 	resp, err = httpGet(srv.URL + "/runs")
 	require.NoError(t, err)
@@ -181,10 +181,28 @@ func TestJobErrorsAreSafeForClients(t *testing.T) {
 			_ = json.NewDecoder(resp.Body).Decode(&job)
 			_ = resp.Body.Close()
 
-			job = waitForJob(t, srv.URL, job.ID, statusFailed)
+			job = waitForJob(t, srv.URL, job.ID, JobFailed)
 			require.Equal(t, tt.wantMsg, job.Error)
 		})
 	}
+}
+
+// An unknown text mode is rejected up front, before a job is created.
+func TestSubmitRejectsUnknownTextMode(t *testing.T) {
+	srv := startServer(t, func(context.Context, pipeline.Options) (*pipeline.State, string, error) {
+		t.Error("the runner must not be reached")
+
+		return nil, "", nil
+	})
+
+	resp, err := postJSON(srv.URL+"/runs", stringsReader(`{"question":"q","text_mode":"deep"}`))
+	require.NoError(t, err)
+
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, string(body), "lean | hybrid | full")
 }
 
 // Parser details of a malformed body are not echoed back.
@@ -266,7 +284,7 @@ func TestShutdownInterruptsRunningJob(t *testing.T) {
 
 	got, ok := svc.snapshot(job.ID)
 	require.True(t, ok)
-	require.Equal(t, statusInterrupted, got.Status)
+	require.Equal(t, JobInterrupted, got.Status)
 }
 
 // The queue is never closed, so a submit racing with shutdown cannot panic
@@ -289,7 +307,7 @@ func TestSubmitAfterWorkerStoppedDoesNotPanic(t *testing.T) {
 }
 
 // waitForJob polls GET /runs/{id} until the job reaches one of the statuses.
-func waitForJob(t *testing.T, base, id string, statuses ...string) Job {
+func waitForJob(t *testing.T, base, id string, statuses ...JobStatus) Job {
 	t.Helper()
 
 	var job Job

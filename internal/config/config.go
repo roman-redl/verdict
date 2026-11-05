@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/roman-redl/verdict/internal/llm"
+	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
 // Config is the full environment of verdict and verdictd. Durations use Go
@@ -22,7 +25,7 @@ type Config struct {
 
 	// LLM backend for the analytical stages: "" (auto) | anthropic | claude-cli
 	// | openai-compat.
-	LLMBackend string `env:"LLM_BACKEND"`
+	LLMBackend llm.Backend `env:"LLM_BACKEND"`
 	// LLMCommand is the claude-cli wrapper from ~/.zshrc; the per-stage
 	// overrides (cheap critic, strong judge) fall back to it when empty.
 	LLMCommand          string `env:"LLM_COMMAND" envDefault:"claude-zai"`
@@ -48,7 +51,7 @@ type Config struct {
 	// TextMode selects what the critic reads: lean (abstracts only), hybrid
 	// (abstracts first, then OA full texts for the pivotal studies — the
 	// default), full (OA full texts for every paper).
-	TextMode string `env:"TEXT_MODE" envDefault:"hybrid"` // lean | hybrid | full
+	TextMode pipeline.TextMode `env:"TEXT_MODE" envDefault:"hybrid"`
 	// HybridPivotalMax caps how many pivotal studies the hybrid mode deepens
 	// with full texts after the first synthesis.
 	HybridPivotalMax int `env:"HYBRID_PIVOTAL_MAX" envDefault:"5"`
@@ -70,14 +73,16 @@ func (c *Config) Validate() error {
 	var errs []error
 
 	switch c.LLMBackend {
-	case "anthropic":
+	case llm.BackendAnthropic:
 		if c.AnthropicAPIKey == "" {
 			errs = append(errs, errors.New("LLM_BACKEND=anthropic requires ANTHROPIC_API_KEY"))
 		}
-	case "openai-compat":
+	case llm.BackendOpenAICompat:
 		if c.OpenAIKey == "" {
 			errs = append(errs, errors.New("LLM_BACKEND=openai-compat requires OPENAI_API_KEY"))
 		}
+	case llm.BackendAuto, llm.BackendClaudeCLI:
+		// no credentials to check: auto falls back to the claude-cli wrapper
 	}
 
 	if c.LLMTimeout <= 0 {

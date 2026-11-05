@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/roman-redl/verdict/internal/httpx"
+	"github.com/roman-redl/verdict/internal/model"
 )
 
 // studyTypeMetaAnalysis is a fixture value repeated across tests (goconst).
@@ -106,7 +107,7 @@ func TestToPaper(t *testing.T) {
 	p := r.ToPaper()
 	assert.Equal(t, "10.1234/ab.cd", p.DOI, "DOI must normalize")
 
-	assert.Equal(t, "consensus", p.Source)
+	assert.Equal(t, model.SourceConsensus, p.Source)
 	assert.Equal(t, studyTypeMetaAnalysis, p.StudyDesign)
 	assert.Equal(t, 900, p.SampleSize)
 	assert.Equal(t, "BMJ", p.Venue)

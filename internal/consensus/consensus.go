@@ -162,7 +162,7 @@ func (r *QueryResult) ToPaper() model.Paper {
 		StudyDesign:  r.StudyType,
 		SampleSize:   r.SampleSize,
 		CitedByCount: r.CitationCount,
-		Source:       "consensus",
+		Source:       model.SourceConsensus,
 		SJRQuartile:  string(r.SJRQuartile),
 		Takeaway:     r.Takeaway,
 	}

@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-)
 
-const backendAnthropic = "anthropic"
+	"github.com/roman-redl/verdict/internal/llm"
+)
 
 // valid returns a configuration that passes Validate, as env.Parse would
 // build it from an empty environment.
@@ -34,13 +34,13 @@ func TestValidate(t *testing.T) {
 			c.EnrichCacheTTLDays, c.CritiqueCacheTTLDays = 0, 0
 		}},
 		{name: "anthropic needs a key", wantErr: "ANTHROPIC_API_KEY", mutate: func(c *Config) {
-			c.LLMBackend = backendAnthropic
+			c.LLMBackend = llm.BackendAnthropic
 		}},
 		{name: "anthropic with a key", mutate: func(c *Config) {
-			c.LLMBackend, c.AnthropicAPIKey = backendAnthropic, "k"
+			c.LLMBackend, c.AnthropicAPIKey = llm.BackendAnthropic, "k"
 		}},
 		{name: "openai-compat needs a key", wantErr: "OPENAI_API_KEY", mutate: func(c *Config) {
-			c.LLMBackend = "openai-compat"
+			c.LLMBackend = llm.BackendOpenAICompat
 		}},
 		{name: "non-positive timeout", wantErr: "LLM_TIMEOUT", mutate: func(c *Config) {
 			c.LLMTimeout = 0
@@ -79,7 +79,7 @@ func TestValidateReportsAllProblems(t *testing.T) {
 	t.Parallel()
 
 	c := valid()
-	c.LLMBackend = backendAnthropic
+	c.LLMBackend = llm.BackendAnthropic
 	c.MaxPapers = 0
 
 	err := c.Validate()

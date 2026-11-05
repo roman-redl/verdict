@@ -81,12 +81,25 @@ func run() error {
 		stop()
 	}()
 
-	var opts pipeline.Options
+	var (
+		opts                 pipeline.Options
+		engineFlag, modeFlag string
+	)
 
 	runCmd := &cobra.Command{
 		Use:   "run",
 		Short: "Full pipeline for a research question or a list of DOIs",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			var err error
+
+			if opts.Engine, err = pipeline.ParseEngine(engineFlag); err != nil {
+				return err
+			}
+
+			if opts.TextMode, err = pipeline.ParseTextMode(modeFlag); err != nil {
+				return err
+			}
+
 			p, err := app.BuildPipeline(&cfg, log, opts)
 			if err != nil {
 				return err
@@ -114,7 +127,7 @@ func run() error {
 		"file with a list of DOIs (one per line) — the manual-corpus mode")
 	runCmd.Flags().StringArrayVar(&opts.Queries, "queries", nil,
 		"semantic discovery queries, repeatable (mode B; defaults to -q) — e.g. from `verdict pico`")
-	runCmd.Flags().StringVar(&opts.Engine, "engine", "",
+	runCmd.Flags().StringVar(&engineFlag, "engine", "",
 		"discovery engine: consensus | openalex (default: consensus when CONSENSUS_API_KEY is set, else openalex)")
 	runCmd.Flags().IntVar(&opts.ConsensusPages, "consensus-pages", 0,
 		"max Consensus pages per query; each page is one API use (defaults to CONSENSUS_PAGES, 3)")
@@ -145,7 +158,7 @@ func run() error {
 		"synthesis-stage model override, exact name")
 	runCmd.Flags().StringVar(&opts.ChallengeNote, "challenge-note", "",
 		"counterargument to weigh and answer in the verdict rationale (not data)")
-	runCmd.Flags().StringVar(&opts.TextMode, "text-mode", "",
+	runCmd.Flags().StringVar(&modeFlag, "text-mode", "",
 		"what the critic reads: lean (abstracts only) | hybrid (abstracts, then full texts for the pivotal studies — "+
 			"default) | full (full texts for all) (defaults to TEXT_MODE from env)")
 
