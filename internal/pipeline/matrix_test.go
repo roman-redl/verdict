@@ -13,12 +13,10 @@ func TestBuildMatrix(t *testing.T) {
 	st := &State{
 		Enriched: []model.EnrichedPaper{
 			{
-				Paper: model.Paper{DOI: doiA, Title: "Trial A", Year: 2020, CitedByCount: 41},
+				DOI: doiA, Title: "Trial A", Year: 2020, CitedByCount: 41,
 				Tally: &model.CitationTally{Total: 39, Supporting: 5, Contradicting: 2},
 			},
-			{
-				Paper: model.Paper{DOI: doiB, Title: "Trial B", Year: 2023, CitedByCount: 7},
-			},
+			{DOI: doiB, Title: "Trial B", Year: 2023, CitedByCount: 7},
 		},
 		Critiques: []model.Critique{
 			{DOI: doiA, DesignQuality: qualityHigh, Relevance: relevanceDirect, ResultDirection: directionPositive},
@@ -56,8 +54,8 @@ func TestCritiquesFor(t *testing.T) {
 	// Index-aligned (the normal case): empty DOIs must not collide.
 	st := &State{
 		Enriched: []model.EnrichedPaper{
-			{Paper: model.Paper{Title: "No DOI one"}},
-			{Paper: model.Paper{Title: "No DOI two"}},
+			{Title: "No DOI one"},
+			{Title: "No DOI two"},
 		},
 		Critiques: []model.Critique{
 			{Title: "No DOI one", ResultDirection: directionPositive},
@@ -72,8 +70,8 @@ func TestCritiquesFor(t *testing.T) {
 	// Mismatched lengths (hand-edited artifact): DOI fallback, empty keys ignored.
 	st2 := &State{
 		Enriched: []model.EnrichedPaper{
-			{Paper: model.Paper{DOI: "10.1/x"}},
-			{Paper: model.Paper{DOI: "10.1/y"}},
+			{DOI: "10.1/x"},
+			{DOI: "10.1/y"},
 		},
 		Critiques: []model.Critique{
 			{DOI: "", ResultDirection: directionMixed},

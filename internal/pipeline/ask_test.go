@@ -16,14 +16,14 @@ func TestBuildAskSystemCompactOlderRuns(t *testing.T) {
 	newRun := &State{
 		Question: "new question",
 		Enriched: []model.EnrichedPaper{
-			{Paper: {DOI: doiShared, Title: "Shared paper", Abstract: abstract}},
+			{DOI: doiShared, Title: "Shared paper", Abstract: abstract},
 		},
 	}
 	oldRun := &State{
 		Question: "old question",
 		Enriched: []model.EnrichedPaper{
-			{Paper: {DOI: doiShared, Title: "Shared paper", Abstract: abstract}},
-			{Paper: {DOI: "10.1/old-only", Title: "Old-only paper", Abstract: "old abstract"}},
+			{DOI: doiShared, Title: "Shared paper", Abstract: abstract},
+			{DOI: "10.1/old-only", Title: "Old-only paper", Abstract: "old abstract"},
 		},
 		Critiques: []model.Critique{
 			{DOI: doiShared, DesignQuality: qualityHigh, Relevance: relevanceDirect, ResultDirection: directionPositive},

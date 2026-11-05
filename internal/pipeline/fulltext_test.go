@@ -40,7 +40,7 @@ func TestFetchFullText(t *testing.T) {
 	p := New(&config.Config{Concurrency: 4}, Clients{}, quietLog())
 	p.dir = runDir
 
-	ok := &model.EnrichedPaper{Paper: model.Paper{DOI: "10.1000/a", OALink: pdfSrv.URL + "/a.pdf"}}
+	ok := &model.EnrichedPaper{DOI: "10.1000/a", OALink: pdfSrv.URL + "/a.pdf"}
 	txt := p.fetchFullText(context.Background(), ok, true)
 	require.NotEmpty(t, txt)
 	require.Contains(t, txt, "240 patients")
@@ -51,7 +51,7 @@ func TestFetchFullText(t *testing.T) {
 	_, err := os.Stat(pdfPath)
 	require.NoError(t, err, "PDF not saved for the vision stage")
 
-	landing := &model.EnrichedPaper{Paper: model.Paper{DOI: "10.1000/b", OALink: pdfSrv.URL + "/landing"}}
+	landing := &model.EnrichedPaper{DOI: "10.1000/b", OALink: pdfSrv.URL + "/landing"}
 	landingTxt := p.fetchFullText(context.Background(), landing, true)
 	require.Empty(t, landingTxt, "landing page must yield no text")
 
@@ -125,7 +125,7 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 	pdf := filepath.Join(runDir, "fulltext", "10.1000_paywalled.pdf")
 	require.NoError(t, os.WriteFile(pdf, []byte("%PDF-1.4 user-supplied"), 0o600))
 
-	noLink := &model.EnrichedPaper{Paper: model.Paper{DOI: "10.1000/paywalled"}} // no OALink, no --fulltext
+	noLink := &model.EnrichedPaper{DOI: "10.1000/paywalled"} // no OALink, no --fulltext
 	txt := p.fetchFullText(context.Background(), noLink, false)
 	require.Equal(t, "USER-SUPPLIED full text of a paywalled paper", txt, "pre-placed PDF not used")
 

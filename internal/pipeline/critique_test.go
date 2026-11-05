@@ -37,10 +37,10 @@ func (s *scriptCompleter) Complete(_ context.Context, _, user string, _ llm.Opti
 }
 
 func ep(doi string) model.EnrichedPaper {
-	return model.EnrichedPaper{Paper: model.Paper{
+	return model.EnrichedPaper{
 		DOI: doi, Title: "Study " + doi, Year: 2023, Abstract: "A randomized trial on " + doi,
 		StudyDesign: "rct", Source: engineConsensus,
-	}}
+	}
 }
 
 func crit(doi, quality, relevance, direction string) model.Critique {
@@ -192,9 +192,9 @@ func TestSynthesisUserPromptAbstractDiet(t *testing.T) {
 	longAbstract := strings.Repeat("word ", 400) // 2000 chars
 	st := &State{Question: "q"}
 	st.Enriched = []model.EnrichedPaper{
-		{Paper: model.Paper{DOI: "10.1/direct", Title: "D", Abstract: longAbstract}},
-		{Paper: model.Paper{DOI: "10.1/indirect", Title: "I", Abstract: longAbstract}},
-		{Paper: model.Paper{DOI: "10.1/nocrit", Title: "N", Abstract: longAbstract}},
+		{DOI: "10.1/direct", Title: "D", Abstract: longAbstract},
+		{DOI: "10.1/indirect", Title: "I", Abstract: longAbstract},
+		{DOI: "10.1/nocrit", Title: "N", Abstract: longAbstract},
 	}
 	st.Critiques = []model.Critique{
 		crit("10.1/direct", qualityHigh, relevanceDirect, directionPositive),
