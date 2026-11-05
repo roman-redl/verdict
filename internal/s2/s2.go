@@ -9,6 +9,7 @@ package s2
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"github.com/roman-redl/verdict/internal/httpx"
 )
@@ -71,13 +72,17 @@ func (c *Client) Batch(ctx context.Context, dois []string) ([]*Paper, error) {
 		headers["x-api-key"] = c.key
 	}
 
-	var out []*Paper
 	// One batched request: every field the pipeline consumes from S2.
 	const fields = "externalIds,title,year,abstract,tldr,citationCount,influentialCitationCount,openAccessPdf"
 
-	err := c.http.DoJSON(ctx, http.MethodPost,
-		c.base+"/paper/batch?fields="+fields,
-		map[string][]string{"ids": ids}, &out, headers)
+	u, err := httpx.URL(c.base, url.Values{"fields": {fields}}, "paper", "batch")
+	if err != nil {
+		return nil, err
+	}
+
+	var out []*Paper
+
+	err = c.http.DoJSON(ctx, http.MethodPost, u, map[string][]string{"ids": ids}, &out, headers)
 	if err != nil {
 		return nil, err
 	}

@@ -55,8 +55,13 @@ func (c *Client) Tallies(ctx context.Context, dois []string) (map[string]model.C
 		headers["Authorization"] = "Bearer " + c.key
 	}
 
+	u, err := httpx.URL(c.base, nil, "tallies")
+	if err != nil {
+		return nil, err
+	}
+
 	var raw json.RawMessage
-	if err := c.http.DoJSON(ctx, http.MethodPost, c.base+"/tallies", dois, &raw, headers); err != nil {
+	if err := c.http.DoJSON(ctx, http.MethodPost, u, dois, &raw, headers); err != nil {
 		return nil, err
 	}
 
@@ -72,6 +77,11 @@ func (c *Client) ContradictingSources(ctx context.Context, doi string) ([]string
 		headers["Authorization"] = "Bearer " + c.key
 	}
 
+	u, err := httpx.URL(c.base, nil, "api_partner", "citations", "citing", doi)
+	if err != nil {
+		return nil, err
+	}
+
 	var resp struct {
 		Citations []struct {
 			SourceDOI string `json:"source"`
@@ -80,8 +90,7 @@ func (c *Client) ContradictingSources(ctx context.Context, doi string) ([]string
 		} `json:"citations"`
 	}
 
-	if err := c.http.DoJSON(ctx, http.MethodGet,
-		c.base+"/api_partner/citations/citing/"+doi, nil, &resp, headers); err != nil {
+	if err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &resp, headers); err != nil {
 		return nil, err
 	}
 

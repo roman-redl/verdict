@@ -17,6 +17,12 @@ import (
 
 const defaultBase = "https://api.openalex.org"
 
+// Query parameter names shared by several endpoints.
+const (
+	paramFilter  = "filter"
+	paramPerPage = "per-page"
+)
+
 type Client struct {
 	base  string
 	http  *httpx.Client
@@ -61,19 +67,19 @@ type Work struct {
 // ByDOI returns (nil, nil) when OpenAlex does not know the DOI (404) —
 // that is "no data", not an error.
 func (c *Client) ByDOI(ctx context.Context, doi string) (*Work, error) {
-	u := c.base + "/works/doi:" + doi
-	if c.email != "" {
-		u += "?mailto=" + c.email
+	u, err := c.url(nil, "works", "doi:"+doi)
+	if err != nil {
+		return nil, err
 	}
 
 	var w Work
 
-	err := c.http.DoJSON(ctx, http.MethodGet, u, nil, &w, nil)
+	err = c.http.DoJSON(ctx, http.MethodGet, u, nil, &w, nil)
 
 	var se *httpx.StatusError
 
 	if errors.As(err, &se) && se.Status == http.StatusNotFound {
-		return nil, nil //nolint:nilnil // контракт метода: «нет данных» — не ошибка, вызывающий проверяет nil
+		return nil, nil //nolint:nilnil // method contract: "no data" is not an error, the caller checks for nil
 	}
 
 	if err != nil {
@@ -81,6 +87,19 @@ func (c *Client) ByDOI(ctx context.Context, doi string) (*Work, error) {
 	}
 
 	return &w, nil
+}
+
+// url builds an API URL; the polite-pool mailto is added to every request.
+func (c *Client) url(q url.Values, segments ...string) (string, error) {
+	if q == nil {
+		q = url.Values{}
+	}
+
+	if c.email != "" {
+		q.Set("mailto", c.email)
+	}
+
+	return httpx.URL(c.base, q, segments...)
 }
 
 // Search is a free relevance search over title/abstract/fulltext. A drop-in
@@ -94,9 +113,9 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]model.P
 	// natural-language questions legitimately end with "?" — strip both.
 	query = strings.NewReplacer("*", "", "?", "").Replace(query)
 
-	u := c.base + "/works?search=" + url.QueryEscape(query) + "&per-page=" + strconv.Itoa(limit)
-	if c.email != "" {
-		u += "&mailto=" + url.QueryEscape(c.email)
+	u, err := c.url(url.Values{"search": {query}, paramPerPage: {strconv.Itoa(limit)}}, "works")
+	if err != nil {
+		return nil, err
 	}
 
 	var resp struct {
@@ -127,9 +146,9 @@ func (c *Client) SearchTitle(ctx context.Context, title string) (*Work, error) {
 	// OpenAlex rejects a %2C-encoded comma with HTTP 400 even though its
 	// error text suggests percent-encoding (verified live 2026-09-08) —
 	// only the quoted form works.
-	u := c.base + "/works?filter=title.search:" + url.QueryEscape(`"`+title+`"`) + "&per-page=1"
-	if c.email != "" {
-		u += "&mailto=" + url.QueryEscape(c.email)
+	u, err := c.url(url.Values{paramFilter: {`title.search:"` + title + `"`}, paramPerPage: {"1"}}, "works")
+	if err != nil {
+		return nil, err
 	}
 
 	var resp struct {
@@ -141,7 +160,7 @@ func (c *Client) SearchTitle(ctx context.Context, title string) (*Work, error) {
 	}
 
 	if len(resp.Results) == 0 {
-		return nil, nil //nolint:nilnil // контракт метода: «нет данных» — не ошибка, вызывающий проверяет nil
+		return nil, nil //nolint:nilnil // method contract: "no data" is not an error, the caller checks for nil
 	}
 
 	return &resp.Results[0], nil
@@ -155,10 +174,13 @@ func (c *Client) CitesWork(ctx context.Context, openalexID string, limit int) ([
 		limit = 25
 	}
 
-	u := c.base + "/works?filter=cites:" + url.QueryEscape(openalexID) +
-		"&sort=cited_by_count:desc&per-page=" + strconv.Itoa(limit)
-	if c.email != "" {
-		u += "&mailto=" + url.QueryEscape(c.email)
+	u, err := c.url(url.Values{
+		paramFilter:  {"cites:" + openalexID},
+		"sort":       {"cited_by_count:desc"},
+		paramPerPage: {strconv.Itoa(limit)},
+	}, "works")
+	if err != nil {
+		return nil, err
 	}
 
 	var resp struct {
@@ -179,10 +201,12 @@ func (c *Client) ByIDs(ctx context.Context, ids []string) ([]Work, error) {
 	for i := 0; i < len(ids); i += 50 {
 		end := min(i+50, len(ids))
 
-		u := c.base + "/works?filter=ids.openalex:" +
-			url.QueryEscape(strings.Join(ids[i:end], "|")) + "&per-page=50"
-		if c.email != "" {
-			u += "&mailto=" + url.QueryEscape(c.email)
+		u, err := c.url(url.Values{
+			paramFilter:  {"ids.openalex:" + strings.Join(ids[i:end], "|")},
+			paramPerPage: {"50"},
+		}, "works")
+		if err != nil {
+			return nil, err
 		}
 
 		var resp struct {

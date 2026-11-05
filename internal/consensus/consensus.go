@@ -100,37 +100,34 @@ type Page struct {
 // response is the value the plan actually applied — walk with it (and
 // is_end/next_page), never with the requested size.
 func (c *Client) SearchPage(ctx context.Context, p SearchParams) (*Page, error) {
-	u := c.base + "/search?query=" + url.QueryEscape(p.Query)
-	if p.Page != 0 {
-		u += "&page=" + strconv.Itoa(p.Page)
+	q := url.Values{"query": {p.Query}}
+	setInt := func(key string, v int) {
+		if v != 0 {
+			q.Set(key, strconv.Itoa(v))
+		}
 	}
 
-	if p.PageSize != 0 {
-		u += "&page_size=" + strconv.Itoa(p.PageSize)
-	}
-
-	if p.YearMin != 0 {
-		u += "&year_min=" + strconv.Itoa(p.YearMin)
-	}
-
-	if p.YearMax != 0 {
-		u += "&year_max=" + strconv.Itoa(p.YearMax)
-	}
+	setInt("page", p.Page)
+	setInt("page_size", p.PageSize)
+	setInt("year_min", p.YearMin)
+	setInt("year_max", p.YearMax)
+	setInt("sample_size_min", p.SampleSizeMin)
 
 	if len(p.StudyTypes) > 0 {
-		u += "&study_types=" + url.QueryEscape(strings.Join(p.StudyTypes, ","))
+		q.Set("study_types", strings.Join(p.StudyTypes, ","))
 	}
 
 	if p.Human {
-		u += "&human=true"
-	}
-
-	if p.SampleSizeMin != 0 {
-		u += "&sample_size_min=" + strconv.Itoa(p.SampleSizeMin)
+		q.Set("human", "true")
 	}
 
 	if p.ExcludePreprints {
-		u += "&exclude_preprints=true"
+		q.Set("exclude_preprints", "true")
+	}
+
+	u, err := httpx.URL(c.base, q, "search")
+	if err != nil {
+		return nil, err
 	}
 
 	var resp struct {

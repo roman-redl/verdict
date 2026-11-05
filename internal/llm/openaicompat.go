@@ -56,8 +56,13 @@ func (o *OpenAICompat) Complete(ctx context.Context, system, user string, opts O
 		} `json:"usage"`
 	}
 
+	endpoint, err := httpx.URL(o.base, nil, "chat", "completions")
+	if err != nil {
+		return "", Usage{}, err
+	}
+
 	headers := map[string]string{"Authorization": "Bearer " + o.key}
-	if err := o.http.DoJSON(ctx, http.MethodPost, o.base+"/chat/completions", req, &resp, headers); err != nil {
+	if err := o.http.DoJSON(ctx, http.MethodPost, endpoint, req, &resp, headers); err != nil {
 		return "", Usage{}, err
 	}
 

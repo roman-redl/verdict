@@ -70,11 +70,16 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, opts Opti
 
 	var resp response
 
+	u, err := httpx.URL(a.base, nil, anthropicPath)
+	if err != nil {
+		return "", Usage{}, err
+	}
+
 	headers := map[string]string{
 		"x-api-key":         a.key,
 		"anthropic-version": anthropicVer,
 	}
-	if err := a.http.DoJSON(ctx, http.MethodPost, a.base+anthropicPath, req, &resp, headers); err != nil {
+	if err := a.http.DoJSON(ctx, http.MethodPost, u, req, &resp, headers); err != nil {
 		return "", Usage{}, err
 	}
 

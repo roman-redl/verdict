@@ -44,9 +44,14 @@ func (u Update) IsRetraction() bool { return u.Type == "retraction" }
 // Updates returns the notices linked to the work. No updates = a clean
 // record as far as Crossref knows.
 func (c *Client) Updates(ctx context.Context, doi string) ([]Update, error) {
-	u := c.base + "/works/" + url.PathEscape(doi)
+	q := url.Values{}
 	if c.email != "" {
-		u += "?mailto=" + url.QueryEscape(c.email)
+		q.Set("mailto", c.email)
+	}
+
+	u, err := httpx.URL(c.base, q, "works", doi)
+	if err != nil {
+		return nil, err
 	}
 
 	var resp struct {

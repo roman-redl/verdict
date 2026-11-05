@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -112,4 +113,69 @@ func TestSearchTitleComma(t *testing.T) {
 
 	require.NotNil(t, w)
 	require.Equal(t, "https://doi.org/10.1/comma", w.DOI)
+}
+
+// The polite-pool address is a query value like any other: '+' and '&' in it
+// must reach the server intact (the old string concatenation turned '+' into
+// a space and let '&' start a new parameter).
+func TestByDOIEscapesMailto(t *testing.T) {
+	const email = "me+verdict&x@example.org"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, email, r.URL.Query().Get("mailto"))
+		assert.Len(t, r.URL.Query(), 1, "nothing else may leak into the query")
+
+		_, _ = w.Write([]byte(`{"doi":"https://doi.org/10.1/a","display_name":"A"}`))
+	}))
+	defer srv.Close()
+
+	c := NewWithBase(srv.URL, email)
+
+	w, err := c.ByDOI(context.Background(), "10.1/a")
+	require.NoError(t, err)
+	require.NotNil(t, w)
+}
+
+// Old-style DOIs carry brackets, colons, semicolons and angle brackets.
+func TestByDOIKeepsAwkwardDOIIntact(t *testing.T) {
+	const doi = "10.1002/(sici)1097-0258(19980430)17:8<849::aid-sim777>3.0.co;2-f"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/works/doi:"+doi, r.URL.Path)
+
+		_, _ = w.Write([]byte(`{"doi":"https://doi.org/` + doi + `"}`))
+	}))
+	defer srv.Close()
+
+	w, err := NewWithBase(srv.URL, "").ByDOI(context.Background(), doi)
+	require.NoError(t, err)
+	require.NotNil(t, w)
+}
+
+// Filters with '|' and ':' are values, so they are escaped like any other.
+func TestByIDsAndCitesWorkQueries(t *testing.T) {
+	var got []url.Values
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.Query())
+
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer srv.Close()
+
+	c := NewWithBase(srv.URL, "a@b.org")
+
+	_, err := c.ByIDs(context.Background(), []string{"W1", "W2"})
+	require.NoError(t, err)
+
+	_, err = c.CitesWork(context.Background(), "W9", 5)
+	require.NoError(t, err)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "ids.openalex:W1|W2", got[0].Get("filter"))
+	assert.Equal(t, "50", got[0].Get("per-page"))
+	assert.Equal(t, "a@b.org", got[0].Get("mailto"))
+	assert.Equal(t, "cites:W9", got[1].Get("filter"))
+	assert.Equal(t, "cited_by_count:desc", got[1].Get("sort"))
+	assert.Equal(t, "5", got[1].Get("per-page"))
 }
