@@ -58,9 +58,6 @@ func run() error {
 
 	flag.Parse()
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	log.Info("verdictd starting", "version", app.Version(version))
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -77,6 +74,9 @@ func run() error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+
+	log := app.NewLogger(os.Stderr, &cfg)
+	log.Info("verdictd starting", "version", app.Version(version))
 
 	store, err := db.Open(ctx, filepath.Join(runsDir, "verdict.db"))
 	if err != nil {

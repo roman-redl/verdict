@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,9 +40,6 @@ func main() {
 }
 
 func run() error {
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	log.Info("verdict starting", "version", app.Version(version))
-
 	// A .env in the working directory fills variables that are not set yet,
 	// so `bin/verdict ...` works without a make wrapper.
 	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -58,6 +54,9 @@ func run() error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+
+	log := app.NewLogger(os.Stderr, &cfg)
+	log.Info("verdict starting", "version", app.Version(version))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

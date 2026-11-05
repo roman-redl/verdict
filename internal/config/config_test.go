@@ -13,6 +13,7 @@ import (
 // build it from an empty environment.
 func valid() Config {
 	return Config{
+		LogFormat:      LogText,
 		LLMTimeout:     10 * time.Minute,
 		LLMConcurrency: 4, LLMChunk: 5,
 		MaxPapers: 15, Concurrency: 4,
@@ -41,6 +42,12 @@ func TestValidate(t *testing.T) {
 		}},
 		{name: "openai-compat needs a key", wantErr: "OPENAI_API_KEY", mutate: func(c *Config) {
 			c.LLMBackend = llm.BackendOpenAICompat
+		}},
+		{name: "json logs", mutate: func(c *Config) {
+			c.LogFormat = LogJSON
+		}},
+		{name: "unknown log format", wantErr: "LOG_FORMAT", mutate: func(c *Config) {
+			c.LogFormat = "xml"
 		}},
 		{name: "non-positive timeout", wantErr: "LLM_TIMEOUT", mutate: func(c *Config) {
 			c.LLMTimeout = 0

@@ -6,15 +6,27 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
+// The values of LOG_FORMAT.
+const (
+	LogText = "text"
+	LogJSON = "json"
+)
+
 // Config is the full environment of verdict and verdictd. Durations use Go
 // syntax (LLM_TIMEOUT=10m); a malformed value is a startup error.
 type Config struct {
+	// LogLevel is the slog level (debug, info, warn, error); LogFormat is
+	// "text" for a terminal or "json" for a container.
+	LogLevel  slog.Level `env:"LOG_LEVEL" envDefault:"info"`
+	LogFormat string     `env:"LOG_FORMAT" envDefault:"text"`
+
 	SciteAPIKey     string `env:"SCITE_API_KEY"`
 	OpenAlexEmail   string `env:"OPENALEX_EMAIL"`
 	AnthropicAPIKey string `env:"ANTHROPIC_API_KEY"`
@@ -83,6 +95,10 @@ func (c *Config) Validate() error {
 		}
 	case llm.BackendAuto, llm.BackendClaudeCLI:
 		// no credentials to check: auto falls back to the claude-cli wrapper
+	}
+
+	if c.LogFormat != LogText && c.LogFormat != LogJSON {
+		errs = append(errs, fmt.Errorf("LOG_FORMAT must be %q or %q, got %q", LogText, LogJSON, c.LogFormat))
 	}
 
 	if c.LLMTimeout <= 0 {
