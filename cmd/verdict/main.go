@@ -39,6 +39,9 @@ import (
 // errReported marks a failure cobra has already printed (error and usage).
 var errReported = errors.New("command failed")
 
+// version is stamped by the Makefile (-ldflags "-X main.version=...").
+var version = app.DevVersion
+
 func main() {
 	if err := run(); err != nil {
 		if !errors.Is(err, errReported) {
@@ -51,6 +54,7 @@ func main() {
 
 func run() error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log.Info("verdict starting", "version", app.Version(version))
 
 	// A .env in the working directory fills variables that are not set yet,
 	// so `bin/verdict ...` works without a make wrapper.

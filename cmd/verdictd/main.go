@@ -38,6 +38,9 @@ const (
 	shutdownTimeout = 30 * time.Second
 )
 
+// version is stamped by the Makefile (-ldflags "-X main.version=...").
+var version = app.DevVersion
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -51,6 +54,7 @@ func run() error {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log.Info("verdictd starting", "version", app.Version(version))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

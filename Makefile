@@ -1,10 +1,14 @@
 BINARY := bin/verdict
 
+# The build version shown in the first log line of both binaries.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X main.version=$(VERSION)
+
 .PHONY: build test lint fmt vet check run web ask clean
 
 build:
-	go build -o $(BINARY) ./cmd/verdict
-	go build -o bin/verdictd ./cmd/verdictd
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/verdict
+	go build -ldflags "$(LDFLAGS)" -o bin/verdictd ./cmd/verdictd
 
 # Тесты с гонками: сервер крутит воркер параллельно с HTTP-хендлерами.
 test:
