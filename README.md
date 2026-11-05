@@ -42,32 +42,102 @@ retractions and smart citations are, how to read the report) lives in
 ## LLM backends (no separate tokens required)
 
 The analytical stages (critique + synthesis) go through a pluggable
-`pipeline.Completer` backend (implemented in `internal/llm`). The choice is env `LLM_BACKEND` (auto by
-default) or the `--llm-command` / `--llm-model` flags per run.
+`pipeline.Completer` backend (implemented in `internal/llm`). The choice is env `LLM_BACKEND` (empty =
+claude-cli) or the `--llm-command` / `--llm-model` flags per run.
 
 | Backend | When | What it needs |
 |---|---|---|
-| **claude-cli** (default here) | Spend existing Claude Code subscriptions — zero new costs | A wrapper from `~/.zshrc` (`LLM_COMMAND`), optionally `LLM_MODEL` as an exact name |
-| **anthropic** | Personal API keys appear | `ANTHROPIC_API_KEY` |
-| **openai-compat** | Migration to cheap personal subscriptions: OpenRouter, DeepSeek, vLLM, Together | `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_MODEL` |
+| **claude-cli** (default) | Spend existing Claude Code subscriptions — zero new costs | A Claude Code wrapper by name (see below); models are aliases (`opus`, `sonnet`, `haiku`, `fable`) |
+| **anthropic** | Max API credits (`LLM_BACKEND=anthropic`) | `ANTHROPIC_API_KEY`, `ANTHROPIC_PROXY` (HTTPS CONNECT proxy — direct calls are forbidden), `ANTHROPIC_MODEL` (exact API model id, no default) |
+| **openai-compat** | OpenAI, Groq, OpenRouter, DeepSeek, vLLM, Together (`LLM_BACKEND=openai-compat`) | `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_MODEL`; `OPENAI_PROXY` (HTTPS CONNECT proxy) — mandatory for OpenAI and Groq |
 
-The claude-cli backend shells out to `<wrapper> -p --output-format text`
-with the prompt on stdin (independent of the CLI's argument quirks). The
-result is parsed as JSON with one retry. Backend autodetection: with no API
-keys configured, claude-cli is selected.
+`LLM_BACKEND` empty always means claude-cli: a key in `.env` never silently
+switches a run to a paid API — `anthropic` and `openai-compat` are chosen
+only explicitly. Personal paid API keys (Anthropic, OpenAI, Groq) never go
+out directly. The anthropic backend's base address is pinned to
+api.anthropic.com in code, and its HTTP timeout is about 8 minutes
+(synthesis answers run up to 8000 tokens). For openai-compat, `OPENAI_PROXY`
+is mandatory when `OPENAI_BASE_URL` points at api.openai.com or api.groq.com
+(or their subdomains) — startup fails without it; for other endpoints
+(DeepSeek, OpenRouter, vLLM) it is optional and used whenever set.
+
+The claude-cli backend runs `<wrapper> -p --output-format json` with the
+prompt on stdin (independent of the CLI's argument quirks); the JSON
+envelope carries the usage numbers, the model's answer is parsed as JSON
+with one retry. When the model wraps the answer in prose or code fences, the
+extractor strips the fences and takes the first `{` up to the last `}`.
 
 ### claude-cli: how it works and its constraints
 
-Every LLM call is a separate `zsh -ic '<wrapper> -p --output-format text'`
-process, prompt on stdin, flags after the prompt. Constraints that
-shaped the defaults:
+**Wrapper resolution** (first match wins):
 
-- **One-way cooldown:** the first request through `claude-zai` blocks the
-  corporate gateway for hours. Choosing the wrapper is a deliberate
-  per-run decision: burn the personal plan's allowance when corporate models are not
-  needed, otherwise `--llm-command claude` (or another corporate wrapper).
-- **Exact model names only** (`LLM_MODEL`): aliases do not resolve and
-  silently fall back to the wrapper default. Empty = wrapper default.
+1. the `--llm-command` flag;
+2. `CLAUDE_WRAPPER` — the label every wrapper exports into its session, so a
+   run launched from an agent session uses that session's wrapper;
+3. `LLM_COMMAND` from `.env` — for runs outside a session (terminal, `verdictd`);
+4. `claude-max`.
+
+The resolved wrapper, its source, the role, the model and the effort are
+logged. The Claude Code CLI is never invoked bare (`claude`, `claude -p`):
+only through a wrapper by name (`claude-max`, `claude-zai*`, `claude-ds`),
+because the wrapper sets the account, the gateway and the proxy. The code
+rejects `LLM_COMMAND=claude`, `--llm-command claude` and
+`CLAUDE_WRAPPER=claude` at startup.
+
+**Execution.** The CLI is executed directly when the wrapper is found in
+`PATH`, otherwise through `zsh -ic` (wrappers defined as zsh functions;
+agent shells may lack `~/.local/bin` in `PATH`). The prompt goes on stdin;
+the session is lean and isolated:
+
+```
+<wrapper> -p --output-format json --system-prompt-file <tmp> --tools ""
+    --strict-mcp-config --mcp-config '{"mcpServers":{}}'
+    --disable-slash-commands --no-session-persistence --safe-mode
+    [--model M] [--effort E] [--fallback-model sonnet]
+```
+
+`--safe-mode` skips the user's hooks, plugins, CLAUDE.md, skills and MCP
+servers but keeps the OAuth login and model selection (`--bare` is not an
+option: it disables OAuth). The saving from `--tools ""` and `--safe-mode`
+is not measured live yet.
+
+**Roles and models.** Models are aliases that resolve in every wrapper (the
+GLM and DeepSeek wrappers map them to their gateway models); exact model ids
+are not used. Each stage has a role with a default model:
+
+| Role | Stage | Default | Effort (`claude-max` only) |
+|---|---|---|---|
+| `plan` | `pico`, `brief` (question parsing, search plan) | `sonnet` | low |
+| `critique` | per-study critique on abstracts | `sonnet` | low |
+| `deep` | hybrid re-critique of pivotal studies with full texts | `opus` | high |
+| `synthesis` | the final verdict | `opus` (`fable` with `run --deep`) | high |
+| `ask` | `verdict ask` | `sonnet` | medium |
+
+Overrides, most specific first: role flag (`--model-critique`,
+`--model-deep`, `--model-synthesis`) → role env (`LLM_MODEL_PLAN`, `LLM_MODEL_CRITIQUE`,
+`LLM_MODEL_DEEP`, `LLM_MODEL_SYNTHESIS`, `LLM_MODEL_ASK`) → `--llm-model` →
+`LLM_MODEL` (all roles) → the role default. A cheap critic is a role model
+inside one wrapper, not a separate wrapper. Effort, and
+`--fallback-model sonnet` for the `opus`/`fable` roles, are passed only with
+`claude-max`; the GLM and DeepSeek gateways disable adaptive thinking. `haiku`
+is reasonable for critique only on 30+ studies and after comparing it with
+`sonnet` on saved critiques.
+
+Constraints that shaped the defaults:
+
+- **Every call spends a limit:** `claude-max` calls count against the Max
+  5-hour and weekly limits, corporate wrappers against the corporate
+  gateway. Choosing the wrapper is a deliberate per-run decision.
+- **`claude-zai` one-way cooldown:** its first request blocks the corporate
+  gateway for hours. The warning is logged only when `claude-zai` comes from
+  `.env` or the flag, not when the run is launched from a `claude-zai`
+  session.
+- **Failures are classified.** An exhausted usage limit or a login failure
+  stops the run at once (no per-study fallback calls); the finished
+  critiques stay in the critique cache, and `--resume` continues after the
+  limit resets. Transient errors (429, 529, overloaded, 5xx, connection) are
+  retried up to 3 attempts with 20 s and 60 s pauses; a call timeout is not
+  retried. `LLM_TIMEOUT` is a Go duration (`10m`; a bare `600` is rejected).
 
 ## Discovery: three modes
 
@@ -137,7 +207,7 @@ it lands in `Errors`/`Warnings` and synthesis proceeds on partial data.
 ## Quick start
 
 ```bash
-cp .env.example .env   # zero keys needed: auto backend = claude-cli wrapper
+cp .env.example .env   # zero keys needed: default backend = claude-cli
 make build             # or: go build -o bin/verdict ./cmd/verdict
 
 make run QUESTION="does creatine improve cognitive performance"
@@ -255,7 +325,7 @@ v1–v3 are all implemented in this codebase:
 - **v2 (partially superseded)**: sample sizes come from abstracts (the
   extraction-session feature left with the retired discovery engine); full
   texts (full text on by default — OA download,
-  text critique); chart checks through the agent's vision MCP
+  text critique); chart checks through the agent's vision tool
   (`3b-vision.json` consumed by synthesis). PubPeer — devkey requested,
   decision pending their reply (see the live-verification notes).
 - **v3**: `verdictd` — the HTTP wrapper (queue + artifacts API,
@@ -275,13 +345,13 @@ v1–v3 are all implemented in this codebase:
   a dropped PDF re-critiques, an unchanged corpus rides free, so a
   challenge re-run costs one synthesis call); the judge payload diet
   (abstracts re-read only for direct studies, matrix notes required only
-  for them); per-stage LLM wrappers (`LLM_COMMAND_CRITIQUE=claude-zai-flash`
-  for the routine critique, the strong default for the judge); and the
+  for them); per-role models (a cheap model for the routine critique, the
+  strong one for the judge); and the
   stateless JSON retry fixed to resend the payload it is asking to correct.
 - **v4.1 — text modes + pickup fixes (2026-10-19)**: one `--text-mode lean |
   hybrid | full` flag instead of the bool `--fulltext` (hybrid — abstracts
-  pass, then OA full texts for the pivotal studies + re-synthesis — is the
-  default); the full-text pickup no longer dies on a warm enrichment cache
+  critique, then OA full texts for the pivotal studies and their deep
+  re-critique before the single synthesis — is the default); the full-text pickup no longer dies on a warm enrichment cache
   or a resume (PDFs in `fulltext/` always enter, at critique time if stage
   2 was skipped); multi-query discovery fetches page 0 of every query
   before page 1 of any and trims the corpus fairly across the

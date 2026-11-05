@@ -236,8 +236,10 @@ the judge weighs it instead of the counter.
 
 ### 2.4 The LLM — the critic and the judge
 
-**Who.** A language model — here via the Claude Code tariff, at no extra
-cost for this project.
+**Who.** A language model — here via the Claude Code tariff (a wrapper such
+as `claude-max`), at no extra cost for this project. Each stage has a role
+with its own model: a cheaper one for the per-paper critic, a stronger one
+for the judge.
 
 **Why it is needed.** After the data collection there is a pile of facts,
 and "how much all of it together proves the claim" cannot be computed by an

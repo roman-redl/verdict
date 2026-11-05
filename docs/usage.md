@@ -183,7 +183,7 @@ Keep only correct runs: when a run is superseded or broken, delete it
 | `report.md` / `matrix.csv` | human-readable report / matrix as a table (numbers assembled deterministically, never LLM-copied) |
 | `context.md` | digest for `ask` and interactive agents |
 | `fulltext/*.pdf` | paper PDFs: ones you drop in yourself (`<doi>.pdf`, always read in every mode — `verdict addpdf`) plus OA downloads in `full` mode or for the pivotal studies the hybrid pass deepens — kept for full-text critique + chart checks |
-| `3b-vision.json` | optional agent-written chart critique (via the vision MCP); the synthesis stage weighs it |
+| `3b-vision.json` | optional agent-written chart critique (via the vision tool, or the agent's own eyes in a Claude session); the synthesis stage weighs it |
 
 Every `N-*.json` is a full state snapshot: `--resume` continues a failed
 run from the last completed stage without paying twice.
@@ -207,14 +207,20 @@ run from the last completed stage without paying twice.
 --text-mode lean         # what the critic reads: lean | hybrid | full
                          #   (defaults to TEXT_MODE from env, hybrid).
                          #   lean — abstracts only; hybrid — abstracts, then
-                         #   OA full texts for the pivotal studies after the
-                         #   first verdict (one deepening pass); full — OA
+                         #   OA full texts for the pivotal studies, re-critiqued
+                         #   before the single synthesis; full — OA
                          #   full texts for every paper. A PDF dropped into
                          #   fulltext/ is read in every mode.
---llm-command claude-zai # LLM wrapper for this run (default comes from .env)
---llm-model <exact name> # model for both LLM stages (aliases do not resolve)
---model-critique <name>  # cheap critic + strong judge (per-stage overrides)
---model-synthesis <name>
+--llm-command claude-max # LLM wrapper for this run, by name (never bare `claude`).
+                         #   Order: this flag -> CLAUDE_WRAPPER (set by the
+                         #   wrapper of the current session) -> LLM_COMMAND
+                         #   in .env -> claude-max
+--llm-model sonnet       # model alias for all roles (opus | sonnet | haiku |
+                         #   fable; aliases resolve in every wrapper)
+--model-critique <alias> # per-role overrides: cheap critic + strong judge
+--model-deep <alias>     # the hybrid re-critique of the pivotal studies
+--model-synthesis <alias>
+--deep                   # the final verdict on fable instead of opus
 --llm-chunk 5            # studies per critique call (LLM_CHUNK in .env; 1 =
                          #   one call per study). The per-call session
                          #   overhead dominates the cost — see Costs below.
@@ -232,6 +238,20 @@ run from the last completed stage without paying twice.
 | Scite | free (tallies without a key, 1 batched request per run) | Pro $50/mo — not needed at this volume |
 | LLM | the Claude Code tariff | direct API ≈ $0.3–0.5/run (estimate) |
 
+### Paid API backends (explicit only)
+
+`LLM_BACKEND` empty means claude-cli; a key in `.env` never switches a run to
+a paid API. Personal paid keys never go out directly:
+
+- `LLM_BACKEND=anthropic` needs `ANTHROPIC_API_KEY`, `ANTHROPIC_PROXY` (HTTPS
+  CONNECT proxy) and `ANTHROPIC_MODEL` (exact API model id, no default). The
+  HTTP timeout is about 8 minutes (synthesis answers run up to 8000 tokens).
+- `LLM_BACKEND=openai-compat` needs `OPENAI_BASE_URL`, `OPENAI_API_KEY` and
+  `LLM_MODEL`. `OPENAI_PROXY` (HTTPS CONNECT proxy) is mandatory when the base
+  URL is api.openai.com or api.groq.com (or a subdomain) — startup fails
+  without it; for other endpoints (DeepSeek, OpenRouter, vLLM) it is optional
+  and used whenever set.
+
 ### Quota economy: lean vs fat runs
 
 The dominant cost is not the payload but the **per-call session overhead**:
@@ -242,13 +262,22 @@ this on three fronts:
 
 - **Lean invocation**: each call runs with a custom `--system-prompt-file`
   (the built-in prompt, CLAUDE.md and memory auto-load are skipped),
-  `--strict-mcp-config` with an empty config and `--disable-slash-commands`.
-  The payload becomes (almost) the whole prompt.
+  `--tools ""`, `--strict-mcp-config` with an empty config,
+  `--disable-slash-commands` and `--safe-mode` (skips the user's hooks,
+  plugins, CLAUDE.md, skills and MCP servers; the OAuth login stays). The
+  payload becomes (almost) the whole prompt. The saving from `--tools ""` and
+  `--safe-mode` is not measured live yet.
 - **Batched critique**: one call assesses `LLM_CHUNK` (default 5) studies,
   each in its own JSON object, independently; studies a batch drops fall
   back to single-study calls. 15 papers = 3 calls instead of 15.
-- **Per-stage models**: `LLM_COMMAND_CRITIQUE=claude-zai-flash` (routine
-  abstract extraction) vs the strong default for the judge call.
+- **Per-role models** inside one wrapper: `sonnet` at low effort for the
+  routine abstract critique, `opus` at high effort for the judge call and
+  for the hybrid re-critique of pivotal studies (`--deep`: `fable` for the
+  judge). Defaults per role are in the README (LLM backends); override with
+  `LLM_MODEL_PLAN`, `LLM_MODEL_CRITIQUE`, `LLM_MODEL_DEEP`,
+  `LLM_MODEL_SYNTHESIS`, `LLM_MODEL_ASK` (`LLM_MODEL` / `--llm-model` for all
+  roles). `haiku` for the critique only on 30+ studies, after comparing it
+  with `sonnet` on saved critiques.
 
 Two more levers cut the bill without touching quality:
 
@@ -277,8 +306,12 @@ bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
   warning-only soft cap — the 113-paper run slipped through it);
   `--text-mode full` multiplies prompt size 5–10× and is for deep single
   questions by deliberate choice only. The default `hybrid` adds one
-  deepening pass (OA full texts for up to `HYBRID_PIVOTAL_MAX`, default 5,
-  pivotal studies → re-critique those + one re-synthesis).
+  deepening pass at the end of the critique stage (OA full-text fetch for up
+  to `HYBRID_PIVOTAL_MAX`, default 5, pivotal studies + ~1 deep re-critique
+  call over lean); the synthesis still runs once, on the final critiques.
+  `--resume` of a run whose critique artifact predates the pass deepens
+  before the synthesis; once `4-synthesis.json` exists the pass is not
+  repeated.
 - With batching + lean invocation a 50-paper corpus is back in the
   affordable range — the marginal cost per extra paper is its abstract, not
   a fresh 74k-token session.
@@ -324,11 +357,24 @@ GET  /runs/{id}/{artifact}                                # report.md, context.m
 ## When something breaks
 
 - **The pipeline died midway** → `run --run-dir runs/<...> --resume`.
-- **claude-zai reported a corporate gateway block** → that is the one-way
-  cooldown after the first zai request; wait out the timer, re-login does
-  not help.
-- **LLM answers are garbage/empty** → make sure `zsh -ic 'echo MARKER'
-  2>/dev/null` prints nothing but MARKER (junk from ~/.zshrc leaks into the
-  answer).
+- **Usage limit reached** (`claude-max`: the 5-hour or weekly Max limit) →
+  the run stops at once; the finished critiques stay in the critique cache.
+  Wait for the limit to reset, then `run --run-dir runs/<...> --resume`.
+  A login failure stops the run the same way (log in again first).
+- **Transient LLM errors** (429, 529, overloaded, 5xx, connection) → retried
+  up to 3 attempts with 20 s and 60 s pauses; a call timeout is not retried
+  (raise `LLM_TIMEOUT`, a Go duration such as `15m`; a bare number is
+  rejected).
+- **`claude-zai` reported a corporate gateway block** → specific to that
+  wrapper: its first request blocks the gateway for hours (the one-way
+  cooldown); wait out the timer, re-login does not help. The run logs a
+  warning when `claude-zai` comes from `.env` or the flag.
+- **A startup error about the bare `claude` command** → the Claude Code CLI is
+  only used through a wrapper by name (`claude-max`, `claude-zai*`,
+  `claude-ds`); fix `--llm-command`, `LLM_COMMAND` or `CLAUDE_WRAPPER`.
+- **LLM answers are garbage/empty** → the wrapper is run directly when it is
+  in `PATH`, otherwise through `zsh -ic`: in the second case make sure
+  `zsh -ic 'echo MARKER' 2>/dev/null` prints nothing but MARKER (junk from
+  ~/.zshrc leaks into the answer).
 - **Scite is silent about recent papers** → not an error: "no data", and
   that is what lands in the report.

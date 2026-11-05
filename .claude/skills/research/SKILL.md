@@ -72,7 +72,8 @@ modes A/B/C are a different thing — see docs/usage.md.)
    candidates blindly — a shared-citation count is a signal, not a
    relevance verdict.
 6. **Run the pipeline** (default text mode is hybrid — abstracts pass, then
-   OA full texts for the pivotal studies + re-synthesis; pass
+   OA full texts for the pivotal studies, re-critiqued before the single
+   synthesis; pass
    `--text-mode lean` when the user wants the cheap abstracts-only run —
    see the cost note at the bottom):
    - mode B, no snowball additions: continue the discovery run —
@@ -91,7 +92,7 @@ modes A/B/C are a different thing — see docs/usage.md.)
 8. **Deep mode — extra depth beyond the default run.** The default
    `--text-mode hybrid` already reads full texts for the pivotal studies
    (direct + highest design quality, capped by `HYBRID_PIVOTAL_MAX`, 5) and
-   re-synthesizes. What is left when the user asks for more ("with all
+   re-critiques them before the synthesis. What is left when the user asks for more ("with all
    the texts", "exhaustively"):
    - **A paywalled pivotal paper** the hybrid pass could not download: take
      the file from the user, `bin/verdict addpdf <file> --run-dir ...` (the
@@ -108,9 +109,12 @@ modes A/B/C are a different thing — see docs/usage.md.)
    - **Optional: chart check** (worth it when the verdict hinges on a few
      key papers whose PDFs are in `runs/<run>/fulltext/`). Render the pages
      (`pdftoppm -png -r 100 <pdf> <prefix>`, or `sips -s format png <pdf>
-     --out <png>` for page 1) and inspect them through the **vision MCP**
-     (`mcp__zai-mcp-server` — you must never read images yourself: GLM
-     hallucinates on image blocks). Look for truncated axes, bar/label
+     --out <png>` for page 1) and inspect them. In a GLM or DeepSeek session
+     (these models do not see images and hallucinate on image blocks) never
+     read the images yourself: use the vision tool (Mac:
+     `mcp__zai-mcp-server`). In a Claude session (`claude-max`, Claude
+     models read images natively) read the rendered page images yourself.
+     Look for truncated axes, bar/label
      mismatches, cherry-picked panels. Write the findings to
      `runs/<run>/3b-vision.json` as
      `{"vision_notes":[{"doi":"...","findings":["..."]}]}`, then
@@ -152,8 +156,8 @@ that discovery was keyword-based, not semantic.
    after the user confirms.
 
 A `--text-mode lean` run costs ~3 batched critique calls (5 studies per
-call) plus one synthesis call; the default hybrid adds one deepening pass
-(OA full texts for the pivotal studies → re-critique + re-synthesis). The
+call) plus one synthesis call; the default hybrid adds the full-text fetch
+and ~1 deep re-critique call for the pivotal studies, still one synthesis. The
 real token spend is recorded in the run's artifacts and at the bottom of
 report.md. Whole-corpus `--text-mode full` and the chart check are deep-mode
 extras — run them when the user asks for depth, not by default (CLAUDE.md
