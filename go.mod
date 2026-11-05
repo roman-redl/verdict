@@ -4,8 +4,10 @@ go 1.27.3
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
+	github.com/caarlos0/env/v11 v11.4.2
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/ergochat/readline v0.1.3
+	github.com/joho/godotenv v1.5.1
 	github.com/ledongthuc/pdf v0.0.0-20260907135840-6c8c28e0e8a0
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.12.1

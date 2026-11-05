@@ -65,7 +65,7 @@ func pivotalStudies(st *State, maxStudies int) []int {
 // repeating the pass. When no pivotal study yields a full text, the pass is
 // a no-op — the abstracts-only verdict stands.
 func (p *Pipeline) hybridDeepen(ctx context.Context, st *State, opts Options) error {
-	maxStudies := p.cfg.HybridPivotalMax
+	maxStudies := p.set.HybridPivotalMax
 	if maxStudies <= 0 {
 		maxStudies = 5
 	}

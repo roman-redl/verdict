@@ -265,7 +265,7 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 	p.pickupFullTexts(ctx, st)
 
 	cachePath := critiqueCachePath(opts)
-	cache := LoadCritiqueCache(cachePath, time.Duration(p.cfg.CritiqueCacheTTLDays)*24*time.Hour)
+	cache := LoadCritiqueCache(cachePath, p.set.CritiqueCacheTTL)
 
 	critiques := make([]model.Critique, len(st.Enriched))
 
@@ -305,9 +305,9 @@ func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error 
 
 	cacheDirty := false
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(orDefault(opts.LLMConcurrency, p.cfg.LLMConcurrency))
+	g.SetLimit(orDefault(opts.LLMConcurrency, p.set.LLMConcurrency))
 
-	chunkSize := orDefault(opts.LLMChunk, p.cfg.LLMChunk)
+	chunkSize := orDefault(opts.LLMChunk, p.set.LLMChunk)
 	for start := 0; start < len(pending); start += chunkSize {
 		end := min(start+chunkSize, len(pending))
 		chunk := make([]job, 0, end-start)

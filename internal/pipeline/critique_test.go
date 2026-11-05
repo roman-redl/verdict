@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -103,7 +102,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	batch := `{"critiques":[{"doi":"10.1/b","design_quality":"low",` +
 		`"relevance":"tangential","result_direction":"unclear"}]}`
 	s := &scriptCompleter{replies: []string{batch}}
-	p := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30},
+	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s}, quietLog())
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA), ep(doiB)}}
 
@@ -123,7 +122,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 
 	// A second critique stage over the same corpus: pure cache, zero calls.
 	s2 := &scriptCompleter{}
-	p2 := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30},
+	p2 := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s2}, quietLog())
 	st2 := &State{Question: "q?", Enriched: st.Enriched}
 
@@ -137,7 +136,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	withFT := ep(doiA)
 	withFT.FullText = "Methods and results of the full paper..."
 	s3 := &scriptCompleter{}
-	p3 := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30},
+	p3 := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s3}, quietLog())
 	st3 := &State{Question: "q?", Enriched: []model.EnrichedPaper{withFT}}
 
@@ -177,7 +176,7 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 
 	batch := `{"critiques":[{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"}]}`
 	s := &scriptCompleter{replies: []string{batch}}
-	p := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30},
+	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s}, quietLog())
 	p.dir = runDir
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)}} // no FullText yet

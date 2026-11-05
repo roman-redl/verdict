@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/openalex"
@@ -28,7 +27,7 @@ func TestEnrichLogsSourceFailures(t *testing.T) {
 	var logs bytes.Buffer
 
 	log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	p := New(&config.Config{Concurrency: 1}, Clients{
+	p := New(Settings{Concurrency: 1}, Clients{
 		OpenAlex: openalex.NewWithBase(failing.URL, ""),
 		Crossref: crossref.NewWithBase(failing.URL, ""),
 	}, log)

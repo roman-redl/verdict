@@ -1,7 +1,7 @@
 // verdictd — the HTTP service wrapper over the pipeline (v3): submit
 // evidence-assessment runs over HTTP, watch status, fetch artifacts.
 // The CLI stays the primary interface; both share the client assembly
-// (internal/app). One run executes at a time — LLM concurrency lives
+// (cmd/internal/app). One run executes at a time — LLM concurrency lives
 // inside the pipeline stages.
 package main
 
@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,9 +19,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/caarlos0/env/v11"
+	"github.com/joho/godotenv"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/roman-redl/verdict/internal/app"
+	"github.com/roman-redl/verdict/cmd/internal/app"
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/pipeline"
 	"github.com/roman-redl/verdict/internal/server"
@@ -52,15 +55,27 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	runner := func(ctx context.Context, opts pipeline.Options) (*pipeline.State, string, error) {
-		cfg := config.Load()
+	// A .env in the working directory fills variables that are not set yet.
+	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("loading .env: %w", err)
+	}
 
-		clients, err := app.BuildClients(cfg, log, opts)
+	var cfg config.Config
+	if err := env.Parse(&cfg); err != nil {
+		return fmt.Errorf("parsing the environment: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	runner := func(ctx context.Context, opts pipeline.Options) (*pipeline.State, string, error) {
+		p, err := app.BuildPipeline(&cfg, log, opts)
 		if err != nil {
 			return nil, "", err
 		}
 
-		return pipeline.New(cfg, clients, log).Run(ctx, opts)
+		return p.Run(ctx, opts)
 	}
 
 	svc, err := server.New(runner, "runs", log)

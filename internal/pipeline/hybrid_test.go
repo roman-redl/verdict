@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -104,7 +103,7 @@ func TestHybridDeepen(t *testing.T) {
 		`10.1/a","consensus_status":"emerging","consensus":"leans positive"}`
 	s := &scriptCompleter{replies: []string{batch, synthesis}}
 
-	p := New(&config.Config{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTLDays: 30, HybridPivotalMax: 2},
+	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d, HybridPivotalMax: 2},
 		Clients{LLM: s}, quietLog())
 	p.dir = runDir
 	st := &State{
@@ -140,7 +139,7 @@ func TestHybridDeepen(t *testing.T) {
 func TestHybridDeepenNoFullTextAvailable(t *testing.T) {
 	tmp := t.TempDir()
 	s := &scriptCompleter{}
-	p := New(&config.Config{LLMConcurrency: 1, HybridPivotalMax: 2}, Clients{LLM: s}, quietLog())
+	p := New(Settings{LLMConcurrency: 1, HybridPivotalMax: 2}, Clients{LLM: s}, quietLog())
 	p.dir = tmp
 	st := &State{
 		Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)},

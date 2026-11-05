@@ -6,22 +6,28 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/caarlos0/env/v11"
 	"github.com/charmbracelet/glamour"
 	"github.com/ergochat/readline"
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
-	"github.com/roman-redl/verdict/internal/app"
+	"github.com/roman-redl/verdict/cmd/internal/app"
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/db"
 	"github.com/roman-redl/verdict/internal/llm"
@@ -30,8 +36,46 @@ import (
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
+// errReported marks a failure cobra has already printed (error and usage).
+var errReported = errors.New("command failed")
+
 func main() {
+	if err := run(); err != nil {
+		if !errors.Is(err, errReported) {
+			fmt.Fprintln(os.Stderr, err)
+		}
+
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	// A .env in the working directory fills variables that are not set yet,
+	// so `bin/verdict ...` works without a make wrapper.
+	if err := godotenv.Load(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("loading .env: %w", err)
+	}
+
+	var cfg config.Config
+	if err := env.Parse(&cfg); err != nil {
+		return fmt.Errorf("parsing the environment: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		// the first signal cancels the work; a second one gets the default
+		// behavior back and kills a stuck process
+		<-ctx.Done()
+		stop()
+	}()
 
 	var opts pipeline.Options
 
@@ -39,14 +83,12 @@ func main() {
 		Use:   "run",
 		Short: "Full pipeline for a research question or a list of DOIs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := config.Load()
-
-			clients, err := app.BuildClients(cfg, log, opts)
+			p, err := app.BuildPipeline(&cfg, log, opts)
 			if err != nil {
 				return err
 			}
 
-			st, dir, err := pipeline.New(cfg, clients, log).Run(cmd.Context(), opts)
+			st, dir, err := p.Run(cmd.Context(), opts)
 			if err != nil {
 				return err
 			}
@@ -107,12 +149,14 @@ func main() {
 		Use:   "verdict",
 		Short: "Evidence assessment for scientific claims: discovery → Scite/OpenAlex → LLM",
 	}
-	root.AddCommand(runCmd, webCmd(), doisCmd(), resolveCmd(), snowballCmd(),
-		addpdfCmd(), askCmd(), briefCmd(), picoCmd(), indexCmd())
+	root.AddCommand(runCmd, webCmd(), doisCmd(), resolveCmd(&cfg), snowballCmd(&cfg),
+		addpdfCmd(), askCmd(&cfg), briefCmd(&cfg), picoCmd(&cfg), indexCmd())
 
-	if err := root.Execute(); err != nil {
-		os.Exit(1)
+	if err := root.ExecuteContext(ctx); err != nil {
+		return errReported
 	}
+
+	return nil
 }
 
 // webCmd — discovery mode C (the free bridge): open the Consensus web UI
@@ -190,7 +234,7 @@ func doisCmd() *cobra.Command {
 // pastes that carry no DOIs (mode C without the clipboard luck). Lines that
 // already contain DOIs pass through; every match prints its own title so the
 // result is verifiable at a glance.
-func resolveCmd() *cobra.Command {
+func resolveCmd(cfg *config.Config) *cobra.Command {
 	return &cobra.Command{
 		Use:   "resolve [file]",
 		Short: "Resolve paper titles to DOIs via OpenAlex (for DOI-less pastes)",
@@ -201,7 +245,7 @@ func resolveCmd() *cobra.Command {
 				return err
 			}
 
-			oa := openalex.New(config.Load().OpenAlexEmail)
+			oa := openalex.New(cfg.OpenAlexEmail)
 			seen := map[string]bool{}
 			resolved := 0
 
@@ -255,7 +299,7 @@ func stripBullet(line string) string {
 // snowballCmd — citation-chaining corpus expansion: finds works connected to
 // several seed papers at once (cited by them or citing them). Prints
 // candidates for curation; nothing is added to any corpus automatically.
-func snowballCmd() *cobra.Command {
+func snowballCmd(cfg *config.Config) *cobra.Command {
 	var minShared, maxOut int
 
 	cmd := &cobra.Command{
@@ -273,7 +317,7 @@ func snowballCmd() *cobra.Command {
 				return fmt.Errorf("snowball needs at least 2 seed DOIs, got %d", len(dois))
 			}
 
-			oa := openalex.New(config.Load().OpenAlexEmail)
+			oa := openalex.New(cfg.OpenAlexEmail)
 
 			cands, err := pipeline.Snowball(cmd.Context(), oa, dois, minShared, maxOut)
 			if err != nil {
@@ -315,7 +359,7 @@ func readInput(cmd *cobra.Command, args []string) ([]byte, error) {
 // askCmd — Q&A with an analyst holding the run's context: the same LLM
 // backend the pipeline used (by default the Claude Code tariff). REPL or a
 // single question.
-func askCmd() *cobra.Command {
+func askCmd(cfg *config.Config) *cobra.Command {
 	var runDir, question string
 
 	cmd := &cobra.Command{
@@ -323,7 +367,6 @@ func askCmd() *cobra.Command {
 		Short: "Ask an analyst about a finished run (papers, citations, verdict)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			cfg := config.Load()
 
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {
@@ -556,7 +599,7 @@ func indexCmd() *cobra.Command {
 // becomes PICO components plus ready-to-run queries — a PubMed-style
 // keyword query (mode A) and 1-3 semantic queries (mode B/C: run through
 // the Consensus API via `run --queries`, or the free web UI).
-func picoCmd() *cobra.Command {
+func picoCmd(cfg *config.Config) *cobra.Command {
 	var question string
 
 	cmd := &cobra.Command{
@@ -568,7 +611,6 @@ func picoCmd() *cobra.Command {
 			}
 
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			cfg := config.Load()
 
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {
@@ -593,7 +635,7 @@ func picoCmd() *cobra.Command {
 
 // briefCmd — triage a messy problem description: agent-solvable tasks stay
 // with the agent, scientific questions are handed to `verdict run`.
-func briefCmd() *cobra.Command {
+func briefCmd(cfg *config.Config) *cobra.Command {
 	var outDir string
 
 	cmd := &cobra.Command{
@@ -602,7 +644,6 @@ func briefCmd() *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-			cfg := config.Load()
 
 			completer, err := app.BuildCompleter(cfg, log, "")
 			if err != nil {

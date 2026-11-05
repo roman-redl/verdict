@@ -19,7 +19,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/consensus"
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/llm"
@@ -157,15 +156,33 @@ type DiscoveryInfo struct {
 	Truncated    bool `json:"truncated,omitempty"` // page cap hit before the ranking ended
 }
 
+// Settings are the pipeline's tunables: process-wide defaults that the
+// per-run Options override. Zero or negative limits fall back to 1.
+type Settings struct {
+	MaxPapers      int
+	Concurrency    int // enrichment parallelism
+	LLMConcurrency int // LLM stage parallelism
+	LLMChunk       int // studies per critique call
+	ConsensusPages int // Consensus pages per discovery query
+	// TextMode is the default text mode ("" = hybrid).
+	TextMode string
+	// HybridPivotalMax caps the pivotal studies the hybrid mode deepens.
+	HybridPivotalMax int
+	// EnrichCacheTTL and CritiqueCacheTTL are the freshness windows of the
+	// per-topic caches; zero disables the cache.
+	EnrichCacheTTL   time.Duration
+	CritiqueCacheTTL time.Duration
+}
+
 type Pipeline struct {
-	cfg     *config.Config
+	set     Settings
 	clients Clients
 	log     *slog.Logger
 	dir     string // run artifact directory (set by Run; fulltext PDFs land there)
 }
 
-func New(cfg *config.Config, clients Clients, log *slog.Logger) *Pipeline {
-	return &Pipeline{cfg: cfg, clients: clients, log: log}
+func New(set Settings, clients Clients, log *slog.Logger) *Pipeline {
+	return &Pipeline{set: set, clients: clients, log: log}
 }
 
 // resolveTextMode settles the effective text mode: the run's flag, else the
@@ -189,7 +206,7 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 
 	p.dir = dir
 
-	mode, err := resolveTextMode(opts.TextMode, p.cfg.TextMode)
+	mode, err := resolveTextMode(opts.TextMode, p.set.TextMode)
 	if err != nil {
 		return nil, dir, err
 	}
@@ -429,7 +446,7 @@ func (p *Pipeline) discover(ctx context.Context, st *State, opts Options) error 
 				"`verdict web` + `run --dois` (mode C)")
 		}
 
-		papers, err := p.clients.OpenAlex.Search(ctx, opts.Question, orDefault(opts.MaxPapers, p.cfg.MaxPapers))
+		papers, err := p.clients.OpenAlex.Search(ctx, opts.Question, orDefault(opts.MaxPapers, p.set.MaxPapers))
 		if err != nil {
 			return err
 		}
@@ -460,7 +477,7 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, st *State, opts Options) 
 	if opts.MaxPapers > 0 && len(dois) > opts.MaxPapers {
 		p.log.Warn("truncating the DOI list to --max-papers", "have", len(dois), "keep", opts.MaxPapers)
 		dois = dois[:opts.MaxPapers]
-	} else if lim := orDefault(opts.MaxPapers, p.cfg.MaxPapers); len(dois) > lim {
+	} else if lim := orDefault(opts.MaxPapers, p.set.MaxPapers); len(dois) > lim {
 		st.Warnings = append(st.Warnings, fmt.Sprintf(
 			"%d DOIs given (above the %d default): expect ~%d critique LLM calls + 1 synthesis; "+
 				"trim the list or pass --max-papers to cap it",
@@ -469,7 +486,7 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, st *State, opts Options) 
 
 	papers := make([]model.Paper, len(dois))
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(orDefault(opts.Concurrency, p.cfg.Concurrency))
+	g.SetLimit(orDefault(opts.Concurrency, p.set.Concurrency))
 
 	for i, doi := range dois {
 		g.Go(func() error {
@@ -507,9 +524,9 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, st *State, opts Options) 
 // replacing semantic search with keyword search is what the engine bake-off
 // forbids (docs/how-it-works.md §2.2).
 func (p *Pipeline) discoverConsensus(ctx context.Context, st *State, opts Options, queries []string) error {
-	maxPages := orDefault(opts.ConsensusPages, p.cfg.ConsensusPages)
+	maxPages := orDefault(opts.ConsensusPages, p.set.ConsensusPages)
 	maxPages = min(maxPages, 50) // (page+1)*page_size <= 1000: page 49 is the last legal one
-	lim := orDefault(opts.MaxPapers, p.cfg.MaxPapers)
+	lim := orDefault(opts.MaxPapers, p.set.MaxPapers)
 	info := &DiscoveryInfo{Engine: engineConsensus, Queries: queries}
 	// Papers pooled per query, deduped by DOI across queries. Recall comes
 	// from the reformulations, so page 0 of EVERY query is fetched before
@@ -642,7 +659,7 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 	s2papers := p.fetchS2Papers(ctx, st.Papers)
 
 	cachePath := enrichCachePath(opts)
-	cache := LoadEnrichCache(cachePath, time.Duration(p.cfg.EnrichCacheTTLDays)*24*time.Hour)
+	cache := LoadEnrichCache(cachePath, p.set.EnrichCacheTTL)
 
 	type cacheUpdate struct {
 		doi   string
@@ -657,7 +674,7 @@ func (p *Pipeline) enrich(ctx context.Context, st *State, opts Options) error {
 
 	enriched := make([]model.EnrichedPaper, len(st.Papers))
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(orDefault(opts.Concurrency, p.cfg.Concurrency))
+	g.SetLimit(orDefault(opts.Concurrency, p.set.Concurrency))
 
 	for i := range st.Papers {
 		pp := st.Papers[i]

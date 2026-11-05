@@ -1,9 +1,11 @@
 // Package app assembles the shared runtime — config into clients (data
 // sources plus LLM backends) — so the CLI (cmd/verdict) and the daemon
-// (cmd/verdictd) construct identical pipelines.
+// (cmd/verdictd) construct identical pipelines. It lives under cmd/ because
+// it is the one place besides the mains that may read the config.
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -20,10 +22,40 @@ import (
 	"github.com/roman-redl/verdict/internal/scite"
 )
 
+const day = 24 * time.Hour
+
+// BuildPipeline assembles a pipeline for one run: the settings from the
+// config, the clients from the config plus the run's overrides.
+func BuildPipeline(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (*pipeline.Pipeline, error) {
+	clients, err := BuildClients(cfg, log, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return pipeline.New(PipelineSettings(cfg), clients, log), nil
+}
+
+// PipelineSettings maps the environment configuration onto the pipeline's
+// own settings (the pipeline never sees the config package).
+func PipelineSettings(cfg *config.Config) pipeline.Settings {
+	return pipeline.Settings{
+		MaxPapers:        cfg.MaxPapers,
+		Concurrency:      cfg.Concurrency,
+		LLMConcurrency:   cfg.LLMConcurrency,
+		LLMChunk:         cfg.LLMChunk,
+		ConsensusPages:   cfg.ConsensusPages,
+		TextMode:         cfg.TextMode,
+		HybridPivotalMax: cfg.HybridPivotalMax,
+		EnrichCacheTTL:   time.Duration(cfg.EnrichCacheTTLDays) * day,
+		CritiqueCacheTTL: time.Duration(cfg.CritiqueCacheTTLDays) * day,
+	}
+}
+
 // BuildCompleter picks the LLM backend; model is a per-stage override
 // (empty = the config default). Explicit LLM_BACKEND, otherwise auto —
 // Anthropic API when a key is present, then OpenAI-compatible, else
-// claude-cli (existing Claude Code tariffs, no tokens to buy).
+// claude-cli (existing Claude Code tariffs, no tokens to buy). Credentials
+// of an explicit backend are checked by config.Validate.
 func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Completer, error) {
 	backend := cfg.LLMBackend
 	if backend == "" {
@@ -39,19 +71,11 @@ func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Com
 
 	switch backend {
 	case "anthropic":
-		if cfg.AnthropicAPIKey == "" {
-			return nil, fmt.Errorf("LLM_BACKEND=anthropic but ANTHROPIC_API_KEY is empty")
-		}
-
-		m := FirstNonEmpty(model, cfg.LLMModel, cfg.AnthropicModel)
+		m := cmp.Or(model, cfg.LLMModel, cfg.AnthropicModel)
 
 		return llm.NewAnthropic(cfg.AnthropicAPIKey, m), nil
 	case "openai-compat":
-		if cfg.OpenAIKey == "" {
-			return nil, fmt.Errorf("LLM_BACKEND=openai-compat but OPENAI_API_KEY is empty")
-		}
-
-		m := FirstNonEmpty(model, cfg.LLMModel)
+		m := cmp.Or(model, cfg.LLMModel)
 		if m == "" {
 			return nil, fmt.Errorf("openai-compat requires LLM_MODEL (the endpoint's model name)")
 		}
@@ -63,12 +87,11 @@ func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Com
 				"for hours (one-way cooldown) — make sure corporate models are not needed soon")
 		}
 
-		m := FirstNonEmpty(model, cfg.LLMModel)
+		m := cmp.Or(model, cfg.LLMModel)
 		log.Info("LLM backend", "command", cfg.LLMCommand,
-			"model", FirstNonEmpty(m, "(wrapper default)"))
+			"model", cmp.Or(m, "(wrapper default)"))
 
-		return llm.NewClaudeCLI(cfg.LLMCommand, m,
-			time.Duration(cfg.LLMTimeoutSec)*time.Second), nil
+		return llm.NewClaudeCLI(cfg.LLMCommand, m, cfg.LLMTimeout), nil
 	}
 
 	return nil, fmt.Errorf("unknown LLM_BACKEND: %s", backend)
@@ -91,7 +114,7 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 	}
 
 	crit, err := BuildCompleter(&cfgCrit, log,
-		FirstNonEmpty(opts.ModelCritique, cfgRun.LLMModelCritique, opts.LLMModel))
+		cmp.Or(opts.ModelCritique, cfgRun.LLMModelCritique, opts.LLMModel))
 	if err != nil {
 		return pipeline.Clients{}, err
 	}
@@ -105,7 +128,7 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 		}
 
 		synth, err = BuildCompleter(&cfgSynth, log,
-			FirstNonEmpty(opts.ModelSynthesis, cfgRun.LLMModelSynthesis, opts.LLMModel))
+			cmp.Or(opts.ModelSynthesis, cfgRun.LLMModelSynthesis, opts.LLMModel))
 		if err != nil {
 			return pipeline.Clients{}, err
 		}
@@ -123,14 +146,4 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 	}
 
 	return clients, nil
-}
-
-func FirstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-
-	return ""
 }

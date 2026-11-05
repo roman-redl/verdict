@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/openalex"
@@ -44,7 +43,7 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 
 	require.NoError(t, prewarmed.Save(cachePath))
 
-	p := New(&config.Config{Concurrency: 4, EnrichCacheTTLDays: 30}, Clients{
+	p := New(Settings{Concurrency: 4, EnrichCacheTTL: ttl30d}, Clients{
 		OpenAlex: openalex.NewWithBase(oa.URL, ""),
 		Crossref: crossref.NewWithBase(cr.URL, ""),
 	}, quietLog())

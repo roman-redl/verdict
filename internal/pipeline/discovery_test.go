@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/consensus"
 	"github.com/roman-redl/verdict/internal/openalex"
 )
@@ -50,7 +49,7 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := New(&config.Config{ConsensusPages: 3, MaxPapers: 50}, Clients{
+	p := New(Settings{ConsensusPages: 3, MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 
@@ -87,7 +86,7 @@ func TestDiscoverConsensusPagesCapTruncates(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := New(&config.Config{MaxPapers: 50}, Clients{
+	p := New(Settings{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 
@@ -110,7 +109,7 @@ func TestDiscoverConsensusStopsAtMaxPapers(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := New(&config.Config{MaxPapers: 50}, Clients{
+	p := New(Settings{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 
@@ -140,7 +139,7 @@ func TestDiscoverConsensusDedupesAndDropsNoDOI(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := New(&config.Config{MaxPapers: 50}, Clients{
+	p := New(Settings{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 
@@ -173,7 +172,7 @@ func TestDiscoverDefaultsToConsensusWhenKeyPresent(t *testing.T) {
 	}))
 	defer oa.Close()
 
-	p := New(&config.Config{MaxPapers: 50}, Clients{
+	p := New(Settings{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(cs.URL, "k"),
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
@@ -199,7 +198,7 @@ func TestDiscoverFallsBackToOpenAlexWithoutKey(t *testing.T) {
 	}))
 	defer oa.Close()
 
-	p := New(&config.Config{MaxPapers: 50}, Clients{
+	p := New(Settings{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase("http://127.0.0.1:1", ""), // present but keyless
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
@@ -229,7 +228,7 @@ func TestDiscoverEngineOverride(t *testing.T) {
 	}))
 	defer oa.Close()
 
-	p := New(&config.Config{MaxPapers: 50}, Clients{
+	p := New(Settings{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(cs.URL, "k"),
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
@@ -263,7 +262,7 @@ func TestDiscoverConsensusErrorIsLoud(t *testing.T) {
 	}))
 	defer oa.Close()
 
-	p := New(&config.Config{MaxPapers: 50}, Clients{
+	p := New(Settings{MaxPapers: 50}, Clients{
 		Consensus: consensus.NewWithBase(cs.URL, "k"),
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
@@ -301,7 +300,7 @@ func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
 	})
 	defer srv.Close()
 
-	p := New(&config.Config{ConsensusPages: 3, MaxPapers: 10}, Clients{
+	p := New(Settings{ConsensusPages: 3, MaxPapers: 10}, Clients{
 		Consensus: consensus.NewWithBase(srv.URL, "k"),
 	}, quietLog())
 

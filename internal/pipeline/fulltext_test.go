@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -37,7 +36,7 @@ func TestFetchFullText(t *testing.T) {
 	defer pdfSrv.Close()
 
 	runDir := t.TempDir()
-	p := New(&config.Config{Concurrency: 4}, Clients{}, quietLog())
+	p := New(Settings{Concurrency: 4}, Clients{}, quietLog())
 	p.dir = runDir
 
 	ok := &model.EnrichedPaper{DOI: "10.1000/a", OALink: pdfSrv.URL + "/a.pdf"}
@@ -117,7 +116,7 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 	defer func() { pdfTextExtractor = restore }()
 
 	runDir := t.TempDir()
-	p := New(&config.Config{Concurrency: 4}, Clients{}, quietLog())
+	p := New(Settings{Concurrency: 4}, Clients{}, quietLog())
 	p.dir = runDir
 
 	require.NoError(t, os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750))

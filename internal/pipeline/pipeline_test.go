@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/openalex"
@@ -47,6 +46,9 @@ const (
 	modeLean          = "lean"
 	cachedAbstract    = "cached abstract"
 )
+
+// ttl30d is the default cache freshness window the tests run with.
+const ttl30d = 30 * 24 * time.Hour
 
 // Enrichment must not re-query OpenAlex for papers discovered through
 // OpenAlex (everything ByDOI returns was already captured at discovery);
@@ -94,7 +96,7 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 	}))
 	defer sc.Close()
 
-	p := New(&config.Config{Concurrency: 4}, Clients{
+	p := New(Settings{Concurrency: 4}, Clients{
 		Scite:    scite.NewWithBase(sc.URL, ""),
 		OpenAlex: openalex.NewWithBase(oa.URL, ""),
 		Crossref: crossref.NewWithBase(cr.URL, ""),
@@ -135,7 +137,7 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 	}))
 	defer oa.Close()
 
-	p := New(&config.Config{MaxPapers: 3}, Clients{
+	p := New(Settings{MaxPapers: 3}, Clients{
 		OpenAlex: openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
 
@@ -196,7 +198,7 @@ func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
 	seeded := EnrichCache{"10.1/cached": {CheckedAt: time.Now(), Abstract: cachedAbstract}}
 	require.NoError(t, seeded.Save(filepath.Join(tmp, "cache.json"))) // Dir(RunDir)/cache.json
 
-	p := New(&config.Config{Concurrency: 4, EnrichCacheTTLDays: 30}, Clients{
+	p := New(Settings{Concurrency: 4, EnrichCacheTTL: ttl30d}, Clients{
 		Scite:    scite.NewWithBase(sc.URL, ""),
 		OpenAlex: openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
