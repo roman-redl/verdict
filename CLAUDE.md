@@ -5,19 +5,36 @@ Go orchestrator for evidence assessment of scientific claims
 Docs: README.md, docs/how-it-works.md (design), docs/usage.md (usage),
 .claude/skills/research/SKILL.md (the agent research workflow).
 
+## Architecture
+
+- `cmd/verdict` (CLI, one file per command) and `cmd/verdictd` (HTTP daemon) only parse flags, wire and start. `cmd/internal/app` turns the config into clients and the logger; it and the mains are the only readers of `internal/config`.
+- `internal/pipeline` is the domain: stage files (`discovery`, `enrich`, `critique`, `synthesis`, `hybrid`, `snowball`, `fulltext`), `state.go` and `artifacts.go` (the checkpoint formats and `--resume`), `render.go` (report, context, matrix). It depends only on the ports declared in `ports.go`; the adapters (`openalex`, `crossref`, `scite`, `s2`, `pubpeer`, `consensus`, `pdf`, `llm`) implement them and return the domain types of `internal/model`.
+- `internal/httpx` is the one HTTP client of every adapter. `internal/db` holds the numbered migrations (`migrations/`), the run index and the daemon's job table. `internal/server` is the daemon's API plus a single worker; its `Jobs` port is implemented by `internal/db`.
+- Daemon jobs live in SQLite. A job still `queued` or `running` at the next start becomes `interrupted` — it is not re-queued, because a run spends LLM calls and repeating it is the client's decision; the run directory resumes with `--resume`.
+- Errors shown to users are `pipeline.UserError` values; any other error reaches the client as a generic message and the log keeps the details.
+
 <!-- BEGIN go-standard -->
 Copied verbatim from the SSOT note «Программное обеспечение/Стандарт личных Go-проектов» (private notes vault); this is the public-repo version. Do not edit in place — change the note and refresh the whole block.
 
-- Entry points in `cmd/<name>/`, logic in `internal/`; packages stay narrow. `pkg/` is for code other repositories import (once an external consumer appears, the code moves there with a public API). depguard holds the layer boundaries.
-- Don't guess external SDK APIs: check `go doc` and the module cache sources first.
-- `.golangci.yml`: settings verbatim from the SSOT note, comments in the repo's language. `//nolint` — a specific linter plus an explanation, nothing else. lll: lines ≤120; wsl_v5: blank lines between logical blocks.
-- Makefile: `build`, `test` (with `-race`), `lint`, `fmt`, `vet`, `check` (= build+vet+test+lint). Run `make check` before handing work in.
-- Tests don't touch the network and don't spend money: external services are handwritten fakes. All tests use testify.
-- SQL (any database): one command per line, the query a raw backtick string indented with a tab; repeated column lists and queries live in constants, spliced by concatenation — never `fmt.Sprintf` (`%` is the LIKE/ILIKE wildcard). The database choice is project-specific (see the repo's CLAUDE.md).
-- Optional query conditions (a dynamic WHERE) are assembled by the squirrel builder (placeholder format per the project's database), never by concatenating string pieces; raw strings are for fixed queries only.
-- The logger is `log/slog`, structured, injected via DI; no secrets in logs. Errors get context where it is known: `fmt.Errorf("...: %w", err)` (wrapcheck watches).
-- CI (GitHub Actions): pinned lint version + vet + `go test -race` + `GOOS=windows` cross-build; no Docker in CI.
-- Config is env-only via caarlos0/env; secrets in `.env`, the repo keeps `.env.example`.
+- Entry points in `cmd/<name>/`, logic in `internal/`; packages stay narrow. `pkg/` is for code other repositories import (once an external consumer appears, the code moves there with a public API). Don't guess external SDK APIs: check `go doc` and the module cache sources first.
+- Dependencies are wired only in `cmd/`: `internal/config` is imported only by `cmd/*` (depguard `config-only-in-cmd`); adapters receive plain values. `main.go` parses flags, wires, runs; each CLI command is its own file, its logic lives in `internal/`.
+- The domain depends only on ports: the database, files, time, external APIs, processes — through small interfaces declared in the domain package; an adapter imports the domain and is checked with `var _ Port = (*Impl)(nil)`. Domain types (statuses, roles, entities) live in the domain. No interface-only packages, no interfaces in the implementing package. depguard holds the boundaries: no database drivers, SDKs, `net/http`, `os/exec`, `os` in the domain.
+- A constructor `New(deps…) (*T, error)` returns a ready object: no two-phase initialization, dependencies are unexported named fields, per-call parameters go into the call. No global mutable state (`os.Setenv`, package variables); time is a dependency.
+- Enumerations are a named type with constants and `ParseX(string)` at the boundary. A file over 500 lines or a function over 80 lines gets split by meaning (funlen, gocognit).
+- `.golangci.yml`: settings verbatim from the SSOT note, comments in the repo's language. `//nolint` — a specific linter plus an explanation, nothing else; `//nolint:wrapcheck` only in test fakes. lll: lines ≤120; wsl_v5: blank lines between logical blocks.
+- Errors: `fmt.Errorf("action: %w", err)` with no package prefix and no "failed to"; the adapter wraps an external library's error, once. `err.Error()` only at an output boundary (a log attribute `"err", err`, a user message, a persisted artifact); inside the code — `%w` (forbidigo). Users see the text of an error type (`errors.As`) or a generic message; the full error goes to the log. Secrets are stripped from external libraries' error text.
+- `_ = f()` only with a same-line comment, otherwise `log.Warn`; silently taking another branch on error is forbidden. A "can't happen" branch and a fallback to a default value log `log.Error` / `log.Warn`; a `switch` over an enumeration lists every value.
+- Lifecycle: the root context is `signal.NotifyContext` in `main`, every goroutine gets a derived one; no `context.Background()` outside `main` and tests, `os.Exit` only in `main`. External prerequisites are checked at startup. `http.Server` with `ReadHeaderTimeout` / `IdleTimeout`, the body capped by `MaxBytesReader`, `Shutdown(ctx)` before stopping workers. Deferred cleanup runs on `context.WithoutCancel` with a short timeout.
+- Concurrency: goroutines via `errgroup` with `SetLimit`, `Wait()` is checked, results go into a slice by index. Long work never holds a global mutex: lock per entity, acknowledge the user before the work starts. An operation over several external systems runs as idempotent steps with progress recorded in the database; a long batch job runs in stages with an artifact and resume.
+- HTTP calls go through the repo's shared package (timeout, rate limit, retries of idempotent requests on network errors and 429/5xx in one function, `Retry-After`, response size cap). URLs only via `url.JoinPath` / `url.Values`. Pinned addresses (paid APIs with a personal key) are constants, not env; tests override them through a constructor parameter.
+- Storage: the schema is numbered migrations via `embed`, not `CREATE TABLE IF NOT EXISTS` (except the baseline `001` for a database created before migrations); a key-value table holds settings and application state, never entity fields. The store exposes domain operations, related writes share one transaction; a status transition is a conditional `UPDATE` with a `RowsAffected` check. `Open` sets driver and pool settings (SQLite: WAL, `busy_timeout`, `foreign_keys`, `SetMaxOpenConns(1)`).
+- SQL (any database): one command per line, the query a raw backtick string indented with a tab; repeated column lists and queries live in constants, spliced by concatenation — never `fmt.Sprintf` (`%` is the LIKE/ILIKE wildcard). Optional conditions (a dynamic WHERE) use the squirrel builder (placeholders per the project's database); raw strings are for fixed queries only. The database choice is project-specific (see the repo's CLAUDE.md).
+- The logger is `log/slog`, structured, injected via DI; JSON in a container, text locally, level from `LOG_LEVEL`; the operation id is added with `log.With` at the handler entry; the build version is the first log line; no secrets in logs. CLI results go to stdout, diagnostics to the log on stderr.
+- Config is env-only via caarlos0/env in every executable: one `env.Parse` in `main`, durations are `time.Duration`, a parse error is a startup error. Conditional rules live in `Validate()`, and only it is tested. Code never parses `.env` (make, `env_file`), and its values are unquoted; secrets in `.env`, the repo keeps `.env.example`.
+- Makefile: `build`, `test` (with `-race`), `lint`, `fmt`, `vet`, `tidy`, `vuln` (`go tool govulncheck`), `check` (= build+vet+test+lint+vuln). Run `make check` before handing work in.
+- Tests use testify; they don't touch the network and don't spend money. The domain is tested on handwritten port fakes, adapters on `httptest`. Table tests with `t.Run`; fuzz tests for input parsers; golden `testdata/*.golden` files for text generators; coverage of domain packages and adapters at least 70 %.
+- CI (GitHub Actions): pinned lint version + vet + `go test -race` + `govulncheck` + a `go mod tidy` check + `GOOS=windows` cross-build; no Docker in CI. The Go version in `go.mod` is the current release with the latest patch; falling two minor releases behind is not allowed. Docker: multi-stage build, `HEALTHCHECK` for HTTP services.
+- Style: `regexp.MustCompile` only in package variables; repeated literals are package constants. A comment explains the non-obvious (a reason, a constraint, an invariant), never restates the name; a stale comment is fixed in the same commit.
 - Commits: conventional prefixes, text only, no auto-trailers; only on an explicit user command.
 - Documentation and comment language: private repo — Russian, public — English; identifiers are always English.
 <!-- END go-standard -->
@@ -26,7 +43,7 @@ Copied verbatim from the SSOT note «Программное обеспечени
 
 - **File changes — Write/Edit tools only**, never `cat >`/python heredocs in Bash: diffs must be visible in the CLI and go through approval. Exception — programmatic transformation of large generated files: announce it explicitly and show a change summary (what and how much was replaced). (2026-09-09)
 - **Write only inside this repository** — never touch files or configs outside it.
-- **The database is SQLite** (`modernc.org/sqlite`, pure Go — no CGO: needed for the `GOOS=windows` cross-build and arm64 Docker) via `database/sql`, the driver only in `internal/db`; squirrel placeholders use `sq.Question`.
+- **The database is SQLite** (`modernc.org/sqlite`, pure Go — no CGO: needed for the `GOOS=windows` cross-build and arm64 Docker) via `database/sql`, the driver only in `internal/db`; squirrel placeholders use `sq.Question`. A database created before the migrations existed (the `runs` table, `user_version` 0) is adopted as migration 1; the first migration therefore uses `CREATE TABLE IF NOT EXISTS`.
 - **Paid APIs and LLM calls — only on an explicit user request** (tests run on httptest, not live APIs). Read-only curl checks against free public APIs (OpenAlex, Crossref, Semantic Scholar, PubPeer) to verify response shapes are allowed without asking (approved 2026-09-07).
 - LLM CLI wrappers — never launch without an explicit user request (the first request blocks the gateway for hours). Platform note: the bundled binaries and the default `LLM_COMMAND` (shells out via `zsh -ic`) target macOS.
 - **Models by exact name only** (aliases silently fall back to the wrapper default).
@@ -38,6 +55,6 @@ Copied verbatim from the SSOT note «Программное обеспечени
 
 ## Verification
 
-`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint; locally requires golangci-lint 2.15.0 or newer — brew; older releases cannot typecheck against Go 1.27.2+).
+`PATH=/usr/local/go/bin:$PATH make check` (build + vet + test + lint + govulncheck; locally requires golangci-lint v2.15.0 or newer — brew or `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0`; older releases cannot typecheck against Go 1.27.2+).
 
 Live-run verifications: Scite `/tallies` — done 2026-09-07 (request body is a bare JSON array; response uses the `{"tallies": ...}` envelope); clean stdout from `~/.zshrc` — done; Consensus `/v1/search` — done 2026-10-10 (`x-api-key` auth; the `page`/`page_size`/`is_end`/`next_page` envelope; `page_size` in the response is the plan-applied value).

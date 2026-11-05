@@ -42,7 +42,7 @@ retractions and smart citations are, how to read the report) lives in
 ## LLM backends (no separate tokens required)
 
 The analytical stages (critique + synthesis) go through a pluggable
-`internal/llm.Completer` backend. The choice is env `LLM_BACKEND` (auto by
+`pipeline.Completer` backend (implemented in `internal/llm`). The choice is env `LLM_BACKEND` (auto by
 default) or the `--llm-command` / `--llm-model` flags per run.
 
 | Backend | When | What it needs |
@@ -144,6 +144,39 @@ make run QUESTION="does creatine improve cognitive performance"
 # verdict: moderate — report in runs/<slug>/report.md
 ```
 
+## Architecture
+
+```
+cmd/verdict, cmd/verdictd   flags, wiring, startup; one file per CLI command
+cmd/internal/app            config -> clients (the only reader of internal/config besides the mains)
+internal/pipeline           the domain: stages, state, artifacts, report rendering;
+                            depends only on the ports it declares (ports.go)
+internal/openalex, crossref, scite, s2, pubpeer, consensus, pdf, llm
+                            adapters: each implements a pipeline port over an external service
+internal/httpx              the shared HTTP client: timeout, retries, Retry-After, size cap
+internal/db                 SQLite: numbered migrations, run index, daemon jobs
+internal/server             the verdictd HTTP API and its job worker
+internal/model              data types shared by the pipeline and the adapters
+internal/config             the environment (caarlos0/env), validated
+```
+
+The layer boundaries are enforced by depguard (see `.golangci.yml`): the
+pipeline imports no HTTP, database or process packages, and only `cmd/*` may
+read the config.
+
+## Development
+
+```bash
+make check   # build + vet + test (-race) + golangci-lint + govulncheck
+make tidy    # go mod tidy
+```
+
+`make check` needs golangci-lint v2.15.0 or newer (older releases cannot
+typecheck against Go 1.27.2+). Tests use handwritten fakes and `httptest`:
+no network, no LLM calls. Golden files in `internal/pipeline/testdata` are
+refreshed with `go test ./internal/pipeline -update`. Logging is `slog`;
+`LOG_LEVEL` and `LOG_FORMAT` (`text` | `json`) tune it.
+
 ## Costs (per average run: 15 papers)
 
 | Component | Default | Paid option |
@@ -187,9 +220,10 @@ docs/how-it-works.md §2.2.
 
 ## Design decisions
 
-- **A CLI, not a microservice:** the job is batch-oriented and needs a human
-  eye on intermediate artifacts. `internal/pipeline` is transport-agnostic —
-  it can be wrapped in a worker/HTTP service later without a rewrite.
+- **A CLI first, an HTTP daemon on top:** the job is batch-oriented and needs
+  a human eye on intermediate artifacts. `internal/pipeline` is
+  transport-agnostic — `verdictd` wraps the same pipeline in a queue and an
+  artifacts API.
 - **LLM as an interface (`Completer`):** corporate tariffs via claude-cli
   today, personal keys or OpenRouter tomorrow — an env change, not a code
   change. Prompts are provider-independent.

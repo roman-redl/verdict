@@ -302,6 +302,17 @@ exactly as with the CLI. Mode B discovery works here too (the key comes
 from `.env`); the engine/queries selection is not yet exposed over the
 request body — a follow-up.
 
+Jobs live in SQLite (`runs/verdict.db`, the same file as the run index), so
+a client can read the outcome of a run after the daemon was restarted. A
+job is `queued`, `running`, `done`, `failed` or `interrupted`. On `SIGINT` /
+`SIGTERM` the daemon stops accepting requests, cancels the running job and
+marks it `interrupted`; at the next start every job still `queued` or
+`running` is marked `interrupted` too. Interrupted jobs are not re-queued —
+a run costs LLM calls, so repeating it is the client's decision (the run
+directory keeps its checkpoints: `verdict run --run-dir runs/<...> --resume`
+continues it for free). The request body is capped at 1 MiB; a failed job
+reports a general message, the details are in the daemon log.
+
 ```
 POST /runs   {"question": "...", "topic": "...", "max_papers": 15,
               "text_mode": "hybrid", "stop_after": "2"}     # or "dois": [...]
