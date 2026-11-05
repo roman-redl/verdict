@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,6 +40,31 @@ func TestRunInterruptedDoesNotSaveStageArtifact(t *testing.T) {
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.NoFileExists(t, filepath.Join(runDir, "1-discovery.json"))
+}
+
+// The run directory is a parameter of the run, not state of the instance: one
+// Pipeline serves several runs, each writing into its own directory.
+func TestOnePipelineServesTwoRuns(t *testing.T) {
+	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer oa.Close()
+
+	dir := t.TempDir()
+	list := filepath.Join(dir, "dois.txt")
+	require.NoError(t, os.WriteFile(list, []byte("10.1000/a\n"), 0o600))
+
+	p := New(Settings{Concurrency: 1}, Clients{OpenAlex: openalex.NewWithBase(oa.URL, "")}, quietLog())
+
+	for i := range 2 {
+		runDir := filepath.Join(dir, "run-"+strconv.Itoa(i))
+
+		_, got, err := p.Run(t.Context(), Options{DOIFile: list, RunDir: runDir, StopAfter: "1"})
+		require.NoError(t, err)
+		require.Equal(t, runDir, got)
+		assert.FileExists(t, filepath.Join(runDir, "1-discovery.json"))
+		assert.FileExists(t, filepath.Join(runDir, "0-input.txt"))
+	}
 }
 
 // A corrupt cache is a cold start, but never a silent one: it costs API calls.

@@ -33,7 +33,7 @@ func TestEnrichLogsSourceFailures(t *testing.T) {
 	}, log)
 
 	st := &State{Papers: []model.Paper{{DOI: "10.1/fail", Source: sourceManual}}}
-	require.NoError(t, p.enrich(context.Background(), st, Options{}))
+	require.NoError(t, p.enrich(context.Background(), params(Options{}), st))
 
 	require.Len(t, st.Enriched, 1)
 	assert.Equal(t, []string{

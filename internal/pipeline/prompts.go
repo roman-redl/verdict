@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -96,9 +97,9 @@ func buildMatrix(st *State, notes map[string]string) []model.MatrixRow {
 			Title:         e.Title,
 			Year:          e.Year,
 			Design:        e.StudyDesign,
-			Direction:     firstNonEmpty(c.ResultDirection, valueUnclear),
-			DesignQuality: firstNonEmpty(c.DesignQuality, valueUnknown),
-			Relevance:     firstNonEmpty(c.Relevance, valueUnknown),
+			Direction:     cmp.Or(c.ResultDirection, valueUnclear),
+			DesignQuality: cmp.Or(c.DesignQuality, valueUnknown),
+			Relevance:     cmp.Or(c.Relevance, valueUnknown),
 			Note:          noteFor(c, norm[model.NormalizeDOI(e.DOI)]),
 		}
 		if e.Tally != nil {
@@ -255,12 +256,6 @@ Evidence discipline:
 - Explicitly say when the data does not contain an answer. Never invent papers, numbers or citations.
 - Distinguish clearly between "the data says X" and "generally known".
 `
-
-// RunState pairs a run directory name with its loaded state.
-type RunState struct {
-	Name  string
-	State *State
-}
 
 // BuildAskSystem builds the analyst system prompt over one or several runs.
 // The newest run gets the full digest; older runs are compact (no abstracts,

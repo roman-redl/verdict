@@ -55,7 +55,7 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q"}))
+	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q"}))
 
 	assert.Equal(t, int32(2), hits, "walk to is_end")
 
@@ -92,7 +92,7 @@ func TestDiscoverConsensusPagesCapTruncates(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q", ConsensusPages: 2}))
+	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q", ConsensusPages: 2}))
 
 	assert.Equal(t, int32(2), hits, "page cap")
 
@@ -115,7 +115,7 @@ func TestDiscoverConsensusStopsAtMaxPapers(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q", MaxPapers: 1}))
+	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q", MaxPapers: 1}))
 
 	assert.Equal(t, int32(1), hits)
 
@@ -145,7 +145,7 @@ func TestDiscoverConsensusDedupesAndDropsNoDOI(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st, Options{
+	require.NoError(t, p.discoverWith(context.Background(), st, Options{
 		Question: "q", Queries: []string{"first", "second"},
 	}))
 
@@ -179,7 +179,7 @@ func TestDiscoverDefaultsToConsensusWhenKeyPresent(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q"}))
+	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q"}))
 
 	assert.Positive(t, csHits, "consensus must be queried")
 	assert.Zero(t, oaHits, "no openalex fallback")
@@ -205,7 +205,7 @@ func TestDiscoverFallsBackToOpenAlexWithoutKey(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q"}))
+	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q"}))
 
 	assert.Equal(t, int32(1), oaHits)
 
@@ -235,12 +235,12 @@ func TestDiscoverEngineOverride(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st, Options{Question: "q", Engine: EngineOpenAlex}))
+	require.NoError(t, p.discoverWith(context.Background(), st, Options{Question: "q", Engine: EngineOpenAlex}))
 
 	assert.Equal(t, int32(1), oaHits)
 	assert.Zero(t, csHits)
 
-	err := p.discover(context.Background(), &State{}, Options{Question: "q", Engine: "bogus"})
+	err := p.discoverWith(context.Background(), &State{}, Options{Question: "q", Engine: "bogus"})
 	assert.Error(t, err, "unknown engine must error")
 }
 
@@ -268,7 +268,7 @@ func TestDiscoverConsensusErrorIsLoud(t *testing.T) {
 		OpenAlex:  openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
 
-	err := p.discover(context.Background(), &State{}, Options{Question: "q"})
+	err := p.discoverWith(context.Background(), &State{}, Options{Question: "q"})
 	require.Error(t, err, "consensus 401 must fail the stage")
 
 	assert.Positive(t, csHits, "consensus was queried")
@@ -306,7 +306,7 @@ func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
 	}, quietLog())
 
 	st := &State{}
-	require.NoError(t, p.discover(context.Background(), st,
+	require.NoError(t, p.discoverWith(context.Background(), st,
 		Options{Question: "main", Queries: []string{"first q", "second q"}}))
 
 	assert.Equal(t, int32(2), hits, "page 0 of each query; deeper pages skipped")

@@ -8,6 +8,8 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"sort"
 )
 
@@ -59,12 +61,29 @@ func pivotalStudies(st *State, maxStudies int) []int {
 	return idxs
 }
 
+// hybridPass runs the deepening and records that it happened: HybridDone
+// keeps a resume from repeating the pass, and both artifacts that changed
+// are saved again.
+func (p *Pipeline) hybridPass(ctx context.Context, rp runParams, st *State) error {
+	if err := p.hybridDeepen(ctx, rp, st); err != nil {
+		return fmt.Errorf("hybrid deepening: %w", err)
+	}
+
+	st.HybridDone = true
+
+	for _, name := range []string{stageCritique, stageSynthesis} {
+		if err := saveJSON(filepath.Join(rp.dir, name+".json"), st); err != nil {
+			return fmt.Errorf("saving %s: %w", name, err)
+		}
+	}
+
+	return nil
+}
+
 // hybridDeepen fetches OA full texts for the pivotal studies, re-critiques
-// the changed ones and re-synthesizes. Called by Run once, after a fresh
-// first synthesis; State.HybridDone (set by the caller) keeps resume from
-// repeating the pass. When no pivotal study yields a full text, the pass is
-// a no-op — the abstracts-only verdict stands.
-func (p *Pipeline) hybridDeepen(ctx context.Context, st *State, opts Options) error {
+// the changed ones and re-synthesizes. When no pivotal study yields a full
+// text, the pass is a no-op — the abstracts-only verdict stands.
+func (p *Pipeline) hybridDeepen(ctx context.Context, rp runParams, st *State) error {
 	maxStudies := p.set.HybridPivotalMax
 	if maxStudies <= 0 {
 		maxStudies = 5
@@ -78,7 +97,7 @@ func (p *Pipeline) hybridDeepen(ctx context.Context, st *State, opts Options) er
 			continue // already deep (a pre-placed PDF, or an earlier pass)
 		}
 
-		if txt := p.fetchFullText(ctx, e, true); txt != "" {
+		if txt := p.fetchFullText(ctx, rp.dir, e, true); txt != "" {
 			e.FullText = txt
 			got++
 		}
@@ -91,9 +110,9 @@ func (p *Pipeline) hybridDeepen(ctx context.Context, st *State, opts Options) er
 
 	p.log.Info("hybrid: deepening pivotal studies with full texts", "studies", got)
 
-	if err := p.critique(ctx, st, opts); err != nil {
+	if err := p.critique(ctx, rp, st); err != nil {
 		return err
 	}
 
-	return p.synthesize(ctx, st, opts)
+	return p.synthesize(ctx, rp, st)
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ var pdfTextExtractor = pdfText
 func pdfText(b []byte, maxChars int) (string, error) {
 	r, err := pdf.NewReader(bytes.NewReader(b), int64(len(b)))
 	if err != nil {
-		return "", fmt.Errorf("pdf: open: %w", err)
+		return "", fmt.Errorf("opening the PDF: %w", err)
 	}
 
 	var sb strings.Builder
@@ -55,35 +56,28 @@ func pdfText(b []byte, maxChars int) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// fullTextPath is where a paper's PDF lives inside the run directory:
+// <dir>/fulltext/<doi with '/' as '_'>.pdf. The user can drop a file there
+// for a paywalled paper; downloaded PDFs are kept there for the vision stage.
+func fullTextPath(dir, doi string) string {
+	name := strings.ReplaceAll(model.NormalizeDOI(doi), "/", "_") + ".pdf"
+	return filepath.Join(dir, "fulltext", name)
+}
+
 // fetchFullText supplies the paper's full text. A PDF already sitting in
-// the run directory (runs/<run>/fulltext/<doi>.pdf — the user can drop one
-// for a paywalled paper or two) ALWAYS wins, regardless of flags; otherwise
-// the OA link is downloaded, and only where the caller allows it (full text
-// mode at enrichment, the hybrid deepening pass for pivotal studies).
-func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, download bool) string {
-	if p.dir == "" {
+// the run directory ALWAYS wins, regardless of flags; otherwise the OA link
+// is downloaded, and only where the caller allows it (full text mode at
+// enrichment, the hybrid deepening pass for pivotal studies).
+func (p *Pipeline) fetchFullText(ctx context.Context, dir string, e *model.EnrichedPaper, download bool) string {
+	if dir == "" {
 		return ""
 	}
 
-	name := strings.ReplaceAll(model.NormalizeDOI(e.DOI), "/", "_") + ".pdf"
-	path := filepath.Join(p.dir, "fulltext", name)
+	path := fullTextPath(dir, e.DOI)
 
-	var body []byte
-	//nolint:gosec // the path is built from the run directory and a normalized DOI (a file the user placed)
-	if b, err := os.ReadFile(path); err == nil {
-		body = b // user-supplied: the paywall workaround for a specific paper
-	} else if !download || e.OALink == "" {
+	body, ok := p.loadPDF(ctx, path, e, download)
+	if !ok {
 		return ""
-	} else {
-		hc := httpx.New("pdf", 2)
-
-		b, err := hc.Get(ctx, e.OALink, pdfMaxBytes)
-		if err != nil {
-			p.sourceFailed(e, "fulltext", err)
-			return ""
-		}
-
-		body = b
 	}
 
 	if !bytes.HasPrefix(body, []byte("%PDF")) {
@@ -97,16 +91,9 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 		return ""
 	}
 
-	if !fileExists(path) { // keep downloaded PDFs on disk for the vision stage
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			p.sourceFailed(e, "fulltext", err)
-			return ""
-		}
-		//nolint:gosec // the path is built from the run directory and a normalized DOI
-		if err := os.WriteFile(path, body, 0o600); err != nil {
-			p.sourceFailed(e, "fulltext", err)
-			return ""
-		}
+	if err := keepPDF(path, body); err != nil {
+		p.sourceFailed(e, "fulltext", err)
+		return ""
 	}
 
 	text, err := pdfTextExtractor(body, fullTextMaxChars)
@@ -123,6 +110,52 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 	return text
 }
 
+// loadPDF returns the PDF bytes: the user's file when one is in place, else
+// the open-access download when the caller allows it. ok is false when there
+// is nothing to read (or the download failed, which is recorded).
+func (p *Pipeline) loadPDF(ctx context.Context, path string, e *model.EnrichedPaper, download bool) ([]byte, bool) {
+	//nolint:gosec // the path is built from the run directory and a normalized DOI (a file the user placed)
+	b, err := os.ReadFile(path)
+	if err == nil {
+		return b, true // user-supplied: the paywall workaround for a specific paper
+	}
+
+	if !errors.Is(err, fs.ErrNotExist) {
+		p.sourceFailed(e, "fulltext", err)
+		return nil, false
+	}
+
+	if !download || e.OALink == "" {
+		return nil, false
+	}
+
+	b, err = httpx.New("pdf", 2).Get(ctx, e.OALink, pdfMaxBytes)
+	if err != nil {
+		p.sourceFailed(e, "fulltext", err)
+		return nil, false
+	}
+
+	return b, true
+}
+
+// keepPDF stores a downloaded PDF for the vision stage; a file already in
+// place (the user's) is left alone.
+func keepPDF(path string, body []byte) error {
+	if fileExists(path) {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("creating the fulltext directory: %w", err)
+	}
+
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		return fmt.Errorf("saving the PDF: %w", err)
+	}
+
+	return nil
+}
+
 // pickupFullTexts loads PDFs sitting in the run's fulltext/ directory into
 // papers that have no full text yet. This is the entry point the resume path
 // needs: stage 2 (where the pickup used to live exclusively) is skipped when
@@ -130,8 +163,8 @@ func (p *Pipeline) fetchFullText(ctx context.Context, e *model.EnrichedPaper, do
 // enters the pipeline here, at critique time — the critique cache key
 // includes the full text, so exactly those studies re-critique. Only ever
 // fills empty slots; no network.
-func (p *Pipeline) pickupFullTexts(ctx context.Context, st *State) {
-	if p.dir == "" {
+func (p *Pipeline) pickupFullTexts(ctx context.Context, dir string, st *State) {
+	if dir == "" {
 		return
 	}
 
@@ -141,7 +174,7 @@ func (p *Pipeline) pickupFullTexts(ctx context.Context, st *State) {
 			continue
 		}
 
-		if txt := p.fetchFullText(ctx, e, false); txt != "" {
+		if txt := p.fetchFullText(ctx, dir, e, false); txt != "" {
 			e.FullText = txt
 		}
 	}

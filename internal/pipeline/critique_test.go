@@ -106,7 +106,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 		Clients{LLM: s}, quietLog())
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA), ep(doiB)}}
 
-	require.NoError(t, p.critique(context.Background(), st, Options{RunDir: filepath.Join(tmp, "run-1")}))
+	require.NoError(t, p.critique(context.Background(), params(Options{RunDir: filepath.Join(tmp, "run-1")}), st))
 
 	require.Equal(t, 1, s.calls, "cached study must not be re-asked")
 
@@ -126,7 +126,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 		Clients{LLM: s2}, quietLog())
 	st2 := &State{Question: "q?", Enriched: st.Enriched}
 
-	require.NoError(t, p2.critique(context.Background(), st2, Options{RunDir: filepath.Join(tmp, "run-2")}))
+	require.NoError(t, p2.critique(context.Background(), params(Options{RunDir: filepath.Join(tmp, "run-2")}), st2))
 
 	require.Equal(t, 0, s2.calls, "second stage must be cache-only")
 	require.Equal(t, qualityHigh, st2.Critiques[0].DesignQuality, "second stage must be cache-only")
@@ -140,7 +140,7 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 		Clients{LLM: s3}, quietLog())
 	st3 := &State{Question: "q?", Enriched: []model.EnrichedPaper{withFT}}
 
-	require.NoError(t, p3.critique(context.Background(), st3, Options{RunDir: filepath.Join(tmp, "run-3")}))
+	require.NoError(t, p3.critique(context.Background(), params(Options{RunDir: filepath.Join(tmp, "run-3")}), st3))
 
 	require.NotZero(t, s3.calls, "added full text must re-critique, not serve the cached abstract critique")
 }
@@ -178,10 +178,9 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 	s := &scriptCompleter{replies: []string{batch}}
 	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
 		Clients{LLM: s}, quietLog())
-	p.dir = runDir
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)}} // no FullText yet
 
-	require.NoError(t, p.critique(context.Background(), st, Options{RunDir: runDir}))
+	require.NoError(t, p.critique(context.Background(), params(Options{RunDir: runDir}), st))
 
 	require.Equal(t, 1, s.calls, "the picked-up PDF must re-critique (cache miss)")
 

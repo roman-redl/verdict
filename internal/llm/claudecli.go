@@ -2,6 +2,7 @@ package llm
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -117,7 +118,7 @@ func (c *ClaudeCLI) Complete(ctx context.Context, system, user string, _ Options
 	}
 
 	if env.IsError {
-		return "", Usage{}, fmt.Errorf("%s: session error: %s", c.Name(), firstNonEmpty(env.Result, snip(stderr.String())))
+		return "", Usage{}, fmt.Errorf("%s: session error: %s", c.Name(), cmp.Or(env.Result, snip(stderr.String())))
 	}
 
 	if strings.TrimSpace(env.Result) == "" {
@@ -140,14 +141,4 @@ func snip(s string) string {
 	}
 
 	return s
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-
-	return ""
 }

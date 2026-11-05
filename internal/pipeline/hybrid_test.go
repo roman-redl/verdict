@@ -133,7 +133,6 @@ func TestHybridDeepen(t *testing.T) {
 
 	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d, HybridPivotalMax: 2},
 		Clients{LLM: s}, quietLog())
-	p.dir = runDir
 	st := &State{
 		Question: "q?", Enriched: []model.EnrichedPaper{a, b},
 		Critiques: []model.Critique{
@@ -143,7 +142,7 @@ func TestHybridDeepen(t *testing.T) {
 		Cost: &CostReport{},
 	}
 
-	require.NoError(t, p.hybridDeepen(context.Background(), st, Options{RunDir: runDir}))
+	require.NoError(t, p.hybridDeepen(context.Background(), params(Options{RunDir: runDir}), st))
 
 	assert.NotEmpty(t, st.Enriched[0].FullText, "pivotal study must have its full text")
 
@@ -168,13 +167,12 @@ func TestHybridDeepenNoFullTextAvailable(t *testing.T) {
 	tmp := t.TempDir()
 	s := &scriptCompleter{}
 	p := New(Settings{LLMConcurrency: 1, HybridPivotalMax: 2}, Clients{LLM: s}, quietLog())
-	p.dir = tmp
 	st := &State{
 		Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)},
 		Critiques: []model.Critique{crit(doiA, qualityHigh, relevanceDirect, directionPositive)}, Cost: &CostReport{},
 	}
 
-	require.NoError(t, p.hybridDeepen(context.Background(), st, Options{RunDir: tmp}))
+	require.NoError(t, p.hybridDeepen(context.Background(), params(Options{RunDir: tmp}), st))
 
 	assert.Equal(t, 0, s.calls, "no-OA pivotal must skip the pass")
 	assert.Nil(t, st.Report, "no-OA pivotal must skip the pass")

@@ -1,0 +1,336 @@
+package pipeline
+
+// Stage 2: enrichment. Batched Scite tallies and a Semantic Scholar request,
+// then per paper: OpenAlex (retractions, open-access links, abstracts) and
+// Crossref update notices (the Retraction Watch signal, typically ahead of
+// OpenAlex), full texts, PubPeer commentary and the Scite drill-down. One
+// source failing for one paper does not kill the stage — it is recorded in
+// Errors/Warnings and synthesis proceeds on partial data.
+
+import (
+	"cmp"
+	"context"
+	"fmt"
+	"maps"
+	"time"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/roman-redl/verdict/internal/crossref"
+	"github.com/roman-redl/verdict/internal/model"
+	"github.com/roman-redl/verdict/internal/pubpeer"
+	"github.com/roman-redl/verdict/internal/s2"
+)
+
+// Reasons recorded on a retraction flag.
+const (
+	reasonOpenAlexRetracted = "OpenAlex: is_retracted"
+	reasonCrossrefRetracted = "Crossref/retraction-watch: retraction notice "
+)
+
+// scoreBatchSize is how many DOIs one Scite tallies request carries (the
+// API limit is 500).
+const scoreBatchSize = 100
+
+// enrichBatch is what the batched lookups produced for the whole corpus,
+// shared read-only by the per-paper workers.
+type enrichBatch struct {
+	dir      string
+	tallies  map[string]model.CitationTally
+	scholar  map[string]*s2.Paper
+	cache    EnrichCache
+	download bool // OA PDFs are downloaded at this stage (full text mode only)
+}
+
+// cacheUpdate is the cache entry a worker produced for a DOI; the zero value
+// means "nothing to store".
+type cacheUpdate struct {
+	doi   string
+	entry CacheEntry
+}
+
+func (p *Pipeline) enrich(ctx context.Context, rp runParams, st *State) error {
+	tallies, warns := p.fetchTallies(ctx, st.Papers)
+	st.Warnings = append(st.Warnings, warns...)
+
+	cachePath := enrichCachePath(rp.opts)
+	batch := &enrichBatch{
+		dir:     rp.dir,
+		tallies: tallies,
+		scholar: p.fetchS2Papers(ctx, st.Papers),
+		cache:   LoadEnrichCache(cachePath, p.set.EnrichCacheTTL, p.log),
+		// OA downloads happen in full mode only (hybrid fetches its full texts
+		// after the first synthesis, lean never); a pre-placed PDF is read in
+		// every mode — see fetchFullText.
+		download: rp.opts.TextMode == TextFull,
+	}
+
+	enriched := make([]model.EnrichedPaper, len(st.Papers))
+	updates := make([]cacheUpdate, len(st.Papers))
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(orDefault(rp.opts.Concurrency, p.set.Concurrency))
+
+	for i := range st.Papers {
+		g.Go(func() error {
+			enriched[i], updates[i] = p.enrichPaper(gctx, batch, st.Papers[i])
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("enriching the papers: %w", err)
+	}
+
+	for _, u := range updates {
+		if u.doi != "" {
+			batch.cache[u.doi] = u.entry
+		}
+	}
+
+	if err := batch.cache.Save(cachePath); err != nil {
+		p.log.Warn("enrichment cache not saved", "err", err)
+	}
+
+	st.Enriched = enriched
+
+	return nil
+}
+
+// enrichPaper gathers everything the sources know about one paper. A fresh
+// cached entry replaces the per-DOI OpenAlex + Crossref lookups entirely
+// (challenge re-runs share the topic corpus).
+func (p *Pipeline) enrichPaper(
+	ctx context.Context, b *enrichBatch, pp model.Paper,
+) (model.EnrichedPaper, cacheUpdate) {
+	e := model.EnrichedPaper{Paper: pp}
+	doi := model.NormalizeDOI(pp.DOI)
+
+	if t, ok := b.tallies[doi]; ok {
+		e.Tally = &t
+	}
+
+	if cached, ok := b.cache[doi]; ok {
+		applyCached(&e, cached)
+		// The full-text pickup must not depend on the cache: a pre-placed PDF
+		// is always read, and full mode still downloads.
+		p.attachFullText(ctx, b, &e)
+
+		return e, cacheUpdate{}
+	}
+
+	p.checkIntegrity(ctx, &e)
+	applyScholar(&e, b.scholar[doi])
+	p.attachFullText(ctx, b, &e)
+	p.attachCommentary(ctx, &e)
+	p.drillDownContradictions(ctx, &e)
+
+	return e, cacheUpdate{doi: doi, entry: CacheEntry{
+		CheckedAt: time.Now(),
+		Abstract:  e.Abstract,
+		OALink:    e.OALink,
+		Retracted: e.Flags.Retracted,
+		Reason:    e.Flags.Reason,
+		Notes:     e.Flags.Notes,
+	}}
+}
+
+func applyCached(e *model.EnrichedPaper, c CacheEntry) {
+	if c.Retracted {
+		e.Flags.Retracted = true
+		e.Flags.Reason = c.Reason
+	}
+
+	e.Abstract = cmp.Or(e.Abstract, c.Abstract)
+	e.OALink = cmp.Or(e.OALink, c.OALink)
+	e.Flags.Notes = append(e.Flags.Notes, c.Notes...)
+}
+
+// checkIntegrity runs the two retraction sources. Papers discovered through
+// OpenAlex already carry everything a ByDOI lookup returns (abstract, OA
+// link, retraction flag) — re-querying would be an exact duplicate. A manual
+// stub deserves one lookup in case the discovery one failed transiently.
+func (p *Pipeline) checkIntegrity(ctx context.Context, e *model.EnrichedPaper) {
+	if e.Retracted {
+		e.Flags.Retracted = true
+		e.Flags.Reason = reasonOpenAlexRetracted
+	}
+
+	if e.DOI == "" {
+		return
+	}
+
+	doi := model.NormalizeDOI(e.DOI)
+
+	if p.clients.OpenAlex != nil && e.Source != model.SourceOpenAlex {
+		w, err := p.clients.OpenAlex.ByDOI(ctx, doi)
+
+		switch {
+		case err != nil:
+			p.sourceFailed(e, "openalex", err)
+		case w != nil:
+			if w.IsRetracted {
+				e.Flags.Retracted = true
+				e.Flags.Reason = reasonOpenAlexRetracted
+			}
+
+			e.OALink = cmp.Or(e.OALink, w.OpenAccess.OAURL)
+			e.Abstract = cmp.Or(e.Abstract, w.Abstract())
+		}
+	}
+	// Crossref is the second, independent integrity source: the Retraction
+	// Watch Database lives there, with corrections and expressions of concern
+	// alongside retractions.
+	if p.clients.Crossref != nil {
+		ups, err := p.clients.Crossref.Updates(ctx, doi)
+		if err != nil {
+			p.sourceFailed(e, "crossref", err)
+			return
+		}
+
+		applyNotices(e, ups)
+	}
+}
+
+// applyNotices turns Crossref update notices into flags and notes.
+func applyNotices(e *model.EnrichedPaper, ups []crossref.Update) {
+	for _, u := range ups {
+		switch {
+		case u.IsRetraction():
+			e.Flags.Retracted = true
+			e.Flags.Reason = reasonCrossrefRetracted + u.DOI
+		case u.Type == "correction":
+			e.Flags.Notes = append(e.Flags.Notes, "correction notice "+u.DOI)
+		default:
+			e.Flags.Notes = append(e.Flags.Notes, cmp.Or(u.Label, u.Type)+" notice "+u.DOI)
+		}
+	}
+}
+
+// applyScholar adds what Semantic Scholar knows and OpenAlex missed:
+// abstracts (the TLDR as a last resort) and OA PDF links; influential
+// citations feed the judge.
+func applyScholar(e *model.EnrichedPaper, s2p *s2.Paper) {
+	if s2p == nil {
+		return
+	}
+
+	e.Abstract = cmp.Or(e.Abstract, s2p.Abstract)
+
+	if e.OALink == "" && s2p.OpenAccessPDF != nil {
+		e.OALink = s2p.OpenAccessPDF.URL
+	}
+
+	e.TLDR = s2p.TLDRText()
+	e.InfluentialCitations = s2p.InfluentialCitations
+}
+
+// attachFullText supplies the paper's full text: a PDF pre-placed in the run
+// directory is always used; OA PDFs are downloaded in full mode. The critic
+// then reads the whole paper, and the PDF stays for the vision stage.
+func (p *Pipeline) attachFullText(ctx context.Context, b *enrichBatch, e *model.EnrichedPaper) {
+	if txt := p.fetchFullText(ctx, b.dir, e, b.download); txt != "" {
+		e.FullText = txt
+	}
+}
+
+// attachCommentary adds the PubPeer commentary as a soft signal (the API is
+// behind a developer key).
+func (p *Pipeline) attachCommentary(ctx context.Context, e *model.EnrichedPaper) {
+	if p.clients.PubPeer == nil || !p.clients.PubPeer.HasKey() || e.DOI == "" {
+		return
+	}
+
+	threads, err := p.clients.PubPeer.Publications(ctx, model.NormalizeDOI(e.DOI))
+	if err != nil {
+		p.log.Warn("pubpeer check failed", "doi", e.DOI, "err", err)
+		return
+	}
+
+	if note := pubpeer.Note(threads); note != "" {
+		e.Flags.Notes = append(e.Flags.Notes, note)
+	}
+}
+
+// drillDownContradictions asks Scite who exactly cites a contradicted paper
+// as refuted (paid scope, best-effort).
+func (p *Pipeline) drillDownContradictions(ctx context.Context, e *model.EnrichedPaper) {
+	if p.clients.Scite == nil || !p.clients.Scite.HasKey() ||
+		e.Tally == nil || e.Tally.Contradicting == 0 || e.DOI == "" {
+		return
+	}
+
+	srcs, err := p.clients.Scite.ContradictingSources(ctx, model.NormalizeDOI(e.DOI))
+	if err != nil {
+		p.log.Warn("scite drill-down failed", "doi", e.DOI, "err", err)
+		return
+	}
+
+	if len(srcs) > 0 {
+		e.ContradictingDOIs = srcs
+	}
+}
+
+// fetchTallies asks Scite for the corpus' citation tallies in batches; a
+// Scite failure is not fatal.
+func (p *Pipeline) fetchTallies(ctx context.Context, papers []model.Paper) (
+	tallies map[string]model.CitationTally, warnings []string,
+) {
+	tallies = map[string]model.CitationTally{}
+	if p.clients.Scite == nil {
+		return tallies, []string{"Scite client is not initialized"}
+	}
+
+	for _, batch := range chunks(normalizedDOIs(papers), scoreBatchSize) {
+		m, err := p.clients.Scite.Tallies(ctx, batch)
+		if err != nil {
+			p.log.Warn("scite unavailable: tallies skipped", "err", err)
+			return tallies, []string{"Scite unavailable, citation analytics incomplete: " + persistedErr(err)}
+		}
+
+		maps.Copy(tallies, m)
+	}
+
+	return tallies, nil
+}
+
+// fetchS2Papers makes one batched Semantic Scholar request per run (the
+// anonymous rate limits are tight); a failure is not fatal — OpenAlex
+// remains the primary metadata source.
+func (p *Pipeline) fetchS2Papers(ctx context.Context, papers []model.Paper) map[string]*s2.Paper {
+	out := map[string]*s2.Paper{}
+	if p.clients.S2 == nil {
+		return out
+	}
+
+	dois := normalizedDOIs(papers)
+
+	batch, err := p.clients.S2.Batch(ctx, dois)
+	if err != nil {
+		p.log.Warn("semantic scholar unavailable: enrichment continues without it", "err", err)
+		return out
+	}
+
+	for i, s2p := range batch {
+		if s2p == nil || i >= len(dois) {
+			continue
+		}
+
+		out[dois[i]] = s2p
+	}
+
+	return out
+}
+
+// normalizedDOIs lists the papers' normalized DOIs, skipping papers without one.
+func normalizedDOIs(papers []model.Paper) []string {
+	var dois []string
+
+	for i := range papers {
+		if d := model.NormalizeDOI(papers[i].DOI); d != "" {
+			dois = append(dois, d)
+		}
+	}
+
+	return dois
+}

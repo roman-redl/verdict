@@ -54,7 +54,7 @@ func TestEnrichUsesTopicCache(t *testing.T) {
 	}}
 	opts := Options{RunDir: filepath.Join(tmp, "run-1")}
 
-	require.NoError(t, p.enrich(context.Background(), st, opts))
+	require.NoError(t, p.enrich(context.Background(), params(opts), st))
 
 	assert.Equal(t, cachedAbstract, st.Enriched[0].Abstract)
 

@@ -10,14 +10,11 @@ package pipeline
 // re-runs ask the same question over the same corpus.
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha1" //nolint:gosec // not cryptography: a fingerprint of the input for the critique cache key
 	"encoding/json"
 	"fmt"
-	"sync"
-	"time"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
@@ -116,12 +113,12 @@ func critiqueInput(e model.EnrichedPaper, question string) map[string]any {
 // normalizeCritique fills the guaranteed fields from the study when the LLM
 // omitted or garbled them.
 func normalizeCritique(c model.Critique, e model.EnrichedPaper) model.Critique {
-	c.DOI = firstNonEmpty(c.DOI, e.DOI)
-	c.Title = firstNonEmpty(c.Title, e.Title)
-	c.DesignQuality = firstNonEmpty(c.DesignQuality, valueUnknown)
-	c.SampleAdequacy = firstNonEmpty(c.SampleAdequacy, valueUnclear)
-	c.Relevance = firstNonEmpty(c.Relevance, valueUnknown)
-	c.ResultDirection = firstNonEmpty(c.ResultDirection, valueUnclear)
+	c.DOI = cmp.Or(c.DOI, e.DOI)
+	c.Title = cmp.Or(c.Title, e.Title)
+	c.DesignQuality = cmp.Or(c.DesignQuality, valueUnknown)
+	c.SampleAdequacy = cmp.Or(c.SampleAdequacy, valueUnclear)
+	c.Relevance = cmp.Or(c.Relevance, valueUnknown)
+	c.ResultDirection = cmp.Or(c.ResultDirection, valueUnclear)
 
 	return c
 }
@@ -133,14 +130,7 @@ func normalizeCritique(c model.Critique, e model.EnrichedPaper) model.Critique {
 func critiquePaper(
 	ctx context.Context, client llm.Completer, e model.EnrichedPaper, question string,
 ) (model.Critique, llm.Usage, error) {
-	c := model.Critique{
-		DOI:             e.DOI,
-		Title:           e.Title,
-		DesignQuality:   valueUnknown,
-		SampleAdequacy:  valueUnclear,
-		Relevance:       valueUnknown,
-		ResultDirection: valueUnclear,
-	}
+	c := blankCritique(e)
 
 	b, err := json.Marshal(critiqueInput(e, question))
 	if err != nil {
@@ -246,150 +236,15 @@ func critiqueCacheKey(e model.EnrichedPaper, question string) string {
 	return model.NormalizeDOI(e.DOI) + "\x00" + question + "\x00" + fmt.Sprintf("%x", h)[:12]
 }
 
-// critique: the map stage. Cached critiques are reused as-is; the rest go
-// through batched calls, with a per-study single-call fallback for whatever
-// a batch dropped. A failure on one paper does not kill the stage — it goes
-// into Critique.Error. Call usage is accumulated into the cost report.
-func (p *Pipeline) critique(ctx context.Context, st *State, opts Options) error {
-	if p.clients.LLM == nil {
-		st.Warnings = append(st.Warnings,
-			"no LLM backend configured: per-paper critique skipped, the verdict will rely on counters only")
-
-		return nil
+// blankCritique is the placeholder for a study not (yet) assessed: every
+// field says "unknown", so a failed call degrades to "no information".
+func blankCritique(e model.EnrichedPaper) model.Critique {
+	return model.Critique{
+		DOI:             e.DOI,
+		Title:           e.Title,
+		DesignQuality:   valueUnknown,
+		SampleAdequacy:  valueUnclear,
+		Relevance:       valueUnknown,
+		ResultDirection: valueUnclear,
 	}
-
-	if st.Cost == nil {
-		st.Cost = &CostReport{}
-	}
-	// Accumulate across re-invocations (the hybrid deepening pass re-enters
-	// this stage) instead of overwriting the first pass's accounting.
-	cost := st.Cost.Critique
-	if cost == nil {
-		cost = &StageCost{}
-		st.Cost.Critique = cost
-	}
-
-	// PDFs that landed in fulltext/ after enrichment (the addpdf recipe, a
-	// resume that skipped stage 2) enter here, before the cache checks: the
-	// cache key includes the full text, so exactly those studies re-critique.
-	p.pickupFullTexts(ctx, st)
-
-	cachePath := critiqueCachePath(opts)
-	cache := LoadCritiqueCache(cachePath, p.set.CritiqueCacheTTL, p.log)
-
-	critiques := make([]model.Critique, len(st.Enriched))
-
-	var pending []int
-
-	for i := range st.Enriched {
-		e := st.Enriched[i]
-		if model.NormalizeDOI(e.DOI) != "" {
-			if c, ok := cache[critiqueCacheKey(e, st.Question)]; ok {
-				critiques[i] = c.Critique
-				continue
-			}
-		}
-
-		critiques[i] = model.Critique{
-			DOI:             e.DOI,
-			Title:           e.Title,
-			DesignQuality:   valueUnknown,
-			SampleAdequacy:  valueUnclear,
-			Relevance:       valueUnknown,
-			ResultDirection: valueUnclear,
-		}
-
-		pending = append(pending, i)
-	}
-
-	if hits := len(st.Enriched) - len(pending); hits > 0 {
-		p.log.Info("critique cache hits", "papers", hits, "to assess", len(pending))
-	}
-
-	type job struct {
-		idx   int
-		paper model.EnrichedPaper
-	}
-
-	var mu sync.Mutex
-
-	cacheDirty := false
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(orDefault(opts.LLMConcurrency, p.set.LLMConcurrency))
-
-	chunkSize := orDefault(opts.LLMChunk, p.set.LLMChunk)
-	for start := 0; start < len(pending); start += chunkSize {
-		end := min(start+chunkSize, len(pending))
-		chunk := make([]job, 0, end-start)
-
-		for _, i := range pending[start:end] {
-			chunk = append(chunk, job{idx: i, paper: st.Enriched[i]})
-		}
-
-		g.Go(func() error {
-			papers := make([]model.EnrichedPaper, len(chunk))
-			for i := range chunk {
-				papers[i] = chunk[i].paper
-			}
-
-			got, u, batchErr := critiqueBatch(gctx, p.clients.LLM, papers, st.Question)
-			if batchErr != nil {
-				p.log.Warn("critique batch failed: falling back to single calls",
-					"studies", len(papers), "err", batchErr)
-			}
-
-			var singles []int
-
-			for i := range chunk {
-				if c, ok := got[model.NormalizeDOI(chunk[i].paper.DOI)]; ok {
-					critiques[chunk[i].idx] = c
-					continue
-				}
-
-				singles = append(singles, i) // the batch dropped this study
-			}
-
-			for _, i := range singles {
-				c, u1, err := critiquePaper(gctx, p.clients.LLM, chunk[i].paper, st.Question)
-				u = u.Add(u1)
-				critiques[chunk[i].idx] = c
-
-				if err != nil {
-					p.log.Warn("critique failed", "doi", chunk[i].paper.DOI, "err", err)
-				}
-			}
-
-			mu.Lock()
-			cost.add(u)
-
-			for i := range chunk {
-				if c := critiques[chunk[i].idx]; c.Error == "" && model.NormalizeDOI(chunk[i].paper.DOI) != "" {
-					cache[critiqueCacheKey(chunk[i].paper, st.Question)] = CritiqueCacheEntry{CheckedAt: time.Now(), Critique: c}
-					cacheDirty = true
-				}
-			}
-
-			if cacheDirty {
-				if err := cache.Save(cachePath); err != nil {
-					p.log.Warn("critique cache not saved", "err", err)
-
-					cacheDirty = false
-				}
-			}
-			mu.Unlock()
-
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		return fmt.Errorf("critiquing the studies: %w", err)
-	}
-
-	st.Critiques = critiques
-
-	p.log.Info("critique llm usage", "calls", cost.Calls,
-		"in", cost.InputTokens, "out", cost.OutputTokens)
-
-	return nil
 }

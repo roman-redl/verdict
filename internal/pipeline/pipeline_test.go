@@ -49,6 +49,15 @@ const (
 // ttl30d is the default cache freshness window the tests run with.
 const ttl30d = 30 * 24 * time.Hour
 
+// params builds the run parameters a stage takes; the run directory is the
+// options' RunDir.
+func params(opts Options) runParams { return runParams{opts: opts, dir: opts.RunDir} }
+
+// discoverWith runs the discovery stage with the given options.
+func (p *Pipeline) discoverWith(ctx context.Context, st *State, opts Options) error {
+	return p.discover(ctx, params(opts), st)
+}
+
 // Enrichment must not re-query OpenAlex for papers discovered through
 // OpenAlex (everything ByDOI returns was already captured at discovery);
 // Manual stubs still get their lookup. Crossref flags
@@ -107,7 +116,7 @@ func TestEnrichSkipsDuplicateOpenAlexLookups(t *testing.T) {
 		{DOI: doiVoid, Source: sourceManual},           // discovery lookup failed — one retry
 		{DOI: doiRetr, Source: sourceManual},           // OpenAlex misses it, Crossref flags it
 	}}
-	require.NoError(t, p.enrich(context.Background(), st, Options{}))
+	require.NoError(t, p.enrich(context.Background(), params(Options{}), st))
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -147,7 +156,7 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 	require.NoError(t, os.WriteFile(f, []byte(strings.Join(list, "\n")), 0o600))
 
 	st := &State{}
-	require.NoError(t, p.discoverByDOIs(context.Background(), st, Options{DOIFile: f}))
+	require.NoError(t, p.discoverByDOIs(context.Background(), Options{DOIFile: f}, st))
 
 	require.Len(t, st.Papers, 5, "user-curated list must run whole")
 
@@ -155,7 +164,7 @@ func TestDiscoverByDOIsWarnsOnLargeList(t *testing.T) {
 	assert.Contains(t, st.Warnings[0], "LLM calls", "large list must warn about LLM cost")
 
 	st = &State{}
-	require.NoError(t, p.discoverByDOIs(context.Background(), st, Options{DOIFile: f, MaxPapers: 2}))
+	require.NoError(t, p.discoverByDOIs(context.Background(), Options{DOIFile: f, MaxPapers: 2}, st))
 
 	require.Len(t, st.Papers, 2, "explicit cap")
 }
@@ -201,10 +210,9 @@ func TestEnrichCacheHitStillPicksUpPDF(t *testing.T) {
 		Scite:    scite.NewWithBase(sc.URL, ""),
 		OpenAlex: openalex.NewWithBase(oa.URL, ""),
 	}, quietLog())
-	p.dir = runDir
 	st := &State{Papers: []model.Paper{{DOI: "10.1/cached", Source: sourceManual}}}
 
-	require.NoError(t, p.enrich(context.Background(), st, Options{RunDir: runDir}))
+	require.NoError(t, p.enrich(context.Background(), params(Options{RunDir: runDir}), st))
 
 	assert.Equal(t, int32(0), oaHits.Load(), "cached paper must not re-query OpenAlex")
 

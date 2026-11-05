@@ -37,10 +37,9 @@ func TestFetchFullText(t *testing.T) {
 
 	runDir := t.TempDir()
 	p := New(Settings{Concurrency: 4}, Clients{}, quietLog())
-	p.dir = runDir
 
 	ok := &model.EnrichedPaper{DOI: "10.1000/a", OALink: pdfSrv.URL + "/a.pdf"}
-	txt := p.fetchFullText(context.Background(), ok, true)
+	txt := p.fetchFullText(context.Background(), runDir, ok, true)
 	require.NotEmpty(t, txt)
 	require.Contains(t, txt, "240 patients")
 
@@ -51,7 +50,7 @@ func TestFetchFullText(t *testing.T) {
 	require.NoError(t, err, "PDF not saved for the vision stage")
 
 	landing := &model.EnrichedPaper{DOI: "10.1000/b", OALink: pdfSrv.URL + "/landing"}
-	landingTxt := p.fetchFullText(context.Background(), landing, true)
+	landingTxt := p.fetchFullText(context.Background(), runDir, landing, true)
 	require.Empty(t, landingTxt, "landing page must yield no text")
 
 	require.NotEmpty(t, landing.Errors, "non-PDF link must be recorded as an error")
@@ -118,7 +117,6 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 
 	runDir := t.TempDir()
 	p := New(Settings{Concurrency: 4}, Clients{}, quietLog())
-	p.dir = runDir
 
 	require.NoError(t, os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750))
 
@@ -126,7 +124,7 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 	require.NoError(t, os.WriteFile(pdf, []byte("%PDF-1.4 user-supplied"), 0o600))
 
 	noLink := &model.EnrichedPaper{DOI: "10.1000/paywalled"} // no OALink, no --fulltext
-	txt := p.fetchFullText(context.Background(), noLink, false)
+	txt := p.fetchFullText(context.Background(), runDir, noLink, false)
 	require.Equal(t, "USER-SUPPLIED full text of a paywalled paper", txt, "pre-placed PDF not used")
 
 	require.Empty(t, noLink.Errors, "pre-placed path must not error")
