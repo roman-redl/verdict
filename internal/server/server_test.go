@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,8 +22,35 @@ import (
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
+func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// startServer wires a Server around the fake runner, starts the worker and
+// the HTTP test server, and tears everything down with the test.
+func startServer(t *testing.T, run Runner) *httptest.Server {
+	t.Helper()
+
+	svc, err := New(run, t.TempDir(), quietLog())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var wg sync.WaitGroup
+
+	wg.Go(func() { svc.Work(ctx) })
+
+	srv := httptest.NewServer(svc.Handler())
+
+	t.Cleanup(func() {
+		srv.Close()
+		cancel()
+		wg.Wait()
+	})
+
+	return srv
+}
+
 func TestSubmitRunLifecycle(t *testing.T) {
-	handler, drain := New(func(_ context.Context, opts pipeline.Options) (*pipeline.State, string, error) {
+	srv := startServer(t, func(_ context.Context, opts pipeline.Options) (*pipeline.State, string, error) {
 		dir := t.TempDir()
 		err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# Verdict: moderate"), 0o600)
 		require.NoError(t, err)
@@ -29,10 +59,6 @@ func TestSubmitRunLifecycle(t *testing.T) {
 
 		return &pipeline.State{Report: &model.Report{Verdict: "moderate"}}, dir, nil
 	})
-	defer drain()
-
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
 
 	// invalid submit
 	resp, err := postJSON(srv.URL+"/runs", stringsReader(`{}`))
@@ -54,26 +80,11 @@ func TestSubmitRunLifecycle(t *testing.T) {
 
 	require.Equal(t, http.StatusAccepted, resp.StatusCode, "submit")
 	require.NotEmpty(t, job.ID, "submit")
-	require.Contains(t, []string{"queued", "running"}, job.Status, "submit")
+	require.Contains(t, []string{statusQueued, statusRunning}, job.Status, "submit")
 
-	// wait for the worker
-	deadline := time.Now().Add(5 * time.Second)
+	job = waitForJob(t, srv.URL, job.ID, statusDone, statusFailed)
 
-	for {
-		resp, err = httpGet(srv.URL + "/runs/" + job.ID)
-		require.NoError(t, err)
-
-		_ = json.NewDecoder(resp.Body).Decode(&job)
-		_ = resp.Body.Close()
-
-		if job.Status == "done" || job.Status == "failed" || time.Now().After(deadline) {
-			break
-		}
-
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	require.Equal(t, "done", job.Status, "job did not finish")
+	require.Equal(t, statusDone, job.Status, "job did not finish")
 	require.Equal(t, "moderate", job.Verdict, "job did not finish")
 	require.NotEmpty(t, job.Dir, "job did not finish")
 
@@ -107,21 +118,20 @@ func TestSubmitRunLifecycle(t *testing.T) {
 }
 
 func TestListRuns(t *testing.T) {
-	handler, drain := New(func(_ context.Context, _ pipeline.Options) (*pipeline.State, string, error) {
+	srv := startServer(t, func(_ context.Context, _ pipeline.Options) (*pipeline.State, string, error) {
 		return nil, t.TempDir(), nil
 	})
-	defer drain()
-
-	srv := httptest.NewServer(handler)
-	defer srv.Close()
 
 	resp, err := postJSON(srv.URL+"/runs",
 		stringsReader(`{"dois":["10.1000/a"],"topic":"t"}`))
 	require.NoError(t, err)
 
+	var job Job
+
+	_ = json.NewDecoder(resp.Body).Decode(&job)
 	_ = resp.Body.Close()
 
-	time.Sleep(300 * time.Millisecond) // let the worker finish
+	waitForJob(t, srv.URL, job.ID, statusDone, statusFailed)
 
 	resp, err = httpGet(srv.URL + "/runs")
 	require.NoError(t, err)
@@ -135,10 +145,119 @@ func TestListRuns(t *testing.T) {
 	require.Equal(t, "t", jobs[0].Topic)
 }
 
+// An oversized body is cut off by MaxBytesReader before it is decoded.
+func TestSubmitRejectsOversizedBody(t *testing.T) {
+	srv := startServer(t, func(_ context.Context, _ pipeline.Options) (*pipeline.State, string, error) {
+		t.Error("the runner must not be reached")
+
+		return nil, "", nil
+	})
+
+	huge := `{"question":"` + strings.Repeat("x", maxSubmitBytes) + `"}`
+
+	resp, err := postJSON(srv.URL+"/runs", stringsReader(huge))
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+
+	require.Equal(t, http.StatusRequestEntityTooLarge, resp.StatusCode)
+}
+
+// Cancelling the worker context (the shutdown signal) interrupts the
+// running pipeline run and leaves Work returning — it must not wait for the
+// run to finish on its own.
+func TestShutdownInterruptsRunningJob(t *testing.T) {
+	started := make(chan struct{})
+
+	svc, err := New(func(ctx context.Context, _ pipeline.Options) (*pipeline.State, string, error) {
+		close(started)
+		<-ctx.Done()
+
+		return nil, "", ctx.Err()
+	}, t.TempDir(), quietLog())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		svc.Work(ctx)
+	}()
+
+	srv := httptest.NewServer(svc.Handler())
+	defer srv.Close()
+
+	resp, err := postJSON(srv.URL+"/runs", stringsReader(`{"question":"q"}`))
+	require.NoError(t, err)
+
+	var job Job
+
+	_ = json.NewDecoder(resp.Body).Decode(&job)
+	_ = resp.Body.Close()
+
+	<-started
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Work did not return after the context was canceled")
+	}
+
+	got, ok := svc.snapshot(job.ID)
+	require.True(t, ok)
+	require.Equal(t, statusInterrupted, got.Status)
+}
+
+// The queue is never closed, so a submit racing with shutdown cannot panic
+// on a closed channel; it simply stays queued.
+func TestSubmitAfterWorkerStoppedDoesNotPanic(t *testing.T) {
+	svc, err := New(func(context.Context, pipeline.Options) (*pipeline.State, string, error) {
+		return nil, "", nil
+	}, t.TempDir(), quietLog())
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(svc.Handler())
+	defer srv.Close()
+
+	resp, err := postJSON(srv.URL+"/runs", stringsReader(`{"question":"q"}`))
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+}
+
+// waitForJob polls GET /runs/{id} until the job reaches one of the statuses.
+func waitForJob(t *testing.T, base, id string, statuses ...string) Job {
+	t.Helper()
+
+	var job Job
+
+	require.Eventually(t, func() bool {
+		resp, err := httpGet(base + "/runs/" + id)
+		if err != nil {
+			return false
+		}
+
+		defer func() { _ = resp.Body.Close() }()
+
+		if err := json.NewDecoder(resp.Body).Decode(&job); err != nil {
+			return false
+		}
+
+		return slices.Contains(statuses, job.Status)
+	}, 5*time.Second, 20*time.Millisecond, "job %s never reached %v", id, statuses)
+
+	return job
+}
+
 func stringsReader(s string) io.Reader { return strings.NewReader(s) }
 
-// postJSON/httpGet — запросы к тестовому серверу с явным контекстом
-// (noctx): контекст теста здесь не нужен, ответ фейк-сервера мгновенный.
+// postJSON/httpGet — requests to the test server with an explicit context
+// (noctx): the test's own context is not needed, the fake server answers at once.
 func postJSON(url string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, body)
 	if err != nil {

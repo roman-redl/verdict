@@ -7,7 +7,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +19,19 @@ import (
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
+// maxSubmitBytes caps a POST /runs body: a question or a DOI list is a few
+// kilobytes, anything near the cap is a mistake or abuse.
+const maxSubmitBytes = 1 << 20
+
+// Job statuses.
+const (
+	statusQueued      = "queued"
+	statusRunning     = "running"
+	statusDone        = "done"
+	statusFailed      = "failed"
+	statusInterrupted = "interrupted"
+)
+
 // Runner executes one pipeline run (injected; cmd/verdictd wires the real
 // pipeline, tests wire a fake).
 type Runner func(ctx context.Context, opts pipeline.Options) (*pipeline.State, string, error)
@@ -24,7 +39,7 @@ type Runner func(ctx context.Context, opts pipeline.Options) (*pipeline.State, s
 // Job is a submitted run's lifecycle.
 type Job struct {
 	ID       string `json:"id"`
-	Status   string `json:"status"` // queued | running | done | failed
+	Status   string `json:"status"` // queued | running | done | failed | interrupted
 	Question string `json:"question"`
 	Topic    string `json:"topic,omitempty"`
 	Dir      string `json:"dir,omitempty"`
@@ -37,59 +52,86 @@ type queuedJob struct {
 	opts pipeline.Options
 }
 
-type service struct {
+// Server holds the job table, the queue and the worker. The HTTP side is
+// Handler; the worker is Work, which the caller runs until its context ends.
+type Server struct {
+	log     *slog.Logger
+	run     Runner
+	runsDir string // where uploaded DOI lists land
+
 	mu     sync.Mutex
 	nextID int
 	jobs   map[string]*Job
 	queue  chan queuedJob
-	run    Runner
-	wg     sync.WaitGroup
 }
 
-// New returns the HTTP handler and a drain function (call it on shutdown:
-// it stops taking jobs and waits for the running one to finish).
-func New(run Runner) (handler http.Handler, drain func()) {
-	s := &service{
-		jobs:  map[string]*Job{},
-		queue: make(chan queuedJob, 100),
-		run:   run,
+// New builds a server. runsDir is the directory for uploaded DOI lists.
+func New(run Runner, runsDir string, log *slog.Logger) (*Server, error) {
+	if run == nil {
+		return nil, errors.New("server needs a runner")
 	}
-	s.wg.Add(1)
 
-	go s.worker()
+	if log == nil {
+		return nil, errors.New("server needs a logger")
+	}
 
+	return &Server{
+		log:     log,
+		run:     run,
+		runsDir: runsDir,
+		jobs:    map[string]*Job{},
+		queue:   make(chan queuedJob, 100),
+	}, nil
+}
+
+// Handler returns the HTTP routes.
+func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /runs", s.submit)
 	mux.HandleFunc("GET /runs", s.list)
 	mux.HandleFunc("GET /runs/{id}", s.get)
 	mux.HandleFunc("GET /runs/{id}/{file...}", s.artifact)
 
-	return mux, func() {
-		close(s.queue)
-		s.wg.Wait()
+	return mux
+}
+
+// Work runs queued jobs one at a time until ctx is canceled. The job context
+// derives from ctx, so a shutdown signal interrupts the running pipeline run
+// instead of waiting for it to finish; such a job ends as interrupted.
+func (s *Server) Work(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case q := <-s.queue:
+			s.execute(ctx, q)
+		}
 	}
 }
 
-func (s *service) worker() {
-	defer s.wg.Done()
+func (s *Server) execute(ctx context.Context, q queuedJob) {
+	id := q.job.ID
+	log := s.log.With("job", id)
 
-	for q := range s.queue {
-		s.update(q.job.ID, func(j *Job) { j.Status = "running" })
-		st, dir, err := s.run(context.Background(), q.opts)
-		s.update(q.job.ID, func(j *Job) {
-			switch {
-			case err != nil:
-				j.Status, j.Error = "failed", err.Error()
-			case st != nil && st.Report != nil:
-				j.Status, j.Dir, j.Verdict = "done", dir, st.Report.Verdict
-			default:
-				j.Status, j.Dir = "done", dir
-			}
-		})
+	s.update(id, func(j *Job) { j.Status = statusRunning })
+
+	st, dir, err := s.run(ctx, q.opts)
+
+	switch {
+	case err != nil && ctx.Err() != nil:
+		log.Warn("job interrupted by shutdown", "err", err)
+		s.update(id, func(j *Job) { j.Status, j.Dir = statusInterrupted, dir })
+	case err != nil:
+		log.Error("job failed", "err", err)
+		s.update(id, func(j *Job) { j.Status, j.Error = statusFailed, err.Error() })
+	case st != nil && st.Report != nil:
+		s.update(id, func(j *Job) { j.Status, j.Dir, j.Verdict = statusDone, dir, st.Report.Verdict })
+	default:
+		s.update(id, func(j *Job) { j.Status, j.Dir = statusDone, dir })
 	}
 }
 
-func (s *service) update(id string, fn func(*Job)) {
+func (s *Server) update(id string, fn func(*Job)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -101,7 +143,7 @@ func (s *service) update(id string, fn func(*Job)) {
 // snapshot returns a copy of the job taken under the mutex: the worker
 // mutates job fields concurrently, encoding or reading a *Job outside the
 // lock is a data race (torn JSON in responses).
-func (s *service) snapshot(id string) (Job, bool) {
+func (s *Server) snapshot(id string) (Job, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -113,7 +155,7 @@ func (s *service) snapshot(id string) (Job, bool) {
 	return *j, true
 }
 
-func (s *service) submit(w http.ResponseWriter, r *http.Request) {
+func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Question  string   `json:"question"`
 		DOIs      []string `json:"dois"`
@@ -123,8 +165,17 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 		StopAfter string   `json:"stop_after"` // e.g. "2" — deterministic stages only
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxSubmitBytes)
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+
 		http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+
 		return
 	}
 
@@ -142,23 +193,15 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.DOIs) > 0 {
-		if err := os.MkdirAll("runs", 0o750); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		f, err := os.CreateTemp("runs", "dois-*.txt")
+		file, err := s.writeDOIList(req.DOIs)
 		if err != nil {
+			s.log.Error("saving the DOI list failed", "err", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+
 			return
 		}
 
-		for _, d := range req.DOIs {
-			_, _ = fmt.Fprintln(f, d)
-		}
-
-		_ = f.Close()
-		opts.DOIFile = f.Name()
+		opts.DOIFile = file
 	}
 
 	if opts.Question == "" {
@@ -168,23 +211,50 @@ func (s *service) submit(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.nextID++
 	id := fmt.Sprintf("%d", s.nextID)
-	job := &Job{ID: id, Status: "queued", Question: opts.Question, Topic: req.Topic}
+	job := &Job{ID: id, Status: statusQueued, Question: opts.Question, Topic: req.Topic}
 	s.jobs[id] = job
 	s.mu.Unlock()
 
 	select {
 	case s.queue <- queuedJob{job: job, opts: opts}:
 	default:
-		s.update(id, func(j *Job) { j.Status, j.Error = "failed", "queue full" })
+		s.update(id, func(j *Job) { j.Status, j.Error = statusFailed, "queue full" })
 	}
 
-	snap, _ := s.snapshot(id) // id только что записан — копия обязательна: воркер уже мог стартовать
+	// the copy is required: the worker may have started already
+	snap, _ := s.snapshot(id)
 
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(snap)
 }
 
-func (s *service) list(w http.ResponseWriter, _ *http.Request) {
+// writeDOIList stores the submitted DOIs where the pipeline reads them
+// (Options.DOIFile) and returns the file path.
+func (s *Server) writeDOIList(dois []string) (string, error) {
+	if err := os.MkdirAll(s.runsDir, 0o750); err != nil {
+		return "", fmt.Errorf("creating %s: %w", s.runsDir, err)
+	}
+
+	f, err := os.CreateTemp(s.runsDir, "dois-*.txt")
+	if err != nil {
+		return "", fmt.Errorf("creating the DOI list: %w", err)
+	}
+
+	for _, d := range dois {
+		if _, err := fmt.Fprintln(f, d); err != nil {
+			_ = f.Close()
+			return "", fmt.Errorf("writing %s: %w", f.Name(), err)
+		}
+	}
+
+	if err := f.Close(); err != nil {
+		return "", fmt.Errorf("closing %s: %w", f.Name(), err)
+	}
+
+	return f.Name(), nil
+}
+
+func (s *Server) list(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -196,7 +266,7 @@ func (s *service) list(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, out)
 }
 
-func (s *service) get(w http.ResponseWriter, r *http.Request) {
+func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.snapshot(r.PathValue("id"))
 	if !ok {
 		http.NotFound(w, r)
@@ -211,7 +281,7 @@ func (s *service) get(w http.ResponseWriter, r *http.Request) {
 var artifactWhitelist = regexp.MustCompile(
 	`^([1-4]-[a-z]+\.json|report\.md|matrix\.csv|context\.md|0-input\.txt|3b-vision\.json)$`)
 
-func (s *service) artifact(w http.ResponseWriter, r *http.Request) {
+func (s *Server) artifact(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.snapshot(r.PathValue("id"))
 	if !ok || j.Dir == "" {
 		http.NotFound(w, r)
@@ -223,13 +293,13 @@ func (s *service) artifact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "artifact not served", http.StatusForbidden)
 		return
 	}
-	//nolint:gosec // имя файла прошло белый список артефактов, каталог — внутреннее состояние сервиса
+	//nolint:gosec // the file name passed the artifact whitelist, the directory is the service's own state
 	b, err := os.ReadFile(filepath.Join(j.Dir, name))
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	//nolint:gosec // ответ — содержимое артефакта запуска с диска; имя прошло белый список
+	//nolint:gosec // the response is a run artifact read from disk; the name passed the whitelist
 	_, _ = w.Write(b)
 }
 
