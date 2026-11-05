@@ -37,8 +37,8 @@ func TestEnrichLogsSourceFailures(t *testing.T) {
 
 	require.Len(t, st.Enriched, 1)
 	assert.Equal(t, []string{
-		"openalex: openalex: HTTP 400: boom\n",
-		"crossref: crossref: HTTP 400: boom\n",
+		"openalex: HTTP 400 from openalex: boom\n",
+		"crossref: HTTP 400 from crossref: boom\n",
 	}, st.Enriched[0].Errors, "the artifact trail keeps the source error text")
 
 	out := logs.String()
