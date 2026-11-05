@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,9 @@ const (
 	defaultTimeout = 10 * time.Minute
 	// snippetChars is how much process output goes into an error message.
 	snippetChars = 300
+	// killGrace is how long Run waits for the output pipes to close after the
+	// context ended the process.
+	killGrace = 2 * time.Second
 )
 
 // ClaudeCLI is a backend over the Claude Code CLI in print mode: it spends
@@ -44,6 +48,9 @@ type ClaudeCLI struct {
 	command string
 	model   string
 	timeout time.Duration
+	// shell runs the command line; an interactive zsh sees the wrapper
+	// functions of ~/.zshrc. Tests substitute a plain sh.
+	shell []string
 }
 
 func NewClaudeCLI(command, model string, timeout time.Duration) *ClaudeCLI {
@@ -51,7 +58,10 @@ func NewClaudeCLI(command, model string, timeout time.Duration) *ClaudeCLI {
 		timeout = defaultTimeout
 	}
 
-	return &ClaudeCLI{command: cmp.Or(command, defaultCommand), model: model, timeout: timeout}
+	return &ClaudeCLI{
+		command: cmp.Or(command, defaultCommand), model: model, timeout: timeout,
+		shell: []string{"zsh", "-ic"},
+	}
 }
 
 func (c *ClaudeCLI) Name() string { return "claude-cli:" + c.command }
@@ -70,8 +80,11 @@ func (c *ClaudeCLI) Complete(
 	defer cleanup()
 
 	//nolint:gosec // the wrapper command comes from the user's trusted configuration (.env), not from outside
-	cmd := exec.CommandContext(callCtx, "zsh", "-ic", c.script(spPath))
+	cmd := exec.CommandContext(callCtx, c.shell[0], slices.Concat(c.shell[1:], []string{c.script(spPath)})...)
 	cmd.Stdin = strings.NewReader(user)
+	// The shell is killed at the timeout, but the wrapper it started may keep
+	// the output pipes open; without a grace period Run would wait for it.
+	cmd.WaitDelay = killGrace
 
 	var stdout, stderr bytes.Buffer
 

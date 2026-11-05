@@ -43,7 +43,7 @@ func TestDialogueSurvivesAFailedCall(t *testing.T) {
 
 // The history is capped on a character boundary.
 func TestDialogueCapsHistory(t *testing.T) {
-	long := strings.Repeat("ж", maxTranscriptBytes) // 2 bytes per rune
+	long := strings.Repeat("é", maxTranscriptBytes) // 2 bytes per rune
 	c := &echoCompleter{replies: []string{long, "ok"}}
 	d := NewDialogue(c, "S")
 

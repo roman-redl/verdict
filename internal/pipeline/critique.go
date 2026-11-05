@@ -185,6 +185,14 @@ func critiqueBatch(
 		return nil, usage, err
 	}
 
+	return matchCritiques(papers, out.Critiques), usage, nil
+}
+
+// matchCritiques pairs the critiques of a batch answer with the studies:
+// by DOI first, by position when the counts line up (the model garbled the
+// DOIs). The result is keyed by normalized DOI; a study without a match is
+// absent.
+func matchCritiques(papers []model.EnrichedPaper, critiques []model.Critique) map[string]model.Critique {
 	slots := make([]*model.Critique, len(papers)) // matched critique per study
 	byDOI := map[string]int{}
 
@@ -194,17 +202,17 @@ func critiqueBatch(
 		}
 	}
 
-	for i := range out.Critiques {
-		pi, ok := byDOI[model.NormalizeDOI(out.Critiques[i].DOI)]
+	for i := range critiques {
+		pi, ok := byDOI[model.NormalizeDOI(critiques[i].DOI)]
 		if ok && slots[pi] == nil {
-			slots[pi] = &out.Critiques[i]
+			slots[pi] = &critiques[i]
 		}
 	}
 
-	if len(out.Critiques) == len(papers) { // positional fallback: DOI garbled
+	if len(critiques) == len(papers) { // positional fallback: DOI garbled
 		for i := range slots {
 			if slots[i] == nil {
-				slots[i] = &out.Critiques[i]
+				slots[i] = &critiques[i]
 			}
 		}
 	}
@@ -212,16 +220,13 @@ func critiqueBatch(
 	res := map[string]model.Critique{}
 
 	for i := range papers {
-		if slots[i] == nil {
-			continue
-		}
-
-		if d := model.NormalizeDOI(papers[i].DOI); d != "" {
+		d := model.NormalizeDOI(papers[i].DOI)
+		if slots[i] != nil && d != "" {
 			res[d] = normalizeCritique(*slots[i], papers[i])
 		}
 	}
 
-	return res, usage, nil
+	return res
 }
 
 // critiqueCacheKey identifies the critique of one study for one question:

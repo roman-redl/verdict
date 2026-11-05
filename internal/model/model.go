@@ -215,12 +215,24 @@ type Report struct {
 	Warnings        []string    `json:"warnings,omitempty"`
 }
 
-// NormalizeDOI canonicalizes a DOI: lowercase, without URL prefixes.
+var doiPrefixes = [...]string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"}
+
+// NormalizeDOI canonicalizes a DOI: lowercase, trimmed, without URL or "doi:"
+// prefixes (however many are stacked). Normalizing twice changes nothing.
 func NormalizeDOI(s string) string {
 	s = strings.TrimSpace(strings.ToLower(s))
-	for _, p := range []string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"} {
-		s = strings.TrimPrefix(s, p)
-	}
 
-	return s
+	for {
+		stripped := s
+		for _, p := range doiPrefixes {
+			stripped = strings.TrimPrefix(stripped, p)
+		}
+
+		stripped = strings.TrimSpace(stripped)
+		if stripped == s {
+			return s
+		}
+
+		s = stripped
+	}
 }

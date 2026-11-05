@@ -90,6 +90,9 @@ func RenderCSV(r *model.Report) (string, error) {
 	return buf.String(), nil
 }
 
+// digestAbstractChars caps an abstract in the digest.
+const digestAbstractChars = 900
+
 // RenderContext is a compact digest of a run: everything an analyst needs to
 // answer questions about it. Written to context.md and used as the base for
 // `ask` and interactive agents.
@@ -99,87 +102,22 @@ func RenderContext(st *State) string {
 	fmt.Fprintf(&b, "Question: %s\n\n", st.Question)
 
 	if st.Report != nil {
-		r := st.Report
-		fmt.Fprintf(&b, "Verdict: %s. Consensus: %s.\n", verdictLabel(r.Verdict), consensusLabel(r.ConsensusStatus))
-
-		if r.Consensus != "" {
-			fmt.Fprintf(&b, "Field position: %s\n", r.Consensus)
-		}
-
-		if r.VerdictRationale != "" {
-			fmt.Fprintf(&b, "Rationale: %s\n", r.VerdictRationale)
-		}
-
-		if len(r.Contradictions) > 0 {
-			fmt.Fprintf(&b, "Contradictions: %s\n", strings.Join(r.Contradictions, " | "))
-		}
-
-		if len(r.Gaps) > 0 {
-			fmt.Fprintf(&b, "Gaps: %s\n", strings.Join(r.Gaps, " | "))
-		}
-
-		b.WriteString("\n")
+		writeVerdictDigest(&b, st.Report)
 	}
 
 	if t := directionTally(st.Critiques); t != "" {
 		fmt.Fprintf(&b, "Direction of direct studies: %s\n\n", t)
 	}
 
-	crits := critiquesFor(st)
-
-	if len(st.Enriched) > 0 {
+	switch {
+	case len(st.Enriched) > 0:
 		fmt.Fprintf(&b, "## Papers (%d)\n", len(st.Enriched))
 
+		crits := critiquesFor(st)
 		for i := range st.Enriched {
-			e := &st.Enriched[i]
-			sup, con, total := 0, 0, 0
-
-			if e.Tally != nil {
-				sup, con, total = e.Tally.Supporting, e.Tally.Contradicting, e.Tally.Total
-			}
-
-			quality, relevance, direction, n, concerns := "—", "—", "—", e.SampleSize, ""
-			if c := crits[i]; hasCritique(c) {
-				quality = orDash(c.DesignQuality)
-				relevance = orDash(c.Relevance)
-				direction = orDash(c.ResultDirection)
-
-				if c.SampleSizeReported > 0 {
-					n = c.SampleSizeReported
-				}
-
-				concerns = strings.Join(c.Concerns, "; ")
-			}
-
-			flag := ""
-			if e.Flags.Retracted {
-				flag = " [RETRACTED]"
-			}
-
-			if e.FullText != "" {
-				flag += " [fulltext]"
-			}
-
-			fmt.Fprintf(&b, "- %s%s — %s (%d); design: %s; N=%d; "+
-				"Scite: %d support / %d contradict (of %d citations); "+
-				"quality: %s; relevance: %s; direction: %s",
-				orDash(e.DOI), flag, e.Title, e.Year, orDash(e.StudyDesign), n, sup, con, total, quality, relevance, direction)
-
-			if concerns != "" {
-				fmt.Fprintf(&b, "; concerns: %s", concerns)
-			}
-
-			if len(e.ContradictingDOIs) > 0 {
-				fmt.Fprintf(&b, "; contradicted by: %s", strings.Join(e.ContradictingDOIs, ", "))
-			}
-
-			b.WriteString("\n")
-
-			if e.Abstract != "" {
-				fmt.Fprintf(&b, "  Abstract: %s\n", truncate(e.Abstract, 900))
-			}
+			writePaperDigest(&b, &st.Enriched[i], crits[i])
 		}
-	} else if len(st.Papers) > 0 {
+	case len(st.Papers) > 0:
 		fmt.Fprintf(&b, "## Papers (%d)\n", len(st.Papers))
 
 		for i := range st.Papers {
@@ -193,6 +131,80 @@ func RenderContext(st *State) string {
 	}
 
 	return b.String()
+}
+
+// writeVerdictDigest writes the verdict block of the digest.
+func writeVerdictDigest(b *strings.Builder, r *model.Report) {
+	fmt.Fprintf(b, "Verdict: %s. Consensus: %s.\n", verdictLabel(r.Verdict), consensusLabel(r.ConsensusStatus))
+
+	if r.Consensus != "" {
+		fmt.Fprintf(b, "Field position: %s\n", r.Consensus)
+	}
+
+	if r.VerdictRationale != "" {
+		fmt.Fprintf(b, "Rationale: %s\n", r.VerdictRationale)
+	}
+
+	if len(r.Contradictions) > 0 {
+		fmt.Fprintf(b, "Contradictions: %s\n", strings.Join(r.Contradictions, " | "))
+	}
+
+	if len(r.Gaps) > 0 {
+		fmt.Fprintf(b, "Gaps: %s\n", strings.Join(r.Gaps, " | "))
+	}
+
+	b.WriteString("\n")
+}
+
+// writePaperDigest writes one study: identity, design, citation tallies and
+// the critique, with its abstract on the next line.
+func writePaperDigest(b *strings.Builder, e *model.EnrichedPaper, c model.Critique) {
+	sup, con, total := 0, 0, 0
+
+	if e.Tally != nil {
+		sup, con, total = e.Tally.Supporting, e.Tally.Contradicting, e.Tally.Total
+	}
+
+	quality, relevance, direction, n, concerns := "—", "—", "—", e.SampleSize, ""
+	if hasCritique(c) {
+		quality = orDash(c.DesignQuality)
+		relevance = orDash(c.Relevance)
+		direction = orDash(c.ResultDirection)
+
+		if c.SampleSizeReported > 0 {
+			n = c.SampleSizeReported
+		}
+
+		concerns = strings.Join(c.Concerns, "; ")
+	}
+
+	flag := ""
+	if e.Flags.Retracted {
+		flag = " [RETRACTED]"
+	}
+
+	if e.FullText != "" {
+		flag += " [fulltext]"
+	}
+
+	fmt.Fprintf(b, "- %s%s — %s (%d); design: %s; N=%d; "+
+		"Scite: %d support / %d contradict (of %d citations); "+
+		"quality: %s; relevance: %s; direction: %s",
+		orDash(e.DOI), flag, e.Title, e.Year, orDash(e.StudyDesign), n, sup, con, total, quality, relevance, direction)
+
+	if concerns != "" {
+		fmt.Fprintf(b, "; concerns: %s", concerns)
+	}
+
+	if len(e.ContradictingDOIs) > 0 {
+		fmt.Fprintf(b, "; contradicted by: %s", strings.Join(e.ContradictingDOIs, ", "))
+	}
+
+	b.WriteString("\n")
+
+	if e.Abstract != "" {
+		fmt.Fprintf(b, "  Abstract: %s\n", truncate(e.Abstract, digestAbstractChars))
+	}
 }
 
 func verdictLabel(v string) string {

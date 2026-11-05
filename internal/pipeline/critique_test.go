@@ -17,7 +17,7 @@ import (
 func ep(doi string) model.EnrichedPaper {
 	return model.EnrichedPaper{
 		DOI: doi, Title: "Study " + doi, Year: 2023, Abstract: "A randomized trial on " + doi,
-		StudyDesign: "rct", Source: model.SourceConsensus,
+		StudyDesign: designRCT, Source: model.SourceConsensus,
 	}
 }
 

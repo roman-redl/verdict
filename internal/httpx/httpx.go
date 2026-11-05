@@ -228,10 +228,9 @@ func (c *Client) bodyError(err error) error {
 }
 
 // fatalError marks an error that a retry cannot fix.
-type fatalError struct{ err error }
+type fatalError struct{ error }
 
-func (e *fatalError) Error() string { return e.err.Error() }
-func (e *fatalError) Unwrap() error { return e.err }
+func (e *fatalError) Unwrap() error { return e.error }
 
 // retryable reports whether another attempt may succeed.
 func retryable(err error) bool {

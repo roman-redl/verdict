@@ -271,7 +271,7 @@ func TestEnrichOptionalSources(t *testing.T) {
 		key:     true,
 		tallies: func([]string) (map[string]model.CitationTally, error) { return tallies, nil },
 		contradicting: func(string) ([]string, error) {
-			return []string{"10.9/critic"}, nil
+			return []string{criticDOI}, nil
 		},
 	}
 	commentary := &fakeCommentary{key: true, note: func(doi string) (string, error) {
@@ -288,7 +288,7 @@ func TestEnrichOptionalSources(t *testing.T) {
 	require.NoError(t, p.enrich(context.Background(), params(Options{}), st))
 
 	a, b := st.Enriched[0], st.Enriched[1]
-	assert.Equal(t, []string{"10.9/critic"}, a.ContradictingDOIs)
+	assert.Equal(t, []string{criticDOI}, a.ContradictingDOIs)
 	assert.Contains(t, a.Flags.Notes, "PubPeer commentary (2 comments): https://pubpeer.com/t/1")
 	assert.Empty(t, b.ContradictingDOIs, "no drill-down for an uncontradicted paper")
 	assert.Zero(t, citations.calls.get("ContradictingSources:"+doiB))

@@ -113,7 +113,7 @@ func TestFinalStatusIsNotRetried(t *testing.T) {
 	require.True(t, ok, "want *StatusError, got %v", err)
 	assert.Equal(t, http.StatusNotFound, se.Status)
 	assert.Contains(t, se.Body, "no such paper")
-	assert.Contains(t, err.Error(), "openalex")
+	require.ErrorContains(t, err, "openalex")
 	assert.EqualValues(t, 1, calls.Load())
 }
 

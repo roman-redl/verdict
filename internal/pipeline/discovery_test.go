@@ -15,7 +15,7 @@ import (
 
 // hit is a semantic-search result.
 func hit(doi, title string) model.Paper {
-	return model.Paper{DOI: doi, Title: title, StudyDesign: "rct", Year: 2023, Source: model.SourceConsensus}
+	return model.Paper{DOI: doi, Title: title, StudyDesign: designRCT, Year: 2023, Source: model.SourceConsensus}
 }
 
 // pageOf builds a search page; end marks the end of the ranking.
@@ -53,7 +53,7 @@ func TestDiscoverConsensusWalksPagesToEnd(t *testing.T) {
 
 	for _, pp := range st.Papers {
 		assert.Equal(t, model.SourceConsensus, pp.Source, "paper mapping")
-		assert.Equal(t, "rct", pp.StudyDesign, "paper mapping")
+		assert.Equal(t, designRCT, pp.StudyDesign, "paper mapping")
 	}
 }
 

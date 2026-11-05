@@ -1,6 +1,6 @@
 version: "2"
-# Config of the shared personal Go projects standard (same as erudit-bot).
-# Source of the rules: the «Стандарт личных Go-проектов» note in the private notes vault.
+# Config of the shared personal Go-projects standard (same as erudit-bot).
+# The rules come from the "Go projects standard" note of the private notes vault.
 formatters:
   enable: [goimports, gofumpt]
   settings:
@@ -9,54 +9,76 @@ formatters:
 linters:
   default: standard            # errcheck, govet, ineffassign, staticcheck, unused
   enable:
-    - gocritic                 # diagnostic + style + performance, see settings below
-    - errorlint                # errors.Is/As and %w instead of == and %v
-    - gosec                    # security: weak randomness, file permissions, tainted input
-    - nilerr                   # return nil when err != nil
-    - nilnil                   # return nil, nil — "success" without a value
-    - noctx                    # HTTP requests without context
-    - contextcheck             # lost ctx: a ctx-aware call chains into context.Background/TODO
-    - bodyclose                # unclosed resp.Body
-    - unparam                  # unused/always-identical parameters — noise removal
-    - goconst                  # repeated strings → constants
+    - gocritic
+    - errorlint
+    - gosec
+    - nilerr
+    - nilnil
+    - noctx
+    - contextcheck
+    - bodyclose
+    - unparam
+    - goconst
     - prealloc
-    - errname                  # sentinel errors ErrFoo, types FooError
-    - usestdlibvars            # http.StatusOK instead of 200
-    - nolintlint               # //nolint only explicit and explained — no silent silencing
-    - recvcheck                # receiver consistency (value vs pointer)
-    - modernize                # modern Go (ranges, min/max, slices.*)
+    - errname
+    - usestdlibvars
+    - nolintlint
+    - recvcheck
+    - modernize
     - misspell
     - unconvert
     - whitespace
     - nakedret
-    - predeclared              # shadowing built-in identifiers
+    - predeclared
     - copyloopvar
     - intrange
-    - maintidx                 # function complexity
-    - lll                      # line length
-    - wsl_v5  # blank lines between logical blocks (wsl v4 deprecated)
-    - depguard                 # import bans between layers (architecture enforced by linter)
-    - wrapcheck                # errors from external packages get wrapped with context
-    - revive                   # naming, doc comments, early returns
-    - exhaustive               # switch over enum covers all values
-    - testifylint              # tidy testify asserts (for new tests)
+    - maintidx
+    - funlen
+    - gocognit
+    - lll
+    - wsl_v5
+    - depguard
+    - wrapcheck
+    - revive
+    - exhaustive
+    - testifylint
+    - forbidigo
   settings:
     gocritic:
       enabled-tags: [diagnostic, style, performance]
       disabled-checks:
         - hugeParam
     maintidx:
-      under: 15                # minimum allowed maintainability index
+      under: 15
+    # a function longer than 80 lines or 50 statements is split by meaning
+    funlen:
+      lines: 80
+      statements: 50
+    gocognit:
+      min-complexity: 20
+    # lll: line length is the default 120 (lll has no settings in v2.13.2)
+    wsl_v5:
+      # blank lines between logical blocks; the settings are the recommended
+      # migration (the linter's own hint when moving off wsl v4)
+      allow-first-in-block: true
+      allow-whole-block: false
+      branch-max-lines: 2
     nolintlint:
       require-explanation: true
       require-specific: true
     exhaustive:
-      default-signifies-exhaustive: true
-    wsl_v5:
-      # recommended migration from wsl v4 (the linter's own hint)
-      allow-first-in-block: true
-      allow-whole-block: false
-      branch-max-lines: 2
+      # a switch over an enumeration lists every value; default does not
+      # replace them and logs the impossible state
+      default-signifies-exhaustive: false
+    forbidigo:
+      # analyze-types: fires only on values of type error (checked on
+      # v2.13.2), own types with an Error() method are not touched. The own
+      # forbid list replaces the built-in fmt.Print* ban: printing a CLI
+      # result to stdout is allowed
+      analyze-types: true
+      forbid:
+        - pattern: '^error\.Error$'
+          msg: "err.Error() — only at an output boundary; inside the code use %w"
     revive:
       rules:
         - name: exported
@@ -64,11 +86,12 @@ linters:
         - name: package-comments
           disabled: true
     wrapcheck:
-      # wrapcheck requires context on errors returned from external packages
+      # wrapcheck requires context on errors from external packages
       # (database/sql, net/http, SDKs). ignore-sigs are the wrapping helpers
-      # themselves (Errorf, Wrap, ...) — a wrap is not wrapped again; this is
+      # themselves (Errorf, Wrap, ...): a wrap is not wrapped again; this is
       # wrapcheck's default list, spelled out explicitly. ignore-sig-regexps
-      # exempts own internal ports: their adapters already add context.
+      # are the own internal ports: their adapters already added context, a
+      # repeat on every layer is noise.
       ignore-sigs:
         - .Errorf(
         - errors.New(
@@ -82,15 +105,42 @@ linters:
         - roman-redl/[^)]*/internal/
     depguard:
       rules:
+        # general rule: only cmd/* reads the config, adapters receive plain
+        # values (checked on v2.13.2: tests of the config package itself are
+        # not affected)
+        config-only-in-cmd:
+          files: ["$all", "!**/cmd/**", "!**/internal/config/**"]
+          deny:
+            - pkg: github.com/roman-redl/verdict/internal/config
+              desc: "the config is read only by cmd/*; adapters get plain values"
         # the SQLite driver is allowed only in the run index package
         sqlite-in-db:
           files: ["**/internal/**"]
           deny:
             - pkg: "modernc.org/sqlite"
               desc: "the SQLite driver belongs to internal/db only"
+        # the pipeline is the domain: it reaches databases, the network and
+        # other processes only through its ports. It writes the run artifacts
+        # to disk itself, so `os` stays allowed here (no file-store port).
+        pipeline-pure:
+          files: ["**/internal/pipeline/**", "!$test"]
+          deny:
+            - pkg: modernc.org/sqlite
+              desc: "the pipeline does not touch a database driver; the run index is cmd's business"
+            - pkg: database/sql
+              desc: "the pipeline does not touch a database; persistence goes through ports"
+            - pkg: net/http
+              desc: "the pipeline reaches the network only through its ports"
+            - pkg: os/exec
+              desc: "the pipeline starts no processes; the LLM backends do that"
+            - pkg: github.com/roman-redl/verdict/internal/httpx
+              desc: "HTTP belongs to the adapters"
   exclusions:
     paths: ["vendor/"]
     rules:
+      # table tests are long by nature — function length is not measured in tests
+      - linters: [funlen]
+        path: _test\.go
       # internal/db — the only internal package allowed to use the DB driver
       - linters: [depguard]
         path: ^internal/db/

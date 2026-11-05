@@ -65,10 +65,14 @@ func (c *CostReport) Markdown() string {
 
 	var parts []string
 
-	for name, s := range map[string]*StageCost{"critique": c.Critique, "synthesis": c.Synthesis} {
-		if s != nil && (s.Calls > 0 || s.InputTokens > 0 || s.OutputTokens > 0) {
+	// a fixed order: the footer must not change between renders of one state
+	for _, stage := range []struct {
+		name string
+		cost *StageCost
+	}{{"critique", c.Critique}, {"synthesis", c.Synthesis}} {
+		if s := stage.cost; s != nil && (s.Calls > 0 || s.InputTokens > 0 || s.OutputTokens > 0) {
 			parts = append(parts, fmt.Sprintf("%s: %d calls, %d in / %d out tokens",
-				name, s.Calls, s.InputTokens, s.OutputTokens))
+				stage.name, s.Calls, s.InputTokens, s.OutputTokens))
 		}
 	}
 

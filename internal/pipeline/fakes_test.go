@@ -12,6 +12,12 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
+// Values shared by the tests of this package.
+const (
+	designRCT = "rct"
+	criticDOI = "10.9/critic"
+)
+
 // counter counts calls by key; safe for the parallel stage workers.
 type counter struct {
 	mu sync.Mutex
