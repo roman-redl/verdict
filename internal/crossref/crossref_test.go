@@ -61,3 +61,20 @@ func TestUpdatesUnknownDOI(t *testing.T) {
 
 	require.Empty(t, ups)
 }
+
+// Any other failure is an error, and the polite-pool address travels as a
+// properly encoded query value.
+func TestUpdatesFailureAndMailto(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "me+x@example.org", r.URL.Query().Get("mailto"))
+		http.Error(w, "nope", http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	_, err := NewWithBase(srv.URL, "me+x@example.org").Updates(context.Background(), "10.1/x")
+	require.ErrorContains(t, err, "400")
+}
+
+func TestNewPointsAtTheRealAPI(t *testing.T) {
+	assert.Equal(t, "https://api.crossref.org", New("").base)
+}

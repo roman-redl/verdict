@@ -1,0 +1,4 @@
+doi,title,year,design,sample_size,supporting,contradicting,total_citations,direction,design_quality,relevance,note
+10.1000/a,Creatine and memory: a randomized trial,2021,rct,118,12,3,40,positive,high,direct,"the pivotal trial, short follow-up"
+10.1000/b,A very long title that has to be shortened because tables break on long cells | and pipes,2018,cohort,0,0,0,7,null,low,indirect,retracted
+,"Creatine in the elderly, a title with a comma",2023,,0,0,0,0,mixed,moderate,direct,
