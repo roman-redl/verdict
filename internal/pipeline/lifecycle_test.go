@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,30 +11,35 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/roman-redl/verdict/internal/openalex"
 )
+
+// doiList writes a DOI list file and returns its path.
+func doiList(t *testing.T, dois ...string) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "dois.txt")
+
+	var buf bytes.Buffer
+	for _, d := range dois {
+		buf.WriteString(d + "\n")
+	}
+
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0o600))
+
+	return path
+}
 
 // A canceled context (a shutdown signal) makes every source fail without
 // failing the stage; the half-filled state must not be saved as a finished
 // stage, or --resume would skip it.
 func TestRunInterruptedDoesNotSaveStageArtifact(t *testing.T) {
-	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer oa.Close()
-
-	dir := t.TempDir()
-	list := filepath.Join(dir, "dois.txt")
-	require.NoError(t, os.WriteFile(list, []byte("10.1000/a\n10.1000/b\n"), 0o600))
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	p := New(Settings{Concurrency: 2}, Clients{OpenAlex: openalex.NewWithBase(oa.URL, "")}, quietLog())
+	p := New(Settings{Concurrency: 2}, Clients{Works: &fakeWorks{}}, quietLog())
 
-	runDir := filepath.Join(dir, "run")
-	_, _, err := p.Run(ctx, Options{DOIFile: list, RunDir: runDir})
+	runDir := filepath.Join(t.TempDir(), "run")
+	_, _, err := p.Run(ctx, Options{DOIFile: doiList(t, "10.1000/a", "10.1000/b"), RunDir: runDir})
 
 	require.ErrorIs(t, err, context.Canceled)
 	assert.NoFileExists(t, filepath.Join(runDir, "1-discovery.json"))
@@ -45,19 +48,13 @@ func TestRunInterruptedDoesNotSaveStageArtifact(t *testing.T) {
 // The run directory is a parameter of the run, not state of the instance: one
 // Pipeline serves several runs, each writing into its own directory.
 func TestOnePipelineServesTwoRuns(t *testing.T) {
-	oa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer oa.Close()
+	p := New(Settings{Concurrency: 1}, Clients{Works: &fakeWorks{}}, quietLog())
+	list := doiList(t, "10.1000/a")
 
-	dir := t.TempDir()
-	list := filepath.Join(dir, "dois.txt")
-	require.NoError(t, os.WriteFile(list, []byte("10.1000/a\n"), 0o600))
-
-	p := New(Settings{Concurrency: 1}, Clients{OpenAlex: openalex.NewWithBase(oa.URL, "")}, quietLog())
+	base := t.TempDir()
 
 	for i := range 2 {
-		runDir := filepath.Join(dir, "run-"+strconv.Itoa(i))
+		runDir := filepath.Join(base, "run-"+strconv.Itoa(i))
 
 		_, got, err := p.Run(t.Context(), Options{DOIFile: list, RunDir: runDir, StopAfter: "1"})
 		require.NoError(t, err)

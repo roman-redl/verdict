@@ -2,8 +2,7 @@ package pipeline
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,67 +14,98 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
-func TestFetchFullText(t *testing.T) {
-	restore := pdfTextExtractor
-	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
-		assert.True(t, strings.HasPrefix(string(b), "%PDF-"), "extractor called on non-PDF body")
-
-		return "METHODS We randomized 240 patients. RESULTS No effect.", nil
-	}
-
-	defer func() { pdfTextExtractor = restore }()
-
-	pdfSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "landing") {
-			_, _ = w.Write([]byte("<html>not a pdf</html>"))
-			return
+// pdfServer serves "%PDF" bytes for every URL except the landing page.
+func pdfServer() *fakePDFs {
+	return &fakePDFs{fetch: func(url string) ([]byte, error) {
+		if strings.Contains(url, "landing") {
+			return []byte("<html>not a pdf</html>"), nil
 		}
 
-		_, _ = w.Write([]byte("%PDF-1.4 fake-but-sniffable"))
-	}))
-	defer pdfSrv.Close()
+		return []byte("%PDF-1.4 fake-but-sniffable"), nil
+	}}
+}
 
+func TestFetchFullText(t *testing.T) {
 	runDir := t.TempDir()
-	p := New(Settings{Concurrency: 4}, Clients{}, quietLog())
+	pdfs := pdfServer()
+	p := New(Settings{Concurrency: 4}, Clients{
+		PDFs:    pdfs,
+		PDFText: fakePDFText{text: "METHODS We randomized 240 patients. RESULTS No effect."},
+	}, quietLog())
 
-	ok := &model.EnrichedPaper{DOI: "10.1000/a", OALink: pdfSrv.URL + "/a.pdf"}
+	ok := &model.EnrichedPaper{DOI: listDOIA, OALink: oaPDFA}
 	txt := p.fetchFullText(context.Background(), runDir, ok, true)
 	require.NotEmpty(t, txt)
 	require.Contains(t, txt, "240 patients")
 
 	require.Empty(t, ok.FullText, "fetchFullText must not mutate FullText itself") // the caller (enrich) assigns the field
 
-	pdfPath := filepath.Join(runDir, "fulltext", "10.1000_a.pdf")
-	_, err := os.Stat(pdfPath)
-	require.NoError(t, err, "PDF not saved for the vision stage")
+	require.FileExists(t, filepath.Join(runDir, "fulltext", "10.1000_a.pdf"), "PDF not saved for the vision stage")
 
-	landing := &model.EnrichedPaper{DOI: "10.1000/b", OALink: pdfSrv.URL + "/landing"}
+	landing := &model.EnrichedPaper{DOI: listDOIB, OALink: "https://oa.test/landing"}
 	landingTxt := p.fetchFullText(context.Background(), runDir, landing, true)
 	require.Empty(t, landingTxt, "landing page must yield no text")
 
 	require.NotEmpty(t, landing.Errors, "non-PDF link must be recorded as an error")
+	assert.NoFileExists(t, filepath.Join(runDir, "fulltext", "10.1000_b.pdf"))
 }
 
-// The real extractor against a minimal handcrafted PDF.
-func TestPdfTextReal(t *testing.T) {
-	restore := pdfTextExtractor
-	pdfTextExtractor = pdfText // the production path
+// Without the download permission an OA link is not followed.
+func TestFetchFullTextNoDownloadWhenNotAllowed(t *testing.T) {
+	pdfs := pdfServer()
+	p := New(Settings{}, Clients{PDFs: pdfs, PDFText: fakePDFText{text: "x"}}, quietLog())
 
-	defer func() { pdfTextExtractor = restore }()
+	e := &model.EnrichedPaper{DOI: listDOIA, OALink: oaPDFA}
 
-	minimal := "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" +
-		"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
-		"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n" +
-		"4 0 obj<</Length 60>>stream\nBT /F1 12 Tf 72 720 Td (Hello fulltext) Tj ET\nendstream endobj\n" +
-		"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n" +
-		"trailer<</Root 1 0 R>>\n%%EOF"
+	assert.Empty(t, p.fetchFullText(context.Background(), t.TempDir(), e, false))
+	assert.Zero(t, pdfs.calls.total())
+	assert.Empty(t, e.Errors)
+}
 
-	text, err := pdfText([]byte(minimal), 1000)
-	if err != nil {
-		t.Skipf("minimal fixture not parseable by the lib: %v", err)
+// Download and extraction failures are recorded on the paper, not raised.
+func TestFetchFullTextFailuresAreRecorded(t *testing.T) {
+	tests := []struct {
+		name    string
+		pdfs    PDFSource
+		pdftext PDFText
+		want    string
+	}{
+		{
+			name:    "download fails",
+			pdfs:    &fakePDFs{fetch: func(string) ([]byte, error) { return nil, errors.New("HTTP 403") }},
+			pdftext: fakePDFText{text: "x"},
+			want:    "HTTP 403",
+		},
+		{
+			name:    "extraction fails",
+			pdfs:    pdfServer(),
+			pdftext: fakePDFText{err: errors.New("corrupt xref")},
+			want:    "text extraction failed: corrupt xref",
+		},
+		{
+			name:    "no text in the PDF",
+			pdfs:    pdfServer(),
+			pdftext: fakePDFText{text: ""},
+			want:    "no extractable text",
+		},
+		{
+			name: "no extractor wired",
+			pdfs: pdfServer(),
+			want: "no PDF text extractor",
+		},
 	}
 
-	require.Contains(t, text, "Hello fulltext")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := New(Settings{}, Clients{PDFs: tt.pdfs, PDFText: tt.pdftext}, quietLog())
+			e := &model.EnrichedPaper{DOI: listDOIA, OALink: oaPDFA}
+
+			assert.Empty(t, p.fetchFullText(context.Background(), t.TempDir(), e, true))
+			require.Len(t, e.Errors, 1)
+			assert.Contains(t, e.Errors[0], "fulltext: ")
+			assert.Contains(t, e.Errors[0], tt.want)
+		})
+	}
 }
 
 // The agent-written chart critique slots into synthesis as data; a broken
@@ -108,15 +138,12 @@ func TestLoadVisionNotes(t *testing.T) {
 // A PDF pre-placed by the user wins over download, works without the
 // --fulltext flag and without an OA link (the paywall workaround).
 func TestFetchFullTextPreplaced(t *testing.T) {
-	restore := pdfTextExtractor
-	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
-		return "USER-SUPPLIED full text of a paywalled paper", nil
-	}
-
-	defer func() { pdfTextExtractor = restore }()
-
 	runDir := t.TempDir()
-	p := New(Settings{Concurrency: 4}, Clients{}, quietLog())
+	pdfs := pdfServer()
+	p := New(Settings{Concurrency: 4}, Clients{
+		PDFs:    pdfs,
+		PDFText: fakePDFText{text: "USER-SUPPLIED full text of a paywalled paper"},
+	}, quietLog())
 
 	require.NoError(t, os.MkdirAll(filepath.Join(runDir, "fulltext"), 0o750))
 
@@ -128,18 +155,17 @@ func TestFetchFullTextPreplaced(t *testing.T) {
 	require.Equal(t, "USER-SUPPLIED full text of a paywalled paper", txt, "pre-placed PDF not used")
 
 	require.Empty(t, noLink.Errors, "pre-placed path must not error")
+	require.Zero(t, pdfs.calls.total(), "the user's file wins over any download")
 }
 
 // PDFDOIs reads the paper's identity out of a user-supplied file.
 func TestPDFDOIs(t *testing.T) {
-	restore := pdfTextExtractor
-	pdfTextExtractor = func(_ []byte, _ int) (string, error) {
-		return "JAMA Dermatol. doi:10.1001/jamadermatol.2020.0218 Published online.", nil
-	}
+	x := fakePDFText{text: "JAMA Dermatol. doi:10.1001/jamadermatol.2020.0218 Published online."}
 
-	defer func() { pdfTextExtractor = restore }()
+	dois, err := PDFDOIs(x, []byte("%PDF-1.4 whatever"))
+	require.NoError(t, err)
+	require.Equal(t, []string{"10.1001/jamadermatol.2020.0218"}, dois)
 
-	dois := PDFDOIs([]byte("%PDF-1.4 whatever"))
-	require.Len(t, dois, 1)
-	require.Equal(t, "10.1001/jamadermatol.2020.0218", dois[0])
+	_, err = PDFDOIs(fakePDFText{err: errors.New("corrupt")}, []byte("%PDF"))
+	require.ErrorContains(t, err, "corrupt")
 }

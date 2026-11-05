@@ -1,11 +1,4 @@
-// Package llm provides pluggable LLM backends for the pipeline's analytical
-// stages. The same prompt contract runs over three backend types:
-//   - ClaudeCLI    — reuses existing Claude Code subscriptions (wrappers
-//     from ~/.zshrc), no separate tokens to buy;
-//   - Anthropic    — direct Messages API (personal keys, for the future);
-//   - OpenAICompat — any /chat/completions endpoint (OpenRouter, DeepSeek,
-//     vLLM, ...) — the migration path to cheap personal subscriptions.
-package llm
+package pipeline
 
 import (
 	"context"
@@ -14,8 +7,9 @@ import (
 	"strings"
 )
 
-// Options are call parameters; a backend without the matching knob ignores them.
-type Options struct {
+// CompleteOptions are call parameters; a backend without the matching knob
+// ignores them.
+type CompleteOptions struct {
 	MaxTokens int
 }
 
@@ -39,13 +33,17 @@ func (u Usage) Add(o Usage) Usage {
 	}
 }
 
-// Completer is the common backend contract.
+// Completer is the LLM port: one stateless model call. The backends live in
+// internal/llm.
 type Completer interface {
 	Name() string
-	Complete(ctx context.Context, system, user string, opts Options) (string, Usage, error)
+	Complete(ctx context.Context, system, user string, opts CompleteOptions) (string, Usage, error)
 }
 
 const jsonInstruct = "\n\nRespond with a single valid JSON object and nothing else."
+
+// retryJSONEchoChars caps how much of a broken answer is quoted back.
+const retryJSONEchoChars = 4000
 
 // AskJSON is Complete with a hard JSON requirement; when the answer is not
 // valid JSON (wrapped in a markdown fence or broken syntax), it retries once.
@@ -53,11 +51,11 @@ const jsonInstruct = "\n\nRespond with a single valid JSON object and nothing el
 // backends are stateless, so a bare "fix your previous reply" reaches a model
 // that has never seen it.
 func AskJSON(ctx context.Context, c Completer, system, user string, out any, maxTokens int) (Usage, error) {
-	opts := Options{MaxTokens: maxTokens}
+	opts := CompleteOptions{MaxTokens: maxTokens}
 
 	text, usage, err := c.Complete(ctx, system, user+jsonInstruct, opts)
 	if err != nil {
-		return usage, err
+		return usage, fmt.Errorf("calling %s: %w", c.Name(), err)
 	}
 
 	if err := json.Unmarshal(stripFences(text), out); err == nil {
@@ -65,17 +63,17 @@ func AskJSON(ctx context.Context, c Completer, system, user string, out any, max
 	}
 
 	retry := user + jsonInstruct +
-		"\n\nYour previous answer was not valid JSON:\n" + capText(text, 4000) +
+		"\n\nYour previous answer was not valid JSON:\n" + capText(text, retryJSONEchoChars) +
 		"\n\nReturn ONLY the corrected JSON object, nothing else."
 	text, u2, err := c.Complete(ctx, system, retry, opts)
 	usage = usage.Add(u2)
 
 	if err != nil {
-		return usage, err
+		return usage, fmt.Errorf("calling %s: %w", c.Name(), err)
 	}
 
 	if err := json.Unmarshal(stripFences(text), out); err != nil {
-		return usage, fmt.Errorf("%s: invalid JSON after retry: %w", c.Name(), err)
+		return usage, fmt.Errorf("%s answered with invalid JSON after a retry: %w", c.Name(), err)
 	}
 
 	return usage, nil

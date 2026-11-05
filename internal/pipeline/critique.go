@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -128,8 +127,8 @@ func normalizeCritique(c model.Critique, e model.EnrichedPaper) model.Critique {
 // third value for the caller to log. The second return is the call's token
 // usage (zeroed when the backend reports none).
 func critiquePaper(
-	ctx context.Context, client llm.Completer, e model.EnrichedPaper, question string,
-) (model.Critique, llm.Usage, error) {
+	ctx context.Context, client Completer, e model.EnrichedPaper, question string,
+) (model.Critique, Usage, error) {
 	c := blankCritique(e)
 
 	b, err := json.Marshal(critiqueInput(e, question))
@@ -137,12 +136,12 @@ func critiquePaper(
 		err = fmt.Errorf("encoding study %s: %w", e.DOI, err)
 		c.Error = persistedErr(err)
 
-		return c, llm.Usage{}, err
+		return c, Usage{}, err
 	}
 
 	var out model.Critique
 
-	usage, err := llm.AskJSON(ctx, client, critiqueSystemPrompt, "Assess this study:\n\n"+string(b), &out, 2000)
+	usage, err := AskJSON(ctx, client, critiqueSystemPrompt, "Assess this study:\n\n"+string(b), &out, 2000)
 	if err != nil {
 		c.Error = persistedErr(err)
 		return c, usage, err
@@ -157,8 +156,8 @@ func critiquePaper(
 // caller falls back to single calls for them. A total call failure returns a
 // nil map and the error — every study of the chunk then falls back.
 func critiqueBatch(
-	ctx context.Context, client llm.Completer, papers []model.EnrichedPaper, question string,
-) (map[string]model.Critique, llm.Usage, error) {
+	ctx context.Context, client Completer, papers []model.EnrichedPaper, question string,
+) (map[string]model.Critique, Usage, error) {
 	type payload struct {
 		Question string           `json:"question"`
 		Studies  []map[string]any `json:"studies"`
@@ -171,7 +170,7 @@ func critiqueBatch(
 
 	b, err := json.Marshal(p)
 	if err != nil {
-		return nil, llm.Usage{}, fmt.Errorf("encoding the studies: %w", err)
+		return nil, Usage{}, fmt.Errorf("encoding the studies: %w", err)
 	}
 
 	var out struct {
@@ -180,7 +179,7 @@ func critiqueBatch(
 
 	maxTokens := 1000 + 500*len(papers)
 
-	usage, err := llm.AskJSON(ctx, client, batchCritiqueSystemPrompt,
+	usage, err := AskJSON(ctx, client, batchCritiqueSystemPrompt,
 		"Assess each study independently:\n\n"+string(b), &out, maxTokens)
 	if err != nil {
 		return nil, usage, err

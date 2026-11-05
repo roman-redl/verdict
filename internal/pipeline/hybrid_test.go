@@ -3,8 +3,6 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,17 +100,7 @@ func TestPivotalStudies(t *testing.T) {
 // The deepening pass fetches full texts for the pivotal studies only,
 // re-critiques the changed corpus, re-synthesizes, and accumulates the cost.
 func TestHybridDeepen(t *testing.T) {
-	restore := pdfTextExtractor
-	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
-		return "FULL TEXT METHODS AND RESULTS", nil
-	}
-
-	defer func() { pdfTextExtractor = restore }()
-
-	pdfSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("%PDF-1.4 fake"))
-	}))
-	defer pdfSrv.Close()
+	pdfs := &fakePDFs{fetch: func(string) ([]byte, error) { return []byte("%PDF-1.4 fake"), nil }}
 
 	tmp := t.TempDir()
 
@@ -120,9 +108,9 @@ func TestHybridDeepen(t *testing.T) {
 	require.NoError(t, os.MkdirAll(runDir, 0o750))
 
 	a := ep(doiA) // direct, high — pivotal, OA link serves a PDF
-	a.OALink = pdfSrv.URL + "/a.pdf"
+	a.OALink = oaPDFA
 	b := ep(doiB) // indirect — never fetched even though it has a link
-	b.OALink = pdfSrv.URL + "/b.pdf"
+	b.OALink = "https://oa.test/b.pdf"
 
 	batch := `{"critiques":[` +
 		`{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"},` +
@@ -132,7 +120,7 @@ func TestHybridDeepen(t *testing.T) {
 	s := &scriptCompleter{replies: []string{batch, synthesis}}
 
 	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d, HybridPivotalMax: 2},
-		Clients{LLM: s}, quietLog())
+		Clients{LLM: s, PDFs: pdfs, PDFText: fakePDFText{text: "FULL TEXT METHODS AND RESULTS"}}, quietLog())
 	st := &State{
 		Question: "q?", Enriched: []model.EnrichedPaper{a, b},
 		Critiques: []model.Critique{
@@ -147,6 +135,7 @@ func TestHybridDeepen(t *testing.T) {
 	assert.NotEmpty(t, st.Enriched[0].FullText, "pivotal study must have its full text")
 
 	assert.Empty(t, st.Enriched[1].FullText, "non-pivotal study must stay on abstracts")
+	assert.Equal(t, 1, pdfs.calls.total(), "only the pivotal study's PDF is downloaded")
 
 	assert.Contains(t, s.prompts[0], "FULL TEXT METHODS", "the re-critique prompt must carry the fetched full text")
 

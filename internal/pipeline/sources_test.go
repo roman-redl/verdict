@@ -3,42 +3,38 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/model"
-	"github.com/roman-redl/verdict/internal/openalex"
 )
 
 // A failing source must be visible in the live log with the full error, not
 // only in the Errors list of the JSON artifact.
 func TestEnrichLogsSourceFailures(t *testing.T) {
-	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "boom", http.StatusBadRequest) // 4xx: no retries, the test stays fast
-	}))
-	defer failing.Close()
+	works := &fakeWorks{byDOI: func(string) (*model.Work, error) {
+		return nil, errors.New("HTTP 400 from openalex: boom")
+	}}
+	notices := &fakeNotices{updates: func(string) ([]model.Notice, error) {
+		return nil, errors.New("HTTP 400 from crossref: boom")
+	}}
 
 	var logs bytes.Buffer
 
 	log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	p := New(Settings{Concurrency: 1}, Clients{
-		OpenAlex: openalex.NewWithBase(failing.URL, ""),
-		Crossref: crossref.NewWithBase(failing.URL, ""),
-	}, log)
+	p := New(Settings{Concurrency: 1}, Clients{Works: works, Notices: notices}, log)
 
 	st := &State{Papers: []model.Paper{{DOI: "10.1/fail", Source: sourceManual}}}
 	require.NoError(t, p.enrich(context.Background(), params(Options{}), st))
 
 	require.Len(t, st.Enriched, 1)
 	assert.Equal(t, []string{
-		"openalex: HTTP 400 from openalex: boom\n",
-		"crossref: HTTP 400 from crossref: boom\n",
+		"openalex: HTTP 400 from openalex: boom",
+		"crossref: HTTP 400 from crossref: boom",
 	}, st.Enriched[0].Errors, "the artifact trail keeps the source error text")
 
 	out := logs.String()

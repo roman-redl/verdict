@@ -11,12 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The anonymous API is verified live: batch POST works keyless, unknown
-// DOIs arrive as null entries in their position.
-func TestBatch(t *testing.T) {
+// One batched POST; the API answers index-aligned, unknown DOIs arrive as
+// null entries in their position and are absent from the result.
+func TestLookup(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "/paper/batch", r.URL.Path)
+		assert.Contains(t, r.URL.Query().Get("fields"), "influentialCitationCount")
+		assert.Equal(t, "k", r.Header.Get("x-api-key"))
 
 		var body struct {
 			IDs []string `json:"ids"`
@@ -37,25 +39,50 @@ func TestBatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewWithBase(srv.URL, "")
+	c := NewWithBase(srv.URL, "k")
 
-	papers, err := c.Batch(context.Background(), []string{"10.1/a", "10.1/void"})
+	got, err := c.Lookup(context.Background(), []string{"10.1/a", "10.1/void"})
 	require.NoError(t, err)
 
-	require.Len(t, papers, 2)
-	require.Nil(t, papers[1])
+	require.Len(t, got, 1)
+	require.NotContains(t, got, "10.1/void")
 
-	a := papers[0]
-	require.Equal(t, "Study A", a.Title)
-	require.Equal(t, "A one-liner", a.TLDRText())
+	a := got["10.1/a"]
+	require.Equal(t, "abs", a.Abstract)
+	require.Equal(t, "A one-liner", a.TLDR)
 	require.Equal(t, 3, a.InfluentialCitations)
-	require.Equal(t, "https://x/a.pdf", a.OpenAccessPDF.URL)
+	require.Equal(t, "https://x/a.pdf", a.OAPDF)
 }
 
-func TestBatchEmpty(t *testing.T) {
+// A paper without a TLDR or an open-access PDF maps to empty fields.
+func TestLookupSparseRecord(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"externalIds":{"DOI":"10.1/b"},"title":"B","tldr":null,"openAccessPdf":null}]`))
+	}))
+	defer srv.Close()
+
+	got, err := NewWithBase(srv.URL, "").Lookup(context.Background(), []string{"10.1/B"})
+	require.NoError(t, err)
+
+	require.Contains(t, got, "10.1/b", "keys are normalized DOIs")
+	require.Empty(t, got["10.1/b"].TLDR)
+	require.Empty(t, got["10.1/b"].OAPDF)
+}
+
+func TestLookupFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "bad", http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	_, err := NewWithBase(srv.URL, "").Lookup(context.Background(), []string{"10.1/a"})
+	require.Error(t, err)
+}
+
+func TestLookupEmpty(t *testing.T) {
 	c := New("")
 
-	papers, err := c.Batch(context.Background(), nil)
+	got, err := c.Lookup(context.Background(), nil)
 	require.NoError(t, err, "empty batch")
-	require.Nil(t, papers)
+	require.Empty(t, got)
 }

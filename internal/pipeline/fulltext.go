@@ -10,9 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	pdf "github.com/ledongthuc/pdf"
-
-	"github.com/roman-redl/verdict/internal/httpx"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -21,40 +18,9 @@ import (
 const (
 	pdfMaxBytes      = 20 << 20 // 20 MB
 	fullTextMaxChars = 20000
+	// pdfDOIChars is how much of a PDF is scanned for its own DOI.
+	pdfDOIChars = 20000
 )
-
-// pdfTextExtractor is the PDF → text hook; tests stub it.
-var pdfTextExtractor = pdfText
-
-// pdfText pulls plain text out of a PDF via the pure-Go parser.
-func pdfText(b []byte, maxChars int) (string, error) {
-	r, err := pdf.NewReader(bytes.NewReader(b), int64(len(b)))
-	if err != nil {
-		return "", fmt.Errorf("opening the PDF: %w", err)
-	}
-
-	var sb strings.Builder
-	for i := 1; i <= r.NumPage() && sb.Len() < maxChars; i++ {
-		page := r.Page(i)
-		if page.V.IsNull() {
-			continue
-		}
-
-		text, err := page.GetPlainText(nil)
-		if err != nil {
-			continue // one unreadable page does not sink the document
-		}
-
-		sb.WriteString(text)
-	}
-
-	out := sb.String()
-	if len(out) > maxChars {
-		out = out[:maxChars]
-	}
-
-	return strings.TrimSpace(out), nil
-}
 
 // fullTextPath is where a paper's PDF lives inside the run directory:
 // <dir>/fulltext/<doi with '/' as '_'>.pdf. The user can drop a file there
@@ -96,7 +62,12 @@ func (p *Pipeline) fetchFullText(ctx context.Context, dir string, e *model.Enric
 		return ""
 	}
 
-	text, err := pdfTextExtractor(body, fullTextMaxChars)
+	if p.clients.PDFText == nil {
+		p.sourceFailed(e, "fulltext", errors.New("no PDF text extractor is configured"))
+		return ""
+	}
+
+	text, err := p.clients.PDFText.Text(body, fullTextMaxChars)
 
 	switch {
 	case err != nil:
@@ -125,11 +96,11 @@ func (p *Pipeline) loadPDF(ctx context.Context, path string, e *model.EnrichedPa
 		return nil, false
 	}
 
-	if !download || e.OALink == "" {
+	if !download || e.OALink == "" || p.clients.PDFs == nil {
 		return nil, false
 	}
 
-	b, err = httpx.New("pdf", 2).Get(ctx, e.OALink, pdfMaxBytes)
+	b, err = p.clients.PDFs.Fetch(ctx, e.OALink, pdfMaxBytes)
 	if err != nil {
 		p.sourceFailed(e, "fulltext", err)
 		return nil, false
@@ -182,13 +153,13 @@ func (p *Pipeline) pickupFullTexts(ctx context.Context, dir string, st *State) {
 
 // PDFDOIs extracts the DOIs mentioned in a PDF (the leading pages carry
 // the paper's own DOI) — the identity of a user-supplied file.
-func PDFDOIs(b []byte) []string {
-	text, err := pdfTextExtractor(b, 20000)
+func PDFDOIs(x PDFText, b []byte) ([]string, error) {
+	text, err := x.Text(b, pdfDOIChars)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("reading the PDF text: %w", err)
 	}
 
-	return ExtractDOIs(text)
+	return ExtractDOIs(text), nil
 }
 
 // loadVisionNotes picks up the optional agent-written chart critique

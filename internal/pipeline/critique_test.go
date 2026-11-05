@@ -12,28 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
 )
-
-// scriptCompleter replies from a script and records the prompts it got.
-type scriptCompleter struct {
-	replies []string
-	prompts []string
-	calls   int
-}
-
-func (s *scriptCompleter) Name() string { return "script" }
-func (s *scriptCompleter) Complete(_ context.Context, _, user string, _ llm.Options) (string, llm.Usage, error) {
-	s.prompts = append(s.prompts, user)
-	s.calls++
-
-	if s.calls > len(s.replies) {
-		return "", llm.Usage{}, nil // script exhausted: an empty answer
-	}
-
-	return s.replies[s.calls-1], llm.Usage{InputTokens: 100, OutputTokens: 50}, nil
-}
 
 func ep(doi string) model.EnrichedPaper {
 	return model.EnrichedPaper{
@@ -150,13 +130,6 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 // re-critique: the cache key includes the full text (regression: the pickup
 // lived exclusively in stage 2, which resume skips).
 func TestCritiquePicksUpDroppedPDF(t *testing.T) {
-	restore := pdfTextExtractor
-	pdfTextExtractor = func(b []byte, maxChars int) (string, error) {
-		return "DROPPED PDF FULL TEXT", nil
-	}
-
-	defer func() { pdfTextExtractor = restore }()
-
 	tmp := t.TempDir()
 
 	runDir := filepath.Join(tmp, "run")
@@ -177,7 +150,7 @@ func TestCritiquePicksUpDroppedPDF(t *testing.T) {
 	batch := `{"critiques":[{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"}]}`
 	s := &scriptCompleter{replies: []string{batch}}
 	p := New(Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d},
-		Clients{LLM: s}, quietLog())
+		Clients{LLM: s, PDFText: fakePDFText{text: "DROPPED PDF FULL TEXT"}}, quietLog())
 	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)}} // no FullText yet
 
 	require.NoError(t, p.critique(context.Background(), params(Options{RunDir: runDir}), st))

@@ -7,13 +7,17 @@ package pipeline
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/roman-redl/verdict/internal/consensus"
 	"github.com/roman-redl/verdict/internal/model"
 )
+
+// errNoWorks is returned when a stage needs the metadata source and none is
+// wired.
+var errNoWorks = errors.New("no metadata source (OpenAlex) is configured")
 
 // defaultDOIListQuestion titles a run that has a DOI list but no question.
 const defaultDOIListQuestion = "Evidence assessment over a given DOI list"
@@ -40,7 +44,7 @@ func (p *Pipeline) discover(ctx context.Context, rp runParams, st *State) error 
 	engine := opts.Engine
 	if engine == "" {
 		engine = EngineOpenAlex
-		if p.clients.Consensus != nil && p.clients.Consensus.HasKey() {
+		if p.clients.Search != nil && p.clients.Search.HasKey() {
 			engine = EngineConsensus
 		}
 	}
@@ -75,9 +79,13 @@ func (p *Pipeline) discoverOpenAlex(ctx context.Context, opts Options, st *State
 			"`verdict web` + `run --dois` (mode C)")
 	}
 
-	papers, err := p.clients.OpenAlex.Search(ctx, opts.Question, orDefault(opts.MaxPapers, p.set.MaxPapers))
+	if p.clients.Works == nil {
+		return errNoWorks
+	}
+
+	papers, err := p.clients.Works.Search(ctx, opts.Question, orDefault(opts.MaxPapers, p.set.MaxPapers))
 	if err != nil {
-		return err
+		return fmt.Errorf("searching OpenAlex: %w", err)
 	}
 
 	st.Discovery = &DiscoveryInfo{Engine: EngineOpenAlex, Queries: queries}
@@ -89,6 +97,10 @@ func (p *Pipeline) discoverOpenAlex(ctx context.Context, opts Options, st *State
 // discoverByDOIs is the manual-corpus mode: metadata comes from OpenAlex;
 // papers unknown to OpenAlex stay as DOI stubs (Source: manual).
 func (p *Pipeline) discoverByDOIs(ctx context.Context, opts Options, st *State) error {
+	if p.clients.Works == nil {
+		return errNoWorks
+	}
+
 	dois, err := readDOIFile(opts.DOIFile)
 	if err != nil {
 		return err
@@ -123,7 +135,7 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, opts Options, st *State) 
 // lookupDOI resolves one DOI of a user-supplied list; an unknown or failing
 // lookup leaves a stub that keeps the DOI in the corpus.
 func (p *Pipeline) lookupDOI(ctx context.Context, doi string) model.Paper {
-	w, err := p.clients.OpenAlex.ByDOI(ctx, doi)
+	w, err := p.clients.Works.ByDOI(ctx, doi)
 	if err != nil {
 		p.log.Warn("openalex lookup failed", "doi", doi, "err", err)
 		return model.Paper{DOI: doi, Source: model.SourceManual}
@@ -165,6 +177,10 @@ func (p *Pipeline) capDOIList(st *State, dois []string, opts Options) []string {
 // replacing semantic search with keyword search is what the engine bake-off
 // forbids (docs/how-it-works.md §2.2).
 func (p *Pipeline) discoverConsensus(ctx context.Context, opts Options, st *State, queries []string) error {
+	if p.clients.Search == nil {
+		return &UserError{Msg: "semantic discovery is not configured (CONSENSUS_API_KEY)"}
+	}
+
 	maxPages := min(orDefault(opts.ConsensusPages, p.set.ConsensusPages), maxConsensusPages)
 	lim := orDefault(opts.MaxPapers, p.set.MaxPapers)
 	w := newConsensusWalk(queries)
@@ -229,11 +245,9 @@ func newConsensusWalk(queries []string) *consensusWalk {
 }
 
 // add pools one page of results for query qi.
-func (w *consensusWalk) add(qi int, results []consensus.QueryResult) {
-	for i := range results {
-		r := results[i]
-
-		doi := model.NormalizeDOI(r.DOI)
+func (w *consensusWalk) add(qi int, papers []model.Paper) {
+	for i := range papers {
+		doi := model.NormalizeDOI(papers[i].DOI)
 		if doi == "" {
 			w.info.DroppedNoDOI++ // the pipeline keys papers by DOI
 			continue
@@ -245,7 +259,7 @@ func (w *consensusWalk) add(qi int, results []consensus.QueryResult) {
 
 		w.seen[doi] = true
 
-		w.perQuery[qi] = append(w.perQuery[qi], r.ToPaper())
+		w.perQuery[qi] = append(w.perQuery[qi], papers[i])
 		w.pooled++
 	}
 }
@@ -292,7 +306,7 @@ func (p *Pipeline) walkConsensus(ctx context.Context, w *consensusWalk, maxPages
 				break
 			}
 
-			pg, err := p.clients.Consensus.SearchPage(ctx, consensus.SearchParams{Query: w.queries[qi], Page: page})
+			pg, err := p.clients.Search.Page(ctx, w.queries[qi], page)
 			if err != nil {
 				return fmt.Errorf("consensus search (query %q, page %d): %w — no automatic fallback "+
 					"to keyword search; escape hatch: `verdict web` + `run --dois` (mode C, free)", w.queries[qi], page, err)
@@ -300,10 +314,10 @@ func (p *Pipeline) walkConsensus(ctx context.Context, w *consensusWalk, maxPages
 
 			w.info.PagesFetched++
 
-			w.add(qi, pg.Results)
+			w.add(qi, pg.Papers)
 			p.log.Info("consensus page done", "query", w.queries[qi], "page", page, "pool", w.pooled)
 			// An empty page is the backend's honest "no more", not an error.
-			if pg.IsEnd || len(pg.Results) == 0 {
+			if pg.IsEnd || len(pg.Papers) == 0 {
 				continue // this query is exhausted
 			}
 

@@ -13,14 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/roman-redl/verdict/internal/consensus"
-	"github.com/roman-redl/verdict/internal/crossref"
-	"github.com/roman-redl/verdict/internal/llm"
-	"github.com/roman-redl/verdict/internal/openalex"
-	"github.com/roman-redl/verdict/internal/pubpeer"
-	"github.com/roman-redl/verdict/internal/s2"
-	"github.com/roman-redl/verdict/internal/scite"
 )
 
 // Options are the parameters of one run.
@@ -59,18 +51,21 @@ type Options struct {
 	TextMode TextMode
 }
 
-// Clients are the pipeline's external systems.
+// Clients are the pipeline's external systems, all ports (see ports.go). A
+// nil port is a source that is not available: its stage step is skipped.
 type Clients struct {
-	Scite     *scite.Client
-	OpenAlex  *openalex.Client
-	Crossref  *crossref.Client
-	S2        *s2.Client        // second metadata source: TLDRs, abstracts OpenAlex misses, OA PDFs
-	PubPeer   *pubpeer.Client   // post-publication commentary (behind PUBPEER_DEVKEY)
-	Consensus *consensus.Client // mode B: semantic discovery (behind CONSENSUS_API_KEY)
-	LLM       llm.Completer
+	Citations  Citations      // Scite: smart-citation tallies and the contradiction drill-down
+	Works      Works          // OpenAlex: metadata, retraction flags, keyword discovery
+	Notices    Notices        // Crossref: retraction and correction notices
+	Scholar    Scholar        // Semantic Scholar: TLDRs, abstracts OpenAlex misses, OA PDFs
+	Commentary Commentary     // PubPeer: post-publication commentary (behind a developer key)
+	Search     SemanticSearch // Consensus: semantic discovery (behind an API key)
+	PDFs       PDFSource      // open-access PDF download
+	PDFText    PDFText        // PDF text extraction
+	LLM        Completer
 	// LLMSynthesis overrides the judge model when set (cheap critic + strong
 	// judge); empty = the same backend as LLM.
-	LLMSynthesis llm.Completer
+	LLMSynthesis Completer
 }
 
 // Settings are the pipeline's tunables: process-wide defaults that the

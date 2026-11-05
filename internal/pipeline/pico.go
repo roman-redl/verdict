@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/roman-redl/verdict/internal/llm"
 )
 
 // PICO is a research question normalized through the evidence-medicine
@@ -40,9 +38,9 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 All human-readable text in English.`
 
 // PICOFromQuestion normalizes a (possibly messy) question into PICO.
-func PICOFromQuestion(ctx context.Context, client llm.Completer, question string) (*PICO, error) {
+func PICOFromQuestion(ctx context.Context, client Completer, question string) (*PICO, error) {
 	var p PICO
-	if _, err := llm.AskJSON(ctx, client, picoSystemPrompt, truncate(question, 2000), &p, 1500); err != nil {
+	if _, err := AskJSON(ctx, client, picoSystemPrompt, truncate(question, 2000), &p, 1500); err != nil {
 		return nil, err
 	}
 

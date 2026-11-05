@@ -30,9 +30,9 @@ import (
 	"github.com/roman-redl/verdict/cmd/internal/app"
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/db"
-	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/openalex"
+	"github.com/roman-redl/verdict/internal/pdf"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -167,7 +167,7 @@ func run() error {
 		Short: "Evidence assessment for scientific claims: discovery → Scite/OpenAlex → LLM",
 	}
 	root.AddCommand(runCmd, webCmd(), doisCmd(), resolveCmd(&cfg), snowballCmd(&cfg, log),
-		addpdfCmd(), askCmd(&cfg, log), briefCmd(&cfg, log), picoCmd(&cfg, log), indexCmd(log))
+		addpdfCmd(log), askCmd(&cfg, log), briefCmd(&cfg, log), picoCmd(&cfg, log), indexCmd(log))
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		return errReported
@@ -290,13 +290,13 @@ func resolveCmd(cfg *config.Config) *cobra.Command {
 					fmt.Printf("UNRESOLVED: %s\n", line)
 				default:
 					marker := "approx"
-					if strings.EqualFold(w.DisplayName, line) {
+					if strings.EqualFold(w.Title, line) {
 						marker = "exact"
 					}
 
 					resolved++
 
-					fmt.Printf("%s\t%d\t%s\t%s\n", model.NormalizeDOI(w.DOI), w.PublicationYear, marker, w.DisplayName)
+					fmt.Printf("%s\t%d\t%s\t%s\n", model.NormalizeDOI(w.DOI), w.Year, marker, w.Title)
 				}
 			}
 
@@ -404,7 +404,7 @@ func askCmd(cfg *config.Config, log *slog.Logger) *cobra.Command {
 			}
 
 			if question != "" {
-				ans, u, err := completer.Complete(cmd.Context(), system, question, llm.Options{})
+				ans, u, err := completer.Complete(cmd.Context(), system, question, pipeline.CompleteOptions{})
 				if err != nil {
 					return err
 				}
@@ -453,7 +453,7 @@ func askCmd(cfg *config.Config, log *slog.Logger) *cobra.Command {
 
 				fmt.Println("…thinking (up to a couple of minutes)…")
 
-				ans, u, err := completer.Complete(cmd.Context(), system, user, llm.Options{})
+				ans, u, err := completer.Complete(cmd.Context(), system, user, pipeline.CompleteOptions{})
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "call failed:", err)
 					fmt.Fprintln(os.Stderr, "continuing — please repeat the question")
@@ -531,8 +531,10 @@ func recordRun(ctx context.Context, log *slog.Logger, dir string, st *pipeline.S
 // addpdfCmd — drop a paper PDF (e.g. straight from ~/Downloads) into a
 // run's fulltext/ slot: the DOI is read from the PDF itself, so no manual
 // renaming. The next run over that directory gets the full text.
-func addpdfCmd() *cobra.Command {
+func addpdfCmd(log *slog.Logger) *cobra.Command {
 	var runDir string
+
+	extractor := pdf.NewExtractor(log)
 
 	cmd := &cobra.Command{
 		Use:   "addpdf <file.pdf> [more.pdf...]",
@@ -555,7 +557,11 @@ func addpdfCmd() *cobra.Command {
 					return fmt.Errorf("%s is not a PDF", f)
 				}
 
-				dois := pipeline.PDFDOIs(b)
+				dois, err := pipeline.PDFDOIs(extractor, b)
+				if err != nil {
+					return fmt.Errorf("%s: %w", f, err)
+				}
+
 				if len(dois) == 0 {
 					return fmt.Errorf("%s: no DOI found inside the text — place it manually as %s/<doi>.pdf", f, dir)
 				}

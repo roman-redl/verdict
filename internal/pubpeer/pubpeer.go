@@ -3,7 +3,8 @@
 // The API requires a developer key (issued on request at pubpeer.com), so
 // the check runs only when PUBPEER_DEVKEY is set. A commentary thread is a
 // SOFT signal — it is not a retraction and says nothing on its own about
-// validity; it lands in RedFlags.Notes for the judge to weigh.
+// validity; it lands in RedFlags.Notes for the judge to weigh. It implements
+// pipeline.Commentary.
 package pubpeer
 
 import (
@@ -13,7 +14,10 @@ import (
 	"strings"
 
 	"github.com/roman-redl/verdict/internal/httpx"
+	"github.com/roman-redl/verdict/internal/pipeline"
 )
+
+var _ pipeline.Commentary = (*Client)(nil)
 
 const defaultBase = "https://pubpeer.com"
 
@@ -57,8 +61,12 @@ type response struct {
 func (c *Client) Publications(ctx context.Context, doi string) ([]Thread, error) {
 	var resp response
 
-	err := c.http.DoJSON(ctx, http.MethodPost, c.base+"/v3/publications",
-		map[string]string{"dois": doi, "devkey": c.devkey}, &resp, nil)
+	u, err := httpx.URL(c.base, nil, "v3", "publications")
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.http.DoJSON(ctx, http.MethodPost, u, map[string]string{"dois": doi, "devkey": c.devkey}, &resp, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -66,26 +74,30 @@ func (c *Client) Publications(ctx context.Context, doi string) ([]Thread, error)
 	return resp.Feedbacks, nil
 }
 
-// Note renders the soft signal for RedFlags.Notes.
-func Note(threads []Thread) string {
+// Note returns the soft signal for RedFlags.Notes: a one-line summary of the
+// commentary on the paper, or "" when there is none.
+func (c *Client) Note(ctx context.Context, doi string) (string, error) {
+	threads, err := c.Publications(ctx, doi)
+	if err != nil {
+		return "", err
+	}
+
+	return summarize(threads), nil
+}
+
+func summarize(threads []Thread) string {
 	if len(threads) == 0 {
 		return ""
 	}
 
 	n := 0
+	urls := make([]string, 0, len(threads))
+
 	for _, t := range threads {
 		n += t.TotalComments
-	}
 
-	return "PubPeer commentary (" + strconv.Itoa(n) + " comments): " +
-		strings.Join(mapURLs(threads), ", ")
-}
-
-func mapURLs(threads []Thread) []string {
-	urls := make([]string, 0, len(threads))
-	for _, t := range threads {
 		urls = append(urls, t.URL)
 	}
 
-	return urls
+	return "PubPeer commentary (" + strconv.Itoa(n) + " comments): " + strings.Join(urls, ", ")
 }

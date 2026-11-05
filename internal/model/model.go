@@ -44,6 +44,77 @@ const (
 	SourceManual    Source = "manual"    // a user-supplied DOI list (mode C)
 )
 
+// Work is a bibliographic record as a metadata source (OpenAlex) returns it:
+// richer than a Paper, because citation chaining needs the source's own IDs
+// and reference lists.
+type Work struct {
+	ID           string // the source's own identifier (an OpenAlex "W..." ID)
+	DOI          string // as the source gives it, usually URL-shaped; see NormalizeDOI
+	Title        string
+	Year         int
+	Authors      []string
+	Venue        string
+	Abstract     string
+	OAURL        string // open-access URL of the work
+	PDFURL       string // PDF URL of the primary location, when there is one
+	CitedByCount int
+	Retracted    bool
+	References   []string // IDs of the works this one cites
+}
+
+// ToPaper converts a work into a corpus paper. The DOI is taken from the
+// work itself; the parameter is a fallback for DOI-based lookups.
+func (w *Work) ToPaper(fallbackDOI string) Paper {
+	doi := w.DOI
+	if doi == "" {
+		doi = fallbackDOI
+	}
+
+	link := w.OAURL
+	if link == "" {
+		link = w.PDFURL
+	}
+
+	return Paper{
+		DOI:          NormalizeDOI(doi),
+		Title:        w.Title,
+		Year:         w.Year,
+		Authors:      w.Authors,
+		Venue:        w.Venue,
+		Abstract:     w.Abstract,
+		OALink:       link,
+		CitedByCount: w.CitedByCount,
+		Retracted:    w.Retracted,
+		Source:       SourceOpenAlex,
+	}
+}
+
+// Notice is an update notice a registry (Crossref) links to a work: a
+// retraction, a correction, an expression of concern.
+type Notice struct {
+	DOI   string // the notice's own DOI
+	Type  string // "retraction", "correction", ...
+	Label string // human-readable type, e.g. "Retraction"
+}
+
+// IsRetraction reports whether the notice withdraws the work.
+func (n Notice) IsRetraction() bool { return n.Type == "retraction" }
+
+// ScholarRecord is what the second metadata source (Semantic Scholar) adds
+// to a paper: summaries, an open-access PDF and influential-citation counts.
+type ScholarRecord struct {
+	Abstract             string
+	TLDR                 string // one-sentence summary
+	OAPDF                string // legal open-access PDF URL
+	InfluentialCitations int
+}
+
+// SearchPage is one page of semantic search results.
+type SearchPage struct {
+	Papers []Paper
+	IsEnd  bool // the ranking is exhausted
+}
+
 // CitationTally is a paper's Scite smart-citation breakdown.
 type CitationTally struct {
 	DOI           string `json:"doi"`

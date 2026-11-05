@@ -5,19 +5,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/roman-redl/verdict/internal/llm"
 )
 
-type fakeCompleter struct{ answer string }
-
-func (f *fakeCompleter) Name() string { return "fake" }
-func (f *fakeCompleter) Complete(_ context.Context, _, _ string, _ llm.Options) (string, llm.Usage, error) {
-	return f.answer, llm.Usage{}, nil
-}
-
 func TestPICOFromQuestion(t *testing.T) {
-	c := &fakeCompleter{answer: `{
+	c := &scriptCompleter{replies: []string{`{
 		"question": "Does creatine improve cognitive performance in healthy adults?",
 		"population": "healthy adults",
 		"intervention": "creatine supplementation",
@@ -29,7 +20,7 @@ func TestPICOFromQuestion(t *testing.T) {
 			"creatine and executive function: randomized trials"
 		],
 		"notes": "sleep-deprived populations show larger effects — maybe a separate run"
-	}`}
+	}`}}
 
 	p, err := PICOFromQuestion(context.Background(), c, "creatine for the brain??")
 	require.NoError(t, err)

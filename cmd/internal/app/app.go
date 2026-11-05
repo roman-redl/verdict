@@ -16,6 +16,7 @@ import (
 	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/openalex"
+	"github.com/roman-redl/verdict/internal/pdf"
 	"github.com/roman-redl/verdict/internal/pipeline"
 	"github.com/roman-redl/verdict/internal/pubpeer"
 	"github.com/roman-redl/verdict/internal/s2"
@@ -56,7 +57,7 @@ func PipelineSettings(cfg *config.Config) pipeline.Settings {
 // Anthropic API when a key is present, then OpenAI-compatible, else
 // claude-cli (existing Claude Code tariffs, no tokens to buy). Credentials
 // of an explicit backend are checked by config.Validate.
-func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (llm.Completer, error) {
+func BuildCompleter(cfg *config.Config, log *slog.Logger, model string) (pipeline.Completer, error) {
 	backend := cfg.LLMBackend
 	if backend == llm.BackendAuto {
 		switch {
@@ -139,12 +140,14 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 	}
 
 	clients := pipeline.Clients{
-		Scite:        scite.New(cfg.SciteAPIKey),         // key is optional
-		OpenAlex:     openalex.New(cfg.OpenAlexEmail),    // no key needed
-		Crossref:     crossref.New(cfg.OpenAlexEmail),    // no key needed
-		S2:           s2.New(cfg.S2APIKey),               // key optional
-		PubPeer:      pubpeer.New(cfg.PubPeerDevKey),     // behind a devkey
-		Consensus:    consensus.New(cfg.ConsensusAPIKey), // mode B; key optional, HasKey gates discovery
+		Citations:    scite.New(cfg.SciteAPIKey),         // key is optional
+		Works:        openalex.New(cfg.OpenAlexEmail),    // no key needed
+		Notices:      crossref.New(cfg.OpenAlexEmail),    // no key needed
+		Scholar:      s2.New(cfg.S2APIKey),               // key optional
+		Commentary:   pubpeer.New(cfg.PubPeerDevKey),     // behind a devkey; HasKey gates the check
+		Search:       consensus.New(cfg.ConsensusAPIKey), // mode B; key optional, HasKey gates discovery
+		PDFs:         pdf.NewDownloader(),
+		PDFText:      pdf.NewExtractor(log),
 		LLM:          crit,
 		LLMSynthesis: synth,
 	}

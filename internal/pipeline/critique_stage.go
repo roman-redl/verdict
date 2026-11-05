@@ -8,7 +8,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -135,7 +134,7 @@ func (p *Pipeline) assessChunk(ctx context.Context, r *critiqueRun, chunk []int)
 
 // commitChunk accounts a finished batch: its token usage, and its successful
 // critiques written through to the cache.
-func (p *Pipeline) commitChunk(r *critiqueRun, chunk []int, usage llm.Usage) {
+func (p *Pipeline) commitChunk(r *critiqueRun, chunk []int, usage Usage) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

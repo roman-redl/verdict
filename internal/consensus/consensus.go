@@ -14,7 +14,10 @@ import (
 
 	"github.com/roman-redl/verdict/internal/httpx"
 	"github.com/roman-redl/verdict/internal/model"
+	"github.com/roman-redl/verdict/internal/pipeline"
 )
+
+var _ pipeline.SemanticSearch = (*Client)(nil)
 
 const defaultBase = "https://api.consensus.app/v1"
 
@@ -146,6 +149,22 @@ func (c *Client) SearchPage(ctx context.Context, p SearchParams) (*Page, error) 
 		Results: resp.Results, PageSize: resp.PageSize,
 		IsEnd: resp.IsEnd, NextPage: resp.NextPage,
 	}, nil
+}
+
+// Page implements pipeline.SemanticSearch: one 0-indexed page of results for
+// the query, mapped to corpus papers.
+func (c *Client) Page(ctx context.Context, query string, page int) (model.SearchPage, error) {
+	pg, err := c.SearchPage(ctx, SearchParams{Query: query, Page: page})
+	if err != nil {
+		return model.SearchPage{}, err
+	}
+
+	papers := make([]model.Paper, len(pg.Results))
+	for i := range pg.Results {
+		papers[i] = pg.Results[i].ToPaper()
+	}
+
+	return model.SearchPage{Papers: papers, IsEnd: pg.IsEnd}, nil
 }
 
 // ToPaper converts a result into the domain model. OALink stays empty on

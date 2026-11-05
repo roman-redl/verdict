@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/roman-redl/verdict/internal/llm"
 )
 
 // Brief is the triage result for a messy real-life problem: what a capable
@@ -61,9 +59,9 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 All human-readable text in English.`
 
 // BriefFromText runs the triage over a problem description.
-func BriefFromText(ctx context.Context, client llm.Completer, text string) (*Brief, error) {
+func BriefFromText(ctx context.Context, client Completer, text string) (*Brief, error) {
 	var b Brief
-	if _, err := llm.AskJSON(ctx, client, briefSystemPrompt, truncate(text, 24000), &b, 4000); err != nil {
+	if _, err := AskJSON(ctx, client, briefSystemPrompt, truncate(text, 24000), &b, 4000); err != nil {
 		return nil, err
 	}
 

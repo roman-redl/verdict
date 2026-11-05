@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -47,7 +46,7 @@ type StageCost struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-func (s *StageCost) add(u llm.Usage) {
+func (s *StageCost) add(u Usage) {
 	calls := u.Calls
 	if calls == 0 {
 		calls = 1 // a backend that reports no usage still made this one call

@@ -1,18 +1,22 @@
 // Package scite is a client for Scite (https://docs.scite.ai): smart
 // citations by DOI. Without a key the free tier works (tight limits);
-// with a key — Authorization: Bearer.
+// with a key — Authorization: Bearer. It implements pipeline.Citations.
 package scite
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/roman-redl/verdict/internal/httpx"
 	"github.com/roman-redl/verdict/internal/model"
+	"github.com/roman-redl/verdict/internal/pipeline"
 )
+
+var _ pipeline.Citations = (*Client)(nil)
 
 const defaultBase = "https://api.scite.ai"
 
@@ -118,7 +122,7 @@ func parseTallies(raw json.RawMessage) (map[string]model.CitationTally, error) {
 	}
 
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, fmt.Errorf("scite: unrecognized response format: %s", snippet(raw))
+		return nil, fmt.Errorf("unrecognized Scite response format: %s", snippet(raw))
 	}
 
 	merged := envelope.Tallies
@@ -127,7 +131,7 @@ func parseTallies(raw json.RawMessage) (map[string]model.CitationTally, error) {
 	}
 
 	if !isDOIMap(merged) {
-		return nil, fmt.Errorf("scite: no tallies in the response")
+		return nil, errors.New("the Scite response holds no tallies")
 	}
 
 	return toTallies(merged), nil

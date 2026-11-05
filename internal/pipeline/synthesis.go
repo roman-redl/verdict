@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -35,7 +34,7 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 
 	var jr synthesisResult
 
-	usage, err := llm.AskJSON(ctx, judge, synthesisSystemPrompt, user, &jr, synthesisMaxTokens)
+	usage, err := AskJSON(ctx, judge, synthesisSystemPrompt, user, &jr, synthesisMaxTokens)
 	if err != nil {
 		return fmt.Errorf("LLM synthesis: %w", err)
 	}

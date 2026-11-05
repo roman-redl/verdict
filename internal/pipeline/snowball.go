@@ -9,8 +9,13 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/roman-redl/verdict/internal/model"
-	"github.com/roman-redl/verdict/internal/openalex"
 )
+
+// snowballParallelism bounds the concurrent OpenAlex lookups of one phase.
+const snowballParallelism = 4
+
+// citingWorksLimit is how many citing works are fetched per seed.
+const citingWorksLimit = 100
 
 // SnowballCandidate is a corpus-expansion candidate found through citation
 // chaining. A work connected to several seed papers at once (cited by them,
@@ -29,7 +34,7 @@ type SnowballCandidate struct {
 // the seeds (newer evidence). A candidate qualifies when either shared count
 // reaches minShared; results are capped at maxOut, strongest signal first.
 func Snowball(
-	ctx context.Context, oa *openalex.Client, dois []string, minShared, maxOut int, log *slog.Logger,
+	ctx context.Context, works Works, dois []string, minShared, maxOut int, log *slog.Logger,
 ) ([]SnowballCandidate, error) {
 	if minShared < 1 {
 		minShared = 2
@@ -39,20 +44,40 @@ func Snowball(
 		maxOut = 10
 	}
 
-	// Phase A: seed works (indexed — no shared state in the goroutines).
-	works := make([]*openalex.Work, len(dois))
+	seeds, err := lookupSeeds(ctx, works, dois, log)
+	if err != nil {
+		return nil, err
+	}
+
+	set := newCandidateSet(dois, seeds)
+
+	citing, err := lookupCiting(ctx, works, seeds, log)
+	if err != nil {
+		return nil, err
+	}
+
+	set.addCiting(citing)
+	set.addReferenced(ctx, works, seeds, minShared, log)
+
+	return set.rank(minShared, maxOut), nil
+}
+
+// lookupSeeds resolves the seed DOIs, index-aligned with dois; a seed
+// OpenAlex does not know (or fails on) is nil and simply skipped.
+func lookupSeeds(ctx context.Context, works Works, dois []string, log *slog.Logger) ([]*model.Work, error) {
+	seeds := make([]*model.Work, len(dois))
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(4)
+	g.SetLimit(snowballParallelism)
 
 	for i, doi := range dois {
 		g.Go(func() error {
-			w, err := oa.ByDOI(gctx, model.NormalizeDOI(doi))
+			w, err := works.ByDOI(gctx, model.NormalizeDOI(doi))
 			if err != nil {
 				log.Warn("snowball: seed lookup failed, the seed is skipped", "doi", doi, "err", err)
 				return nil
 			}
 
-			works[i] = w // nil for a DOI OpenAlex does not know
+			seeds[i] = w // nil for a DOI OpenAlex does not know
 
 			return nil
 		})
@@ -62,60 +87,26 @@ func Snowball(
 		return nil, fmt.Errorf("looking up the seed papers: %w", err)
 	}
 
-	seedDOIs := map[string]bool{}
-	for i, doi := range dois {
-		seedDOIs[model.NormalizeDOI(doi)] = true
+	return seeds, nil
+}
 
-		if works[i] == nil {
-			continue
-		}
+// lookupCiting fetches the works citing each seed (the forward half); a seed
+// whose lookup fails adds no forward links.
+func lookupCiting(ctx context.Context, works Works, seeds []*model.Work, log *slog.Logger) ([][]model.Work, error) {
+	citing := make([][]model.Work, len(seeds))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(snowballParallelism)
 
-		if d := model.NormalizeDOI(works[i].DOI); d != "" {
-			seedDOIs[d] = true
-		}
-	}
-
-	type tally struct {
-		citedBySeeds, citesSeeds int
-		work                     *openalex.Work
-	}
-
-	tallies := map[string]*tally{}
-	add := func(w *openalex.Work, citedBy, cites int) {
-		d := model.NormalizeDOI(w.DOI)
-		if d == "" || seedDOIs[d] {
-			return
-		}
-
-		t, ok := tallies[d]
-		if !ok {
-			t = &tally{}
-			tallies[d] = t
-		}
-
-		t.citedBySeeds += citedBy
-		t.citesSeeds += cites
-
-		if t.work == nil {
-			t.work = w
-		}
-	}
-
-	// Phase B (forward): works citing each seed.
-	citing := make([][]openalex.Work, len(works))
-	g, gctx = errgroup.WithContext(ctx)
-	g.SetLimit(4)
-
-	for i := range works {
-		if works[i] == nil || works[i].ID == "" {
+	for i := range seeds {
+		if seeds[i] == nil || seeds[i].ID == "" {
 			continue
 		}
 
 		g.Go(func() error {
-			ws, err := oa.CitesWork(gctx, works[i].ID, 100)
+			ws, err := works.CitesWork(gctx, seeds[i].ID, citingWorksLimit)
 			if err != nil {
 				log.Warn("snowball: citing-works lookup failed, the seed adds no forward links",
-					"doi", works[i].DOI, "err", err)
+					"doi", seeds[i].DOI, "err", err)
 
 				return nil // best-effort per seed
 			}
@@ -130,30 +121,93 @@ func Snowball(
 		return nil, fmt.Errorf("looking up the citing works: %w", err)
 	}
 
+	return citing, nil
+}
+
+// candidateTally counts how many seeds a candidate connects to.
+type candidateTally struct {
+	citedBySeeds, citesSeeds int
+	work                     *model.Work
+}
+
+// candidateSet accumulates the candidates of all phases, keyed by DOI.
+type candidateSet struct {
+	seedDOIs map[string]bool
+	byDOI    map[string]*candidateTally
+}
+
+func newCandidateSet(dois []string, seeds []*model.Work) *candidateSet {
+	seedDOIs := map[string]bool{}
+
+	for i, doi := range dois {
+		seedDOIs[model.NormalizeDOI(doi)] = true
+
+		if seeds[i] == nil {
+			continue
+		}
+
+		if d := model.NormalizeDOI(seeds[i].DOI); d != "" {
+			seedDOIs[d] = true
+		}
+	}
+
+	return &candidateSet{seedDOIs: seedDOIs, byDOI: map[string]*candidateTally{}}
+}
+
+// add counts a connection; seeds themselves and works without a DOI are not
+// candidates.
+func (s *candidateSet) add(w *model.Work, citedBy, cites int) {
+	d := model.NormalizeDOI(w.DOI)
+	if d == "" || s.seedDOIs[d] {
+		return
+	}
+
+	t, ok := s.byDOI[d]
+	if !ok {
+		t = &candidateTally{}
+		s.byDOI[d] = t
+	}
+
+	t.citedBySeeds += citedBy
+
+	t.citesSeeds += cites
+	if t.work == nil {
+		t.work = w
+	}
+}
+
+// addCiting counts the forward links: a work appears once per seed, not once
+// per position in the seed's list.
+func (s *candidateSet) addCiting(citing [][]model.Work) {
 	for _, ws := range citing {
 		seenInSeed := map[string]bool{}
 
 		for j := range ws {
 			d := model.NormalizeDOI(ws[j].DOI)
 			if d == "" || seenInSeed[d] {
-				continue // a work appears once per seed, not once per position
+				continue
 			}
 
 			seenInSeed[d] = true
 
-			add(&ws[j], 0, 1) // the work cites the seed
+			s.add(&ws[j], 0, 1) // the work cites the seed
 		}
 	}
+}
 
-	// Phase C (backward): reference lists shared by several seeds.
+// addReferenced counts the backward links: works in the reference lists of at
+// least minShared seeds. A failed lookup leaves the backward half out.
+func (s *candidateSet) addReferenced(
+	ctx context.Context, works Works, seeds []*model.Work, minShared int, log *slog.Logger,
+) {
 	refCount := map[string]int{}
 
-	for _, w := range works {
+	for _, w := range seeds {
 		if w == nil {
 			continue
 		}
 
-		for _, id := range w.ReferencedWorks {
+		for _, id := range w.References {
 			refCount[id]++
 		}
 	}
@@ -166,27 +220,33 @@ func Snowball(
 		}
 	}
 
-	if len(sharedIDs) > 0 {
-		ws, err := oa.ByIDs(ctx, sharedIDs)
-		if err != nil {
-			log.Warn("snowball: reference lookup failed, the backward half is missing", "err", err)
-		}
-
-		for i := range ws {
-			add(&ws[i], refCount[ws[i].ID], 0) // cited by that many seeds
-		}
+	if len(sharedIDs) == 0 {
+		return
 	}
 
+	ws, err := works.ByIDs(ctx, sharedIDs)
+	if err != nil {
+		log.Warn("snowball: reference lookup failed, the backward half is missing", "err", err)
+	}
+
+	for i := range ws {
+		s.add(&ws[i], refCount[ws[i].ID], 0) // cited by that many seeds
+	}
+}
+
+// rank keeps the candidates that reach minShared in either direction,
+// strongest signal first, at most maxOut.
+func (s *candidateSet) rank(minShared, maxOut int) []SnowballCandidate {
 	var out []SnowballCandidate
 
-	for d, t := range tallies {
+	for d, t := range s.byDOI {
 		if t.citedBySeeds < minShared && t.citesSeeds < minShared {
 			continue
 		}
 
 		c := SnowballCandidate{DOI: d, CitedBySeeds: t.citedBySeeds, CitesSeeds: t.citesSeeds}
 		if t.work != nil {
-			c.Title, c.Year = t.work.DisplayName, t.work.PublicationYear
+			c.Title, c.Year = t.work.Title, t.work.Year
 		}
 
 		out = append(out, c)
@@ -205,5 +265,5 @@ func Snowball(
 		out = out[:maxOut]
 	}
 
-	return out, nil
+	return out
 }

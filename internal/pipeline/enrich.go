@@ -16,10 +16,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/roman-redl/verdict/internal/crossref"
 	"github.com/roman-redl/verdict/internal/model"
-	"github.com/roman-redl/verdict/internal/pubpeer"
-	"github.com/roman-redl/verdict/internal/s2"
 )
 
 // Reasons recorded on a retraction flag.
@@ -28,16 +25,16 @@ const (
 	reasonCrossrefRetracted = "Crossref/retraction-watch: retraction notice "
 )
 
-// scoreBatchSize is how many DOIs one Scite tallies request carries (the
-// API limit is 500).
-const scoreBatchSize = 100
+// tallyBatchSize is how many DOIs one Scite tallies request carries (the API
+// limit is 500).
+const tallyBatchSize = 100
 
 // enrichBatch is what the batched lookups produced for the whole corpus,
 // shared read-only by the per-paper workers.
 type enrichBatch struct {
 	dir      string
 	tallies  map[string]model.CitationTally
-	scholar  map[string]*s2.Paper
+	scholar  map[string]model.ScholarRecord
 	cache    EnrichCache
 	download bool // OA PDFs are downloaded at this stage (full text mode only)
 }
@@ -57,7 +54,7 @@ func (p *Pipeline) enrich(ctx context.Context, rp runParams, st *State) error {
 	batch := &enrichBatch{
 		dir:     rp.dir,
 		tallies: tallies,
-		scholar: p.fetchS2Papers(ctx, st.Papers),
+		scholar: p.fetchScholar(ctx, st.Papers),
 		cache:   LoadEnrichCache(cachePath, p.set.EnrichCacheTTL, p.log),
 		// OA downloads happen in full mode only (hybrid fetches its full texts
 		// after the first synthesis, lean never); a pre-placed PDF is read in
@@ -120,7 +117,11 @@ func (p *Pipeline) enrichPaper(
 	}
 
 	p.checkIntegrity(ctx, &e)
-	applyScholar(&e, b.scholar[doi])
+
+	if r, ok := b.scholar[doi]; ok {
+		applyScholar(&e, r)
+	}
+
 	p.attachFullText(ctx, b, &e)
 	p.attachCommentary(ctx, &e)
 	p.drillDownContradictions(ctx, &e)
@@ -162,47 +163,47 @@ func (p *Pipeline) checkIntegrity(ctx context.Context, e *model.EnrichedPaper) {
 
 	doi := model.NormalizeDOI(e.DOI)
 
-	if p.clients.OpenAlex != nil && e.Source != model.SourceOpenAlex {
-		w, err := p.clients.OpenAlex.ByDOI(ctx, doi)
+	if p.clients.Works != nil && e.Source != model.SourceOpenAlex {
+		w, err := p.clients.Works.ByDOI(ctx, doi)
 
 		switch {
 		case err != nil:
 			p.sourceFailed(e, "openalex", err)
 		case w != nil:
-			if w.IsRetracted {
+			if w.Retracted {
 				e.Flags.Retracted = true
 				e.Flags.Reason = reasonOpenAlexRetracted
 			}
 
-			e.OALink = cmp.Or(e.OALink, w.OpenAccess.OAURL)
-			e.Abstract = cmp.Or(e.Abstract, w.Abstract())
+			e.OALink = cmp.Or(e.OALink, w.OAURL)
+			e.Abstract = cmp.Or(e.Abstract, w.Abstract)
 		}
 	}
 	// Crossref is the second, independent integrity source: the Retraction
 	// Watch Database lives there, with corrections and expressions of concern
 	// alongside retractions.
-	if p.clients.Crossref != nil {
-		ups, err := p.clients.Crossref.Updates(ctx, doi)
+	if p.clients.Notices != nil {
+		notices, err := p.clients.Notices.Updates(ctx, doi)
 		if err != nil {
 			p.sourceFailed(e, "crossref", err)
 			return
 		}
 
-		applyNotices(e, ups)
+		applyNotices(e, notices)
 	}
 }
 
-// applyNotices turns Crossref update notices into flags and notes.
-func applyNotices(e *model.EnrichedPaper, ups []crossref.Update) {
-	for _, u := range ups {
+// applyNotices turns update notices into flags and notes.
+func applyNotices(e *model.EnrichedPaper, notices []model.Notice) {
+	for _, n := range notices {
 		switch {
-		case u.IsRetraction():
+		case n.IsRetraction():
 			e.Flags.Retracted = true
-			e.Flags.Reason = reasonCrossrefRetracted + u.DOI
-		case u.Type == "correction":
-			e.Flags.Notes = append(e.Flags.Notes, "correction notice "+u.DOI)
+			e.Flags.Reason = reasonCrossrefRetracted + n.DOI
+		case n.Type == "correction":
+			e.Flags.Notes = append(e.Flags.Notes, "correction notice "+n.DOI)
 		default:
-			e.Flags.Notes = append(e.Flags.Notes, cmp.Or(u.Label, u.Type)+" notice "+u.DOI)
+			e.Flags.Notes = append(e.Flags.Notes, cmp.Or(n.Label, n.Type)+" notice "+n.DOI)
 		}
 	}
 }
@@ -210,19 +211,11 @@ func applyNotices(e *model.EnrichedPaper, ups []crossref.Update) {
 // applyScholar adds what Semantic Scholar knows and OpenAlex missed:
 // abstracts (the TLDR as a last resort) and OA PDF links; influential
 // citations feed the judge.
-func applyScholar(e *model.EnrichedPaper, s2p *s2.Paper) {
-	if s2p == nil {
-		return
-	}
-
-	e.Abstract = cmp.Or(e.Abstract, s2p.Abstract)
-
-	if e.OALink == "" && s2p.OpenAccessPDF != nil {
-		e.OALink = s2p.OpenAccessPDF.URL
-	}
-
-	e.TLDR = s2p.TLDRText()
-	e.InfluentialCitations = s2p.InfluentialCitations
+func applyScholar(e *model.EnrichedPaper, r model.ScholarRecord) {
+	e.Abstract = cmp.Or(e.Abstract, r.Abstract)
+	e.OALink = cmp.Or(e.OALink, r.OAPDF)
+	e.TLDR = r.TLDR
+	e.InfluentialCitations = r.InfluentialCitations
 }
 
 // attachFullText supplies the paper's full text: a PDF pre-placed in the run
@@ -237,17 +230,17 @@ func (p *Pipeline) attachFullText(ctx context.Context, b *enrichBatch, e *model.
 // attachCommentary adds the PubPeer commentary as a soft signal (the API is
 // behind a developer key).
 func (p *Pipeline) attachCommentary(ctx context.Context, e *model.EnrichedPaper) {
-	if p.clients.PubPeer == nil || !p.clients.PubPeer.HasKey() || e.DOI == "" {
+	if p.clients.Commentary == nil || !p.clients.Commentary.HasKey() || e.DOI == "" {
 		return
 	}
 
-	threads, err := p.clients.PubPeer.Publications(ctx, model.NormalizeDOI(e.DOI))
+	note, err := p.clients.Commentary.Note(ctx, model.NormalizeDOI(e.DOI))
 	if err != nil {
 		p.log.Warn("pubpeer check failed", "doi", e.DOI, "err", err)
 		return
 	}
 
-	if note := pubpeer.Note(threads); note != "" {
+	if note != "" {
 		e.Flags.Notes = append(e.Flags.Notes, note)
 	}
 }
@@ -255,12 +248,12 @@ func (p *Pipeline) attachCommentary(ctx context.Context, e *model.EnrichedPaper)
 // drillDownContradictions asks Scite who exactly cites a contradicted paper
 // as refuted (paid scope, best-effort).
 func (p *Pipeline) drillDownContradictions(ctx context.Context, e *model.EnrichedPaper) {
-	if p.clients.Scite == nil || !p.clients.Scite.HasKey() ||
+	if p.clients.Citations == nil || !p.clients.Citations.HasKey() ||
 		e.Tally == nil || e.Tally.Contradicting == 0 || e.DOI == "" {
 		return
 	}
 
-	srcs, err := p.clients.Scite.ContradictingSources(ctx, model.NormalizeDOI(e.DOI))
+	srcs, err := p.clients.Citations.ContradictingSources(ctx, model.NormalizeDOI(e.DOI))
 	if err != nil {
 		p.log.Warn("scite drill-down failed", "doi", e.DOI, "err", err)
 		return
@@ -277,12 +270,12 @@ func (p *Pipeline) fetchTallies(ctx context.Context, papers []model.Paper) (
 	tallies map[string]model.CitationTally, warnings []string,
 ) {
 	tallies = map[string]model.CitationTally{}
-	if p.clients.Scite == nil {
+	if p.clients.Citations == nil {
 		return tallies, []string{"Scite client is not initialized"}
 	}
 
-	for _, batch := range chunks(normalizedDOIs(papers), scoreBatchSize) {
-		m, err := p.clients.Scite.Tallies(ctx, batch)
+	for _, batch := range chunks(normalizedDOIs(papers), tallyBatchSize) {
+		m, err := p.clients.Citations.Tallies(ctx, batch)
 		if err != nil {
 			p.log.Warn("scite unavailable: tallies skipped", "err", err)
 			return tallies, []string{"Scite unavailable, citation analytics incomplete: " + persistedErr(err)}
@@ -294,32 +287,21 @@ func (p *Pipeline) fetchTallies(ctx context.Context, papers []model.Paper) (
 	return tallies, nil
 }
 
-// fetchS2Papers makes one batched Semantic Scholar request per run (the
+// fetchScholar makes one batched Semantic Scholar request per run (the
 // anonymous rate limits are tight); a failure is not fatal — OpenAlex
 // remains the primary metadata source.
-func (p *Pipeline) fetchS2Papers(ctx context.Context, papers []model.Paper) map[string]*s2.Paper {
-	out := map[string]*s2.Paper{}
-	if p.clients.S2 == nil {
-		return out
+func (p *Pipeline) fetchScholar(ctx context.Context, papers []model.Paper) map[string]model.ScholarRecord {
+	if p.clients.Scholar == nil {
+		return map[string]model.ScholarRecord{}
 	}
 
-	dois := normalizedDOIs(papers)
-
-	batch, err := p.clients.S2.Batch(ctx, dois)
+	records, err := p.clients.Scholar.Lookup(ctx, normalizedDOIs(papers))
 	if err != nil {
 		p.log.Warn("semantic scholar unavailable: enrichment continues without it", "err", err)
-		return out
+		return map[string]model.ScholarRecord{}
 	}
 
-	for i, s2p := range batch {
-		if s2p == nil || i >= len(dois) {
-			continue
-		}
-
-		out[dois[i]] = s2p
-	}
-
-	return out
+	return records
 }
 
 // normalizedDOIs lists the papers' normalized DOIs, skipping papers without one.

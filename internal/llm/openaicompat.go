@@ -2,11 +2,20 @@ package llm
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net/http"
 
 	"github.com/roman-redl/verdict/internal/httpx"
+	"github.com/roman-redl/verdict/internal/pipeline"
 )
+
+var _ pipeline.Completer = (*OpenAICompat)(nil)
+
+// openAIDefaultBase is used when OPENAI_BASE_URL is empty.
+const openAIDefaultBase = "https://api.openai.com/v1"
+
+// completionTemperature keeps the machine-to-machine JSON calls steady.
+const completionTemperature = 0.2
 
 // OpenAICompat is any /chat/completions endpoint: OpenRouter, DeepSeek,
 // vLLM, Together, etc. When corporate tariff access disappears, migrating to
@@ -20,7 +29,7 @@ type OpenAICompat struct {
 
 func NewOpenAICompat(base, key, model string) *OpenAICompat {
 	if base == "" {
-		base = "https://api.openai.com/v1"
+		base = openAIDefaultBase
 	}
 
 	return &OpenAICompat{base: base, key: key, model: model, http: httpx.New("openai-compat", 2)}
@@ -28,16 +37,18 @@ func NewOpenAICompat(base, key, model string) *OpenAICompat {
 
 func (o *OpenAICompat) Name() string { return "openai-compat:" + o.model }
 
-func (o *OpenAICompat) Complete(ctx context.Context, system, user string, opts Options) (string, Usage, error) {
+func (o *OpenAICompat) Complete(
+	ctx context.Context, system, user string, opts pipeline.CompleteOptions,
+) (string, pipeline.Usage, error) {
 	maxTokens := opts.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = 4096
+		maxTokens = defaultMaxTokens
 	}
 
 	req := map[string]any{
 		"model":       o.model,
 		"max_tokens":  maxTokens,
-		"temperature": 0.2,
+		"temperature": completionTemperature,
 		"messages": []map[string]string{
 			{"role": "system", "content": system},
 			{"role": "user", "content": user},
@@ -58,19 +69,19 @@ func (o *OpenAICompat) Complete(ctx context.Context, system, user string, opts O
 
 	endpoint, err := httpx.URL(o.base, nil, "chat", "completions")
 	if err != nil {
-		return "", Usage{}, err
+		return "", pipeline.Usage{}, err
 	}
 
 	headers := map[string]string{"Authorization": "Bearer " + o.key}
 	if err := o.http.DoJSON(ctx, http.MethodPost, endpoint, req, &resp, headers); err != nil {
-		return "", Usage{}, err
+		return "", pipeline.Usage{}, err
 	}
 
 	if len(resp.Choices) == 0 || resp.Choices[0].Message.Content == "" {
-		return "", Usage{}, fmt.Errorf("%s: empty response", o.Name())
+		return "", pipeline.Usage{}, errors.New("the endpoint returned an empty completion")
 	}
 
-	u := Usage{Calls: 1, InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens}
+	usage := pipeline.Usage{Calls: 1, InputTokens: resp.Usage.PromptTokens, OutputTokens: resp.Usage.CompletionTokens}
 
-	return resp.Choices[0].Message.Content, u, nil
+	return resp.Choices[0].Message.Content, usage, nil
 }

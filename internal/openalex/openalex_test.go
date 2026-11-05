@@ -40,7 +40,7 @@ func TestSearchFiltersRetracted(t *testing.T) {
 
 // Abstract must reconstruct text from the inverted index by word positions.
 func TestAbstractReinversion(t *testing.T) {
-	w := &Work{}
+	w := &work{}
 	w.AbstractInvertedIndex = map[string][]int{
 		"coffee":     {2},
 		"improves":   {3},
@@ -51,12 +51,70 @@ func TestAbstractReinversion(t *testing.T) {
 
 	const want = "Background Nothing coffee improves everything"
 
-	require.Equal(t, want, w.Abstract())
+	require.Equal(t, want, w.abstract())
 }
 
 func TestAbstractEmpty(t *testing.T) {
-	w := &Work{}
-	require.Empty(t, w.Abstract())
+	w := &work{}
+	require.Empty(t, w.abstract())
+}
+
+// The domain record carries everything citation chaining and enrichment
+// read; the paper conversion prefers the open-access URL over the PDF URL.
+func TestToModelAndPaper(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"https://openalex.org/W1","doi":"https://doi.org/10.1/X",
+			"display_name":"A study","publication_year":2021,"is_retracted":true,"cited_by_count":12,
+			"open_access":{"is_oa":true,"oa_url":"https://oa.test/x"},
+			"authorships":[{"author":{"display_name":"Ann"}},{"author":{"display_name":""}},{"author":{"display_name":"Bo"}}],
+			"primary_location":{"source":{"display_name":"BMJ"},"pdf_url":"https://pdf.test/x.pdf"},
+			"referenced_works":["https://openalex.org/W9"],
+			"abstract_inverted_index":{"hello":[0],"world":[1]}}`))
+	}))
+	defer srv.Close()
+
+	w, err := NewWithBase(srv.URL, "").ByDOI(context.Background(), "10.1/x")
+	require.NoError(t, err)
+	require.NotNil(t, w)
+
+	assert.Equal(t, "https://openalex.org/W1", w.ID)
+	assert.Equal(t, "A study", w.Title)
+	assert.Equal(t, 2021, w.Year)
+	assert.Equal(t, []string{"Ann", "Bo"}, w.Authors, "nameless authors are dropped")
+	assert.Equal(t, "BMJ", w.Venue)
+	assert.Equal(t, "hello world", w.Abstract)
+	assert.True(t, w.Retracted)
+	assert.Equal(t, []string{"https://openalex.org/W9"}, w.References)
+
+	p := w.ToPaper("")
+	assert.Equal(t, "10.1/x", p.DOI)
+	assert.Equal(t, "https://oa.test/x", p.OALink, "the OA URL wins over the PDF URL")
+	assert.Equal(t, 12, p.CitedByCount)
+
+	w.OAURL = ""
+	assert.Equal(t, "https://pdf.test/x.pdf", w.ToPaper("").OALink, "the PDF URL is the fallback")
+}
+
+// 404 means "OpenAlex does not know the DOI": no work, no error.
+func TestByDOIUnknown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	w, err := NewWithBase(srv.URL, "").ByDOI(context.Background(), "10.1/none")
+	require.NoError(t, err)
+	require.Nil(t, w)
+}
+
+func TestByDOIServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	_, err := NewWithBase(srv.URL, "").ByDOI(context.Background(), "10.1/x")
+	require.Error(t, err)
 }
 
 // SearchTitle resolves a DOI-less title through filter=title.search.
@@ -77,7 +135,7 @@ func TestSearchTitle(t *testing.T) {
 
 	require.NotNil(t, w)
 	require.Equal(t, "https://doi.org/10.1/match", w.DOI)
-	require.Equal(t, 2016, w.PublicationYear)
+	require.Equal(t, 2016, w.Year)
 }
 
 func TestSearchTitleNoMatch(t *testing.T) {
