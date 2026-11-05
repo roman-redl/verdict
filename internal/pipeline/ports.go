@@ -37,6 +37,12 @@ type Works interface {
 	ByIDs(ctx context.Context, ids []string) ([]model.Work, error)
 }
 
+// TitleFinder resolves a paper title to a work (the DOI-resolution helper of
+// the CLI); (nil, nil) means nothing matched.
+type TitleFinder interface {
+	SearchTitle(ctx context.Context, title string) (*model.Work, error)
+}
+
 // Notices is the update-notice registry (Crossref): retractions, corrections.
 type Notices interface {
 	Updates(ctx context.Context, doi string) ([]model.Notice, error)

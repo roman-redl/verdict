@@ -3,7 +3,10 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Brief is the triage result for a messy real-life problem: what a capable
@@ -66,6 +69,34 @@ func BriefFromText(ctx context.Context, client Completer, text string) (*Brief, 
 	}
 
 	return &b, nil
+}
+
+// maxBriefSlugChars bounds the problem part of a brief directory name.
+const maxBriefSlugChars = 40
+
+// SaveBrief writes the rendered brief into a new directory under outDir named
+// after the problem and the time, and returns the path of brief.md.
+func SaveBrief(outDir string, b *Brief, now time.Time) (string, error) {
+	name := slug(b.Problem)
+	if len(name) > maxBriefSlugChars {
+		name = name[:maxBriefSlugChars]
+	}
+
+	if name == "" {
+		name = "brief"
+	}
+
+	dir := filepath.Join(outDir, name+"-"+now.Format("20060102-150405"))
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", fmt.Errorf("creating %s: %w", dir, err)
+	}
+
+	path := filepath.Join(dir, "brief.md")
+	if err := os.WriteFile(path, []byte(RenderBrief(b)), 0o600); err != nil {
+		return "", fmt.Errorf("writing %s: %w", path, err)
+	}
+
+	return path, nil
 }
 
 // RenderBrief renders the triage result as markdown.

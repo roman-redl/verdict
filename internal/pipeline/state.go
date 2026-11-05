@@ -79,6 +79,16 @@ func (c *CostReport) Markdown() string {
 	return "LLM usage — " + strings.Join(parts, "; ")
 }
 
+// PaperCount is the corpus size without double counting: Enriched and Papers
+// hold the same studies after the enrichment stage.
+func (s *State) PaperCount() int {
+	if n := len(s.Enriched); n > 0 {
+		return n
+	}
+
+	return len(s.Papers)
+}
+
 // critiqueCost and synthesisCost return the accumulated usage of a stage,
 // creating the entry on first use. Accumulating (not overwriting) matters:
 // the hybrid deepening pass re-enters both stages.

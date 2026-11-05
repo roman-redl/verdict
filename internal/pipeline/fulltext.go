@@ -22,6 +22,10 @@ const (
 	pdfDOIChars = 20000
 )
 
+// pdfMagic starts every PDF file; an open-access link that answers with a
+// landing page does not.
+var pdfMagic = []byte("%PDF")
+
 // fullTextPath is where a paper's PDF lives inside the run directory:
 // <dir>/fulltext/<doi with '/' as '_'>.pdf. The user can drop a file there
 // for a paywalled paper; downloaded PDFs are kept there for the vision stage.
@@ -46,7 +50,7 @@ func (p *Pipeline) fetchFullText(ctx context.Context, dir string, e *model.Enric
 		return ""
 	}
 
-	if !bytes.HasPrefix(body, []byte("%PDF")) {
+	if !bytes.HasPrefix(body, pdfMagic) {
 		src := path
 		if e.OALink != "" {
 			src = e.OALink
@@ -149,6 +153,42 @@ func (p *Pipeline) pickupFullTexts(ctx context.Context, dir string, st *State) {
 			e.FullText = txt
 		}
 	}
+}
+
+// AddedPDF is a user-supplied PDF placed into a run.
+type AddedPDF struct {
+	DOI  string // the first DOI found inside the document
+	Path string // where the document landed
+}
+
+// AddPDF drops a paper PDF into the run's fulltext/ slot: the DOI is read
+// from the PDF itself, so no manual renaming. The next run over that
+// directory (with --resume) reads the full text instead of the abstract.
+func AddPDF(x PDFText, runDir string, data []byte) (AddedPDF, error) {
+	if !bytes.HasPrefix(data, pdfMagic) {
+		return AddedPDF{}, &UserError{Msg: "not a PDF"}
+	}
+
+	dois, err := PDFDOIs(x, data)
+	if err != nil {
+		return AddedPDF{}, err
+	}
+
+	if len(dois) == 0 {
+		return AddedPDF{}, &UserError{Msg: fmt.Sprintf(
+			"no DOI found inside the text — place it manually as %s", fullTextPath(runDir, "<doi>"))}
+	}
+
+	path := fullTextPath(runDir, dois[0])
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return AddedPDF{}, fmt.Errorf("creating the fulltext directory: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return AddedPDF{}, fmt.Errorf("saving the PDF: %w", err)
+	}
+
+	return AddedPDF{DOI: dois[0], Path: path}, nil
 }
 
 // PDFDOIs extracts the DOIs mentioned in a PDF (the leading pages carry

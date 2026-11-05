@@ -7,6 +7,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/roman-redl/verdict/internal/model"
+	"github.com/roman-redl/verdict/internal/pipeline"
+)
+
+// Fixture values repeated across the tests.
+const (
+	topicCreatine = "creatine"
+	verdictWeak   = "weak"
 )
 
 // stamp formats an index timestamp the way the CLI does.
@@ -36,11 +45,11 @@ func TestRecordAndRuns(t *testing.T) {
 	require.NoError(t, d.Record(ctx, base))
 
 	// a re-record of the same dir is an update, not a duplicate
-	base.Verdict = "weak"
+	base.Verdict = verdictWeak
 	require.NoError(t, d.Record(ctx, base))
 
 	require.NoError(t, d.Record(ctx, Row{
-		Topic: "creatine", Run: "r2", Dir: "runs/creatine/r2",
+		Topic: topicCreatine, Run: "r2", Dir: "runs/creatine/r2",
 		Verdict: "strong", GeneratedAt: stamp(now),
 	}))
 
@@ -48,13 +57,13 @@ func TestRecordAndRuns(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, all, 2)
-	require.Equal(t, "creatine", all[0].Topic, "newest first")
+	require.Equal(t, topicCreatine, all[0].Topic, "newest first")
 
 	one, err := d.Runs(ctx, "keratosis")
 	require.NoError(t, err)
 
 	require.Len(t, one, 1, "topic filter")
-	require.Equal(t, "weak", one[0].Verdict, "upsert")
+	require.Equal(t, verdictWeak, one[0].Verdict, "upsert")
 	require.Equal(t, 10, one[0].Papers, "upsert")
 }
 
@@ -99,7 +108,7 @@ func TestOpenAdoptsDatabaseFromBeforeMigrations(t *testing.T) {
 	require.Equal(t, "runs/creatine/r1", rows[0].Dir)
 	require.Equal(t, 12, rows[0].Papers)
 
-	require.NoError(t, d.Record(ctx, Row{Topic: "creatine", Run: "r2", Dir: "runs/creatine/r2"}))
+	require.NoError(t, d.Record(ctx, Row{Topic: topicCreatine, Run: "r2", Dir: "runs/creatine/r2"}))
 	require.Equal(t, latestVersion(t), schemaVersion(t, d), "the database must be adopted at the latest version")
 }
 
@@ -145,6 +154,35 @@ func TestOpenSetsConnectionPragmas(t *testing.T) {
 func TestOpenRejectsQuestionMarkInPath(t *testing.T) {
 	_, err := Open(t.Context(), filepath.Join(t.TempDir(), "a?b.db"))
 	require.Error(t, err)
+}
+
+// A finished run is indexed from its state: the topic is the parent directory
+// name, the paper count does not double count the enriched list.
+func TestRecordRun(t *testing.T) {
+	d := openTemp(t)
+	ctx := t.Context()
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+
+	st := &pipeline.State{
+		Question: "does it work",
+		Papers:   []model.Paper{{DOI: "10.1/a"}, {DOI: "10.1/b"}, {DOI: "10.1/c"}},
+		Enriched: []model.EnrichedPaper{{DOI: "10.1/a"}, {DOI: "10.1/b"}},
+		Report:   &model.Report{Verdict: verdictWeak, ConsensusStatus: "contested"},
+	}
+
+	require.NoError(t, d.RecordRun(ctx, filepath.Join("runs", topicCreatine, "does-it-work-1"), st, now))
+
+	rows, err := d.Runs(ctx, topicCreatine)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, Row{
+		Topic: topicCreatine, Run: "does-it-work-1", Dir: filepath.Join("runs", topicCreatine, "does-it-work-1"),
+		Question: "does it work", Verdict: verdictWeak, Consensus: "contested", Papers: 2,
+		GeneratedAt: "2026-11-01T12:00:00Z",
+	}, rows[0])
+
+	st.Report = nil
+	require.Error(t, d.RecordRun(ctx, "runs/t/r", st, now), "a partial run has nothing to index")
 }
 
 func schemaVersion(t *testing.T, d *DB) int {
