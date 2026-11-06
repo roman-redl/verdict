@@ -25,6 +25,10 @@ const (
 	valueUnknown    = "unknown" // design_quality / relevance — no data
 	valueUnclear    = "unclear" // sample_adequacy / result_direction — no data
 	relevanceDirect = "direct"  // relevance: the study is directly about the question
+
+	// relevanceIndirect: the abstract does not report the asked outcome. The hybrid
+	// pass still gives these studies a full text when direct ones leave slots free.
+	relevanceIndirect = "indirect"
 )
 
 // critiqueSystemPrompt — the single-study form, used as the fallback for
@@ -102,7 +106,7 @@ func critiqueInput(e model.EnrichedPaper) map[string]any {
 		"study_design":       e.StudyDesign,
 		"cited_by_count":     e.CitedByCount,
 		"abstract":           truncate(e.Abstract, 3500),
-		"full_text":          truncate(e.FullText, 12000),
+		"full_text":          truncate(e.FullText, critiqueFullTextChars),
 		"tldr":               e.TLDR, // when no abstract exists at all
 		"scite_tally":        e.Tally,
 		"contradicting_dois": e.ContradictingDOIs,
@@ -240,7 +244,7 @@ func matchCritiques(papers []model.EnrichedPaper, critiques []model.Critique) ma
 // misses it, so the study is re-critiqued instead of being served stale.
 func critiqueCacheKey(e model.EnrichedPaper, question string) string {
 	//nolint:gosec // a non-cryptographic fingerprint in the cache key; another algorithm would invalidate existing caches
-	h := sha1.Sum([]byte(e.Abstract + "\x1f" + truncate(e.FullText, 12000) + "\x1f" + e.StudyDesign))
+	h := sha1.Sum([]byte(e.Abstract + "\x1f" + truncate(e.FullText, critiqueFullTextChars) + "\x1f" + e.StudyDesign))
 	return model.NormalizeDOI(e.DOI) + "\x00" + question + "\x00" + fmt.Sprintf("%x", h)[:12]
 }
 

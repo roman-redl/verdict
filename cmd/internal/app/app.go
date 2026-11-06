@@ -11,6 +11,7 @@ import (
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/consensus"
 	"github.com/roman-redl/verdict/internal/crossref"
+	"github.com/roman-redl/verdict/internal/europepmc"
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/openalex"
 	"github.com/roman-redl/verdict/internal/pdf"
@@ -74,11 +75,15 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 		return pipeline.Clients{}, err
 	}
 
+	epmc := europepmc.New() // no key needed; abstracts and full texts
+
 	clients := pipeline.Clients{
 		Citations:    scite.New(cfg.SciteAPIKey),         // key is optional
 		Works:        openalex.New(cfg.OpenAlexEmail),    // no key needed
 		Notices:      crossref.New(cfg.OpenAlexEmail),    // no key needed
 		Scholar:      s2.New(cfg.S2APIKey),               // key optional
+		Abstracts:    epmc,                               // abstracts OpenAlex lacks
+		FullTexts:    epmc,                               // OA full texts as XML, before the PDF
 		Commentary:   pubpeer.New(cfg.PubPeerDevKey),     // behind a devkey; HasKey gates the check
 		Search:       consensus.New(cfg.ConsensusAPIKey), // mode B; key optional, HasKey gates discovery
 		PDFs:         pdf.NewDownloader(),

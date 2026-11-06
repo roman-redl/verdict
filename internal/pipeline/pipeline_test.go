@@ -21,7 +21,7 @@ func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, n
 
 // Fixture values repeated across the shared tests (goconst): placeholder
 // DOIs, corpus sources and the critique vocabulary. The relevance values
-// reuse the package constant relevanceDirect.
+// reuse the package constants relevanceDirect and relevanceIndirect.
 const (
 	doiA              = "10.1/a"
 	doiB              = "10.1/b"
@@ -31,7 +31,7 @@ const (
 	qualityHigh       = "high"
 	qualityModerate   = "moderate"
 	qualityLow        = "low"
-	relevanceIndirect = "indirect"
+	relevanceTangent  = "tangential"
 	directionPositive = "positive"
 	directionNegative = "negative"
 	directionMixed    = "mixed"

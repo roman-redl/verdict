@@ -3,7 +3,8 @@ package pipeline
 // Stage 2: enrichment. Batched Scite tallies and a Semantic Scholar request,
 // then per paper: OpenAlex (retractions, open-access links, abstracts) and
 // Crossref update notices (the Retraction Watch signal, typically ahead of
-// OpenAlex), full texts, PubPeer commentary and the Scite drill-down. One
+// OpenAlex), full texts, PubPeer commentary and the Scite drill-down; at the
+// end one Europe PMC request fills the abstracts still missing. One
 // source failing for one paper does not kill the stage — it is recorded in
 // Errors/Warnings and synthesis proceeds on partial data.
 
@@ -78,11 +79,16 @@ func (p *Pipeline) enrich(ctx context.Context, rp runParams, st *State) error {
 		return fmt.Errorf("enriching the papers: %w", err)
 	}
 
-	for _, u := range updates {
-		if u.doi != "" {
-			batch.cache[u.doi] = u.entry
+	for i := range updates {
+		if updates[i].doi != "" {
+			batch.cache[updates[i].doi] = updates[i].entry
 		}
 	}
+
+	// After the cache merge, so the filled abstracts reach the entries of
+	// fresh papers and of cached ones alike.
+	_, warns = p.fillAbstracts(ctx, enriched, batch.cache)
+	st.Warnings = append(st.Warnings, warns...)
 
 	if err := batch.cache.Save(cachePath); err != nil {
 		p.log.Warn("enrichment cache not saved", "err", err)
@@ -126,12 +132,13 @@ func (p *Pipeline) enrichPaper(
 	p.drillDownContradictions(ctx, &e)
 
 	return e, cacheUpdate{doi: doi, entry: CacheEntry{
-		CheckedAt: p.now(),
-		Abstract:  e.Abstract,
-		OALink:    e.OALink,
-		Retracted: e.Flags.Retracted,
-		Reason:    e.Flags.Reason,
-		Notes:     e.Flags.Notes,
+		CheckedAt:      p.now(),
+		Abstract:       e.Abstract,
+		AbstractSource: e.AbstractSource,
+		OALink:         e.OALink,
+		Retracted:      e.Flags.Retracted,
+		Reason:         e.Flags.Reason,
+		Notes:          e.Flags.Notes,
 	}}
 }
 
@@ -141,7 +148,11 @@ func applyCached(e *model.EnrichedPaper, c CacheEntry) {
 		e.Flags.Reason = c.Reason
 	}
 
-	e.Abstract = cmp.Or(e.Abstract, c.Abstract)
+	if e.Abstract == "" {
+		e.Abstract = c.Abstract
+		e.AbstractSource = c.AbstractSource
+	}
+
 	e.OALink = cmp.Or(e.OALink, c.OALink)
 	e.Flags.Notes = append(e.Flags.Notes, c.Notes...)
 }
@@ -218,11 +229,12 @@ func applyScholar(e *model.EnrichedPaper, r model.ScholarRecord) {
 }
 
 // attachFullText supplies the paper's full text: a PDF pre-placed in the run
-// directory is always used; OA PDFs are downloaded in full mode. The critic
-// then reads the whole paper, and the PDF stays for the vision stage.
+// directory is always used; in full mode the OA full text is fetched (Europe
+// PMC XML, else the PDF). The critic then reads the whole paper; a downloaded
+// PDF stays for the vision stage.
 func (p *Pipeline) attachFullText(ctx context.Context, b *enrichBatch, e *model.EnrichedPaper) {
-	if txt := p.fetchFullText(ctx, b.dir, e, b.download); txt != "" {
-		e.FullText = txt
+	if txt, src := p.fetchFullText(ctx, b.dir, e, b.download); txt != "" {
+		e.FullText, e.FullTextSource = txt, src
 	}
 }
 

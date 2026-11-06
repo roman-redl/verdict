@@ -169,6 +169,43 @@ func (f *fakeScholar) Lookup(_ context.Context, dois []string) (map[string]model
 	return f.lookup(dois)
 }
 
+type fakeAbstracts struct {
+	calls     counter
+	asked     [][]string // the DOIs of each call
+	abstracts func(dois []string) (map[string]string, error)
+}
+
+var _ Abstracts = (*fakeAbstracts)(nil)
+
+func (f *fakeAbstracts) Abstracts(_ context.Context, dois []string) (map[string]string, error) {
+	f.calls.add("Abstracts")
+	f.asked = append(f.asked, dois)
+
+	if f.abstracts == nil {
+		return map[string]string{}, nil
+	}
+
+	return f.abstracts(dois)
+}
+
+// fakeFullTexts serves the Europe PMC full texts: a canned text per DOI
+// (a DOI absent from the map has none), or one error for every call.
+type fakeFullTexts struct {
+	calls counter
+	texts map[string]string
+	err   error
+	maxes []int // the cap each call carried
+}
+
+var _ FullTexts = (*fakeFullTexts)(nil)
+
+func (f *fakeFullTexts) FullText(_ context.Context, doi string, maxChars int) (string, error) {
+	f.calls.add("FullText:" + doi)
+	f.maxes = append(f.maxes, maxChars)
+
+	return f.texts[doi], f.err
+}
+
 type fakeCommentary struct {
 	calls counter
 	key   bool

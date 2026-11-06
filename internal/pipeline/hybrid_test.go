@@ -60,7 +60,7 @@ func TestParseTextModeAndEngine(t *testing.T) {
 }
 
 // Pivotal = direct studies first, then design quality, then citation heat —
-// capped, non-direct never selected.
+// capped; the one indirect study only fills a slot the direct ones leave.
 func TestPivotalStudies(t *testing.T) {
 	st := &State{}
 
@@ -70,7 +70,7 @@ func TestPivotalStudies(t *testing.T) {
 	}{
 		{doiA, qualityHigh, relevanceDirect, 3},
 		{doiB, qualityModerate, relevanceDirect, 0},
-		{"10.1/c", qualityHigh, relevanceIndirect, 99}, // hot but not direct
+		{"10.1/c", qualityHigh, relevanceIndirect, 99}, // hot, but indirect: after every direct study
 		{"10.1/d", qualityHigh, relevanceDirect, 10},   // outranks a on heat
 		{"10.1/e", qualityLow, relevanceDirect, 0},
 	} {
@@ -92,8 +92,10 @@ func TestPivotalStudies(t *testing.T) {
 		require.Equal(t, want[i], st.Enriched[idx].DOI)
 	}
 
-	// every direct study, capped only by max
-	assert.Len(t, pivotalStudies(st, 99), 4, "uncapped pivotal must keep all 4 direct studies")
+	// every direct study, then the indirect one in the free slot
+	all := pivotalStudies(st, 99)
+	require.Len(t, all, 5, "uncapped pivotal must keep all 4 direct studies and the indirect one")
+	assert.Equal(t, "10.1/c", st.Enriched[all[4]].DOI, "the indirect study comes last")
 }
 
 // The deepening pass fetches full texts for the pivotal studies only,
@@ -109,12 +111,12 @@ func TestHybridDeepen(t *testing.T) {
 
 	a := ep(doiA) // direct, high — pivotal, OA link serves a PDF
 	a.OALink = oaPDFA
-	b := ep(doiB) // indirect — never fetched even though it has a link
+	b := ep(doiB) // tangential — never fetched even though it has a link
 	b.OALink = "https://oa.test/b.pdf"
 
 	batch := `{"critiques":[` +
 		`{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"},` +
-		`{"doi":"10.1/b","design_quality":"moderate","relevance":"indirect","result_direction":"null"}]}`
+		`{"doi":"10.1/b","design_quality":"moderate","relevance":"tangential","result_direction":"null"}]}`
 	s := &scriptCompleter{replies: []string{batch}}
 
 	p := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d, HybridPivotalMax: 2},
@@ -123,7 +125,7 @@ func TestHybridDeepen(t *testing.T) {
 		Question: "q?", Enriched: []model.EnrichedPaper{a, b},
 		Critiques: []model.Critique{
 			crit(doiA, qualityHigh, relevanceDirect, directionPositive),
-			crit(doiB, qualityModerate, relevanceIndirect, directionNull),
+			crit(doiB, qualityModerate, relevanceTangent, directionNull),
 		},
 		Cost: &CostReport{},
 	}
@@ -199,4 +201,75 @@ func TestHybridDoneSerializes(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, string(b), `"hybrid_done":true`, "hybrid_done not serialized")
+}
+
+// Indirect studies take the slots direct ones leave free — same ranking
+// inside the tier — while tangential and unknown studies never get one.
+func TestPivotalStudiesFillsFreeSlotsWithIndirect(t *testing.T) {
+	const (
+		indLow  = "10.1/ind-low"
+		indHigh = "10.1/ind-high"
+		indHot  = "10.1/ind-hot"
+		dir     = "10.1/dir"
+	)
+
+	st := &State{}
+
+	for _, spec := range []struct {
+		doi, quality, relevance string
+		heat                    int
+	}{
+		{indLow, qualityLow, relevanceIndirect, 50},
+		{indHigh, qualityHigh, relevanceIndirect, 0},
+		{"10.1/tan", qualityHigh, relevanceTangent, 99},
+		{dir, qualityLow, relevanceDirect, 0}, // weakest design, still ahead of every indirect
+		{"10.1/unk", qualityHigh, valueUnknown, 99},
+		{indHot, qualityHigh, relevanceIndirect, 9},
+	} {
+		e := ep(spec.doi)
+		if spec.heat > 0 {
+			e.Tally = &model.CitationTally{Supporting: spec.heat}
+		}
+
+		st.Enriched = append(st.Enriched, e)
+		st.Critiques = append(st.Critiques, crit(spec.doi, spec.quality, spec.relevance, directionNull))
+	}
+
+	dois := func(limit int) []string {
+		idxs := pivotalStudies(st, limit)
+		out := make([]string, 0, len(idxs))
+
+		for _, idx := range idxs {
+			out = append(out, st.Enriched[idx].DOI)
+		}
+
+		return out
+	}
+
+	assert.Equal(t, []string{dir}, dois(1), "direct first; the cap leaves no slot for indirect")
+	assert.Equal(t, []string{dir, indHot, indHigh}, dois(3),
+		"free slots go to indirect studies: design quality, then citation heat")
+	assert.Equal(t, []string{dir, indHot, indHigh, indLow}, dois(99),
+		"tangential and unknown never qualify, whatever the cap")
+}
+
+// An indirect study with a full text is deepened, and the re-critique
+// replaces its abstract critique: relevance and direction come from the text.
+func TestHybridDeepenIndirectStudyBecomesDirect(t *testing.T) {
+	xml := &fakeFullTexts{texts: map[string]string{doiA: "## Results\nSecondary outcome: bleeding 2% vs 5%"}}
+	reply := `{"critiques":[{"doi":"10.1/a","design_quality":"high","relevance":"direct","result_direction":"positive"}]}`
+	s := &scriptCompleter{replies: []string{reply}}
+	p := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d, HybridPivotalMax: 2},
+		Clients{LLM: s, FullTexts: xml}, quietLog())
+	st := &State{
+		Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)},
+		Critiques: []model.Critique{crit(doiA, qualityHigh, relevanceIndirect, "unclear")}, Cost: &CostReport{},
+	}
+
+	require.NoError(t, p.hybridDeepen(context.Background(), params(Options{RunDir: t.TempDir()}), st))
+
+	assert.Equal(t, fullTextSourceEuropePMC, st.Enriched[0].FullTextSource)
+	assert.Contains(t, s.prompts[0], "bleeding 2% vs 5%", "the critic reads the XML text")
+	assert.Equal(t, relevanceDirect, st.Critiques[0].Relevance, "the deep critique replaces the abstract one")
+	assert.Equal(t, directionPositive, st.Critiques[0].ResultDirection)
 }

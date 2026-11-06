@@ -65,8 +65,10 @@ type Clients struct {
 	Works      Works          // OpenAlex: metadata, retraction flags, keyword discovery
 	Notices    Notices        // Crossref: retraction and correction notices
 	Scholar    Scholar        // Semantic Scholar: TLDRs, abstracts OpenAlex misses, OA PDFs
+	Abstracts  Abstracts      // Europe PMC: abstracts the primary sources lack
 	Commentary Commentary     // PubPeer: post-publication commentary (behind a developer key)
 	Search     SemanticSearch // Consensus: semantic discovery (behind an API key)
+	FullTexts  FullTexts      // Europe PMC: open-access full texts as XML, tried before the PDF download
 	PDFs       PDFSource      // open-access PDF download
 	PDFText    PDFText        // PDF text extraction
 	LLM        Completer      // the critic: the per-paper methodology review
@@ -243,7 +245,10 @@ func (p *Pipeline) resumeStage(ctx context.Context, rp runParams, st *State, nam
 
 	p.log.Info("stage skipped: artifact on disk", "stage", name)
 
-	if name == stageCritique {
+	switch name {
+	case stageEnrichment:
+		return p.refillLoadedAbstracts(ctx, rp, st, artifact)
+	case stageCritique:
 		return p.deepenLoadedCritique(ctx, rp, st, artifact)
 	}
 

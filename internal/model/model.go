@@ -140,6 +140,9 @@ type EnrichedPaper struct {
 	Tally  *CitationTally `json:"tally,omitempty"`
 	Flags  RedFlags       `json:"flags"`
 	Errors []string       `json:"errors,omitempty"` // which sources failed for this paper
+	// AbstractSource names the fallback source the abstract came from; empty
+	// when the primary sources (OpenAlex, Semantic Scholar, discovery) had it.
+	AbstractSource string `json:"abstract_source,omitempty"`
 	// From Semantic Scholar (second source): a one-sentence summary when the
 	// abstract is missing, and how many citations S2 marks influential.
 	TLDR                 string `json:"tldr,omitempty"`
@@ -147,11 +150,15 @@ type EnrichedPaper struct {
 	// ContradictingDOIs is the Scite drill-down (paid scope): who cited this
 	// paper as contradicted — grounds "who exactly is against".
 	ContradictingDOIs []string `json:"contradicting_dois,omitempty"`
-	// FullText is the extracted text of the paper's PDF (full text mode, the
-	// hybrid deepening pass, or a file dropped into fulltext/).
-	// the critic reads it instead of the abstract when present. The PDF
-	// itself sits in <run>/fulltext/<doi>.pdf for the vision stage.
+	// FullText is the text of the paper's open-access full text (Europe PMC
+	// XML or an extracted PDF) in full text mode, the hybrid deepening pass,
+	// or from a file dropped into fulltext/. The critic reads it instead of
+	// the abstract when present. A PDF itself sits in <run>/fulltext/<doi>.pdf
+	// for the vision stage.
 	FullText string `json:"full_text,omitempty"`
+	// FullTextSource names where FullText came from: "europepmc" (JATS XML)
+	// or "pdf". Empty in artifacts written before the field existed.
+	FullTextSource string `json:"full_text_source,omitempty"`
 }
 
 // Critique is the per-paper methodology review (the map step of the LLM stage).

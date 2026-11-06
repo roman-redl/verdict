@@ -9,7 +9,7 @@ import (
 // The ports. Everything with a side effect that the pipeline needs from
 // outside — HTTP APIs, PDF download and parsing, the LLM — is an interface
 // declared here, on the consumer's side; the adapters (internal/scite,
-// openalex, crossref, s2, pubpeer, consensus, pdf, llm) implement it and are
+// openalex, crossref, s2, europepmc, pubpeer, consensus, pdf, llm) implement it and are
 // wired in cmd/internal/app. The pipeline tests run on handwritten fakes.
 //
 // Where a method returns (nil, nil), it means "the source knows nothing about
@@ -52,6 +52,26 @@ type Notices interface {
 type Scholar interface {
 	// Lookup returns records keyed by normalized DOI; unknown DOIs are absent.
 	Lookup(ctx context.Context, dois []string) (map[string]model.ScholarRecord, error)
+}
+
+// Abstracts is the fallback abstract source (Europe PMC): OpenAlex withholds
+// the abstracts of publisher-restricted works.
+type Abstracts interface {
+	// Abstracts returns plain-text abstracts keyed by normalized DOI; DOIs
+	// without one are absent. When a request fails, the map holds what was
+	// collected before the failure, together with the error.
+	Abstracts(ctx context.Context, dois []string) (map[string]string, error)
+}
+
+// FullTexts is the open-access full-text source (Europe PMC JATS XML). It is
+// tried before the PDF download: the XML needs no landing-page guessing and
+// keeps the tables as text.
+type FullTexts interface {
+	// FullText returns the plain text of the paper's open-access full text,
+	// at most maxChars characters (results and tables come first, so the cut
+	// falls on the least informative part). ("", nil) means the source has no
+	// open-access full text for the DOI.
+	FullText(ctx context.Context, doi string, maxChars int) (string, error)
 }
 
 // Commentary is the post-publication commentary source (PubPeer).

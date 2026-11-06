@@ -124,7 +124,7 @@ func (c *Client) DoJSON(ctx context.Context, method, url string, body, out any, 
 }
 
 // Get fetches a raw resource with the shared retry/rate-limit machinery
-// (used for OA PDF downloads). maxBytes caps the response; a larger one is an
+// (OA PDF downloads, Europe PMC full-text XML). maxBytes caps the response; a larger one is an
 // error rather than a silently truncated file.
 func (c *Client) Get(ctx context.Context, url string, maxBytes int64) ([]byte, error) {
 	return c.send(ctx, request{

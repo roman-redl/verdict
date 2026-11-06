@@ -18,6 +18,11 @@ const (
 	batchReply = `{"critiques":[` +
 		`{"doi":"10.1000/a","design_quality":"high","relevance":"direct","result_direction":"positive"},` +
 		`{"doi":"10.1000/b","design_quality":"low","relevance":"indirect","result_direction":"null"}]}`
+	// batchReplyTangential: the second study is off-topic, so the hybrid pass
+	// leaves it on its abstract (an indirect one would get a free slot).
+	batchReplyTangential = `{"critiques":[` +
+		`{"doi":"10.1000/a","design_quality":"high","relevance":"direct","result_direction":"positive"},` +
+		`{"doi":"10.1000/b","design_quality":"low","relevance":"tangential","result_direction":"null"}]}`
 	synthesisReply = `{"verdict":"moderate","verdict_rationale":"10.1000/a leads",` +
 		`"consensus_status":"emerging","consensus":"leans positive",` +
 		`"matrix_notes":{"10.1000/a":"the pivotal trial"},"gaps":["few studies"]}`
@@ -188,7 +193,7 @@ func loadCritiqueArtifact(t *testing.T, runDir string) *State {
 // re-critique of it (all inside the critique stage), then ONE synthesis on the
 // final critiques.
 func TestRunHybridSynthesizesOnce(t *testing.T) {
-	p, _, llm := runFakes(t, batchReply, recritiqueReply, synthesisReply)
+	p, _, llm := runFakes(t, batchReplyTangential, recritiqueReply, synthesisReply)
 	runDir := filepath.Join(t.TempDir(), "run")
 
 	st, _, err := p.Run(t.Context(), Options{
@@ -200,7 +205,8 @@ func TestRunHybridSynthesizesOnce(t *testing.T) {
 	assert.Contains(t, llm.prompts[2], "dropout hidden", "the synthesis sees the deepened critique")
 	assert.True(t, st.HybridDone)
 	assert.Equal(t, "FULL TEXT", st.Enriched[0].FullText, "the pivotal study read in full")
-	assert.Empty(t, st.Enriched[1].FullText, "the indirect study stays on its abstract")
+	assert.Empty(t, st.Enriched[1].FullText, "the tangential study stays on its abstract")
+	assert.Equal(t, fullTextSourcePDF, st.Enriched[0].FullTextSource)
 	assert.Equal(t, 2, st.Cost.Critique.Calls)
 	assert.Equal(t, 1, st.Cost.Synthesis.Calls)
 	assert.FileExists(t, filepath.Join(runDir, "fulltext", "10.1000_a.pdf"))
@@ -249,7 +255,7 @@ func TestRunResumeDeepensOldStyleCritiqueArtifact(t *testing.T) {
 	runDir := filepath.Join(t.TempDir(), "run")
 
 	// lean through the critique: the artifact has HybridDone == false
-	p1, _, llm1 := runFakes(t, batchReply)
+	p1, _, llm1 := runFakes(t, batchReplyTangential)
 	_, _, err := p1.Run(t.Context(), Options{DOIFile: list, RunDir: runDir, StopAfter: "3", TextMode: TextLean})
 	require.NoError(t, err)
 	require.Equal(t, 1, llm1.calls)

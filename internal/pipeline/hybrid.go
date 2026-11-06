@@ -14,15 +14,25 @@ import (
 	"sort"
 )
 
-// pivotalStudies ranks the studies the verdict rests on: direct relevance
-// only, then design quality (high > moderate > low > unknown), then Scite
-// support heat (supporting + contradicting citations). Returns indices into
-// st.Enriched / st.Critiques (they are parallel), at most maxStudies.
+// pivotalStudies ranks the studies the verdict rests on, and so the ones that
+// get a full text: direct studies first, then — only for the slots the direct
+// ones leave free — indirect ones. Within each tier: design quality (high >
+// moderate > low > unknown), then Scite support heat (supporting +
+// contradicting citations). Tangential and unknown studies are never chosen.
+//
+// Indirect studies qualify because the abstract is what made them indirect:
+// a secondary outcome is often reported only in the full text, and the deep
+// re-critique of that text can turn the study direct. Choosing direct studies
+// only would deny exactly those studies the text that settles their relevance.
+//
+// Returns indices into st.Enriched / st.Critiques (they are parallel), at
+// most maxStudies.
 func pivotalStudies(st *State, maxStudies int) []int {
 	type candidate struct {
-		idx  int
-		rank int
-		heat int
+		idx      int
+		indirect bool
+		rank     int
+		heat     int
 	}
 
 	qualityRank := map[string]int{"high": 3, "moderate": 2, "low": 1} // unknown → 0
@@ -30,7 +40,12 @@ func pivotalStudies(st *State, maxStudies int) []int {
 	var out []candidate
 
 	for i := range st.Critiques {
-		if i >= len(st.Enriched) || st.Critiques[i].Relevance != relevanceDirect {
+		if i >= len(st.Enriched) {
+			continue
+		}
+
+		relevance := st.Critiques[i].Relevance
+		if relevance != relevanceDirect && relevance != relevanceIndirect {
 			continue
 		}
 
@@ -39,10 +54,17 @@ func pivotalStudies(st *State, maxStudies int) []int {
 			heat = t.Supporting + t.Contradicting
 		}
 
-		out = append(out, candidate{idx: i, rank: qualityRank[st.Critiques[i].DesignQuality], heat: heat})
+		out = append(out, candidate{
+			idx: i, indirect: relevance == relevanceIndirect,
+			rank: qualityRank[st.Critiques[i].DesignQuality], heat: heat,
+		})
 	}
 
 	sort.SliceStable(out, func(a, b int) bool {
+		if out[a].indirect != out[b].indirect {
+			return !out[a].indirect
+		}
+
 		if out[a].rank != out[b].rank {
 			return out[a].rank > out[b].rank
 		}
@@ -76,10 +98,13 @@ func (p *Pipeline) hybridPass(ctx context.Context, rp runParams, st *State) erro
 	return nil
 }
 
-// hybridDeepen fetches OA full texts for the pivotal studies and re-critiques
-// the changed ones with the deep client (Clients.LLMDeep, the critic when
-// unset). It does not synthesize. When no pivotal study yields a full text,
-// the pass is a no-op — the abstracts critiques stand.
+// hybridDeepen fetches OA full texts for the pivotal studies (Europe PMC XML,
+// else the PDF) and re-critiques the changed ones with the deep client
+// (Clients.LLMDeep, the critic when unset). The re-critique replaces the
+// whole abstract critique of a study — relevance and direction included — so
+// an indirect study whose full text reports the outcome comes out direct. It
+// does not synthesize. When no pivotal study yields a full text, the pass is
+// a no-op — the abstracts critiques stand.
 func (p *Pipeline) hybridDeepen(ctx context.Context, rp runParams, st *State) error {
 	maxStudies := p.set.HybridPivotalMax
 	if maxStudies <= 0 {
@@ -94,8 +119,8 @@ func (p *Pipeline) hybridDeepen(ctx context.Context, rp runParams, st *State) er
 			continue // already deep (a pre-placed PDF, or an earlier pass)
 		}
 
-		if txt := p.fetchFullText(ctx, rp.dir, e, true); txt != "" {
-			e.FullText = txt
+		if txt, src := p.fetchFullText(ctx, rp.dir, e, true); txt != "" {
+			e.FullText, e.FullTextSource = txt, src
 			got++
 		}
 	}

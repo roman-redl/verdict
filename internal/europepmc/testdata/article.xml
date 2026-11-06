@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE article PUBLIC "-//NLM//DTD JATS (Z39.96) Journal Archiving and Interchange DTD with MathML3 v1.4 20241031//EN" "JATS-archivearticle1-4-mathml3.dtd">
+<article article-type="research-article" xml:lang="en" dtd-version="1.4">
+<front>
+<journal-meta><journal-id journal-id-type="nlm-ta">Trials J</journal-id><publisher><publisher-name>Example Press</publisher-name></publisher></journal-meta>
+<article-meta>
+<article-id pub-id-type="pmcid">PMC1234567</article-id>
+<article-id pub-id-type="doi">10.1000/example.2020.1</article-id>
+<title-group><article-title>Tranexamic acid versus placebo in hip surgery: a randomized trial</article-title></title-group>
+<contrib-group><contrib contrib-type="author"><name><surname>Doe</surname><given-names>Jane</given-names></name></contrib></contrib-group>
+<abstract><p>FRONT-MATTER ABSTRACT must not be repeated: the critic gets the abstract separately.</p></abstract>
+<kwd-group><kwd>bleeding</kwd></kwd-group>
+</article-meta>
+</front>
+<body>
+<sec sec-type="intro"><title>Introduction</title>
+<p>Bleeding after hip surgery is common <xref ref-type="bibr" rid="B1">1</xref>, <xref ref-type="bibr" rid="B2">2</xref>.</p>
+</sec>
+<sec sec-type="methods"><title>Methods</title>
+<p>We randomized 240 adults aged &#8805;18 y to tranexamic acid or placebo.</p>
+<sec><title>Outcomes</title>
+<p>The primary outcome was transfusion; secondary outcomes included major bleeding (<italic>P</italic>&#160;&lt;&#160;0.05 for significance).</p>
+</sec>
+<sec><title>Statistical analysis</title>
+<p>Risk ratios were computed as <inline-formula><alternatives><mml:math xmlns:mml="http://www.w3.org/1998/Math/MathML"><mml:mrow><mml:mi>R</mml:mi><mml:mi>R</mml:mi></mml:mrow></mml:math><tex-math>RR</tex-math></alternatives></inline-formula> with 95% CI.</p>
+<disp-formula id="E1"><mml:math xmlns:mml="http://www.w3.org/1998/Math/MathML"><mml:mi>X</mml:mi></mml:math></disp-formula>
+</sec>
+</sec>
+<sec sec-type="results"><title>Results</title>
+<sec><title>Primary outcome</title>
+<p>Transfusion occurred in 12% of the tranexamic acid group and 31% of the placebo group (RR 0.39, 95% CI 0.24&#8211;0.62).</p>
+</sec>
+<sec><title>Secondary outcomes</title>
+<p>Major bleeding requiring intervention: see <xref ref-type="table" rid="T1">Table 1</xref>.</p>
+<list list-type="bullet"><list-item><p>No thromboembolic events in either group.</p></list-item><list-item><p>Length of stay did not differ.</p></list-item></list>
+<table-wrap id="T1" position="float"><label>Table 1</label>
+<caption><title>Outcomes by group</title></caption>
+<table frame="hsides" rules="groups">
+<col width="40%" span="1"/>
+<thead><tr><th rowspan="2" colspan="1">Outcome</th><th colspan="2" rowspan="1">No. (%)</th><th rowspan="2" colspan="1">RR (95% CI)</th></tr>
+<tr><th rowspan="1" colspan="1">TXA (n = 120)</th><th rowspan="1" colspan="1">Placebo (n = 120)</th></tr></thead>
+<tbody>
+<tr><td rowspan="1" colspan="1">Major bleeding</td><td rowspan="1" colspan="1">3 (2.5)</td><td rowspan="1" colspan="1">11 (9.2)<xref ref-type="table-fn" rid="T1a"><sup>a</sup></xref></td><td rowspan="1" colspan="1">0.27 (0.08&#8211;0.95)</td></tr>
+<tr><td rowspan="1" colspan="1">Transfusion</td><td rowspan="1" colspan="1">14 (12)</td><td rowspan="1" colspan="1">37 (31)</td><td rowspan="1" colspan="1">0.39 (0.24&#8211;0.62)</td></tr>
+<tr><td rowspan="1" colspan="1"/><td rowspan="1" colspan="1"/><td rowspan="1" colspan="1"/><td rowspan="1" colspan="1"/></tr>
+</tbody>
+</table>
+<table-wrap-foot><fn id="T1a"><label>a</label><p>Includes two reoperations.</p></fn></table-wrap-foot>
+</table-wrap>
+<fig id="F1" position="float"><label>Figure 1</label><caption><p>Flow of participants through the trial.</p></caption><graphic xlink:href="f1.jpg" xmlns:xlink="http://www.w3.org/1999/xlink"/></fig>
+</sec>
+</sec>
+<sec sec-type="discussion"><title>Discussion</title>
+<p>Tranexamic acid reduced transfusion &amp; major bleeding.</p>
+</sec>
+</body>
+<back>
+<ack><p>We thank the nurses.</p></ack>
+<app-group><app id="A1"><title>Appendix 1</title><p>Extra sensitivity analysis.</p></app></app-group>
+<ref-list><title>References</title><ref id="B1"><mixed-citation>REFERENCE ENTRY ONE must be dropped.</mixed-citation></ref></ref-list>
+</back>
+</article>

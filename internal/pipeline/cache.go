@@ -48,10 +48,12 @@ type EnrichCache map[string]CacheEntry
 type CacheEntry struct {
 	CheckedAt time.Time `json:"checked_at"`
 	Abstract  string    `json:"abstract,omitempty"`
-	OALink    string    `json:"oa_link,omitempty"`
-	Retracted bool      `json:"retracted,omitempty"`
-	Reason    string    `json:"reason,omitempty"`
-	Notes     []string  `json:"notes,omitempty"`
+	// AbstractSource is set when the abstract came from the fallback source.
+	AbstractSource string   `json:"abstract_source,omitempty"`
+	OALink         string   `json:"oa_link,omitempty"`
+	Retracted      bool     `json:"retracted,omitempty"`
+	Reason         string   `json:"reason,omitempty"`
+	Notes          []string `json:"notes,omitempty"`
 }
 
 // LoadEnrichCache reads the cache and drops entries older than ttl as of now.
