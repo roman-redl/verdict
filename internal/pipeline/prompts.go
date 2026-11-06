@@ -23,6 +23,11 @@ const synthesisSystemPrompt = `You are an evidence assessor. You aggregate per-s
 Respond with a single JSON object, no markdown, with exactly these fields:
 - verdict: "strong" | "moderate" | "weak" | "insufficient"
 - verdict_rationale (string): the chain of reasoning; MUST reference concrete DOIs that drive the verdict
+- effect_direction: "supports" | "no_effect" | "opposite" | "unclear" — the direction of the effect the evidence ` +
+	`states relative to the claim in the question (supports = the claim holds; no_effect = the evidence shows ` +
+	`no meaningful difference; opposite = the opposite effect; unclear = the direction cannot be stated: no ` +
+	`direct study reports the outcome, or the direct studies conflict). It MUST agree with consensus and with ` +
+	`the verdict rationale; the verdict says how certain this direction is
 - consensus_status: "broad_agreement" | "contested" | "emerging" | "no_consensus" | "insufficient_data"
 - consensus (string): WHAT the field's majority position actually IS (direction, not strength) — ` +
 	`1-3 sentences with DOI examples; if contested, state both camps briefly
@@ -33,20 +38,29 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 	`lists the papers Scite found citing a study as refuted — ground "who exactly is against" in them when present
 - gaps (array of strings): what is missing to judge (no data, single study, few citations, publication-bias risk, ...)
 
-Verdict definitions:
-- strong: multiple independent studies of high/moderate design quality with adequate samples, ` +
-	`consistent direction, no unresolved contradictions
-- moderate: consistent but limited evidence (few studies, weaker designs, small samples, or indirect relevance)
-- weak: sparse, low-quality, indirect, or unreplicated evidence
-- insufficient: evidence body too small or too contradictory to judge
+Verdict definitions — the certainty that the stated direction (supports the claim / no effect / opposite) ` +
+	`is right, rated GRADE-style over the direct studies:
+- Start from the design: randomized trials start at strong, observational studies at weak.
+- Lower one level for each serious problem: risk of bias; inconsistency between direct studies; ` +
+	`indirectness (population, intervention, comparator or outcome differ from the question); imprecision ` +
+	`(few participants or events, a single small study, results compatible with both benefit and no effect); ` +
+	`suspected publication bias or a single research group. Raise observational evidence only for a very large, ` +
+	`consistent effect.
+- strong = high certainty, moderate = moderate, weak = low, insufficient = very low certainty ` +
+	`or no direct study reporting the question's outcome.
+- The number of studies is not a level by itself: one adequately sized, well-conducted randomized trial ` +
+	`reporting the outcome is usually moderate (lowered once for imprecision or lack of replication), not insufficient.
+- No effect is a conclusion, not the lack of one: when adequately powered direct studies consistently find ` +
+	`no meaningful difference, the direction is "no effect" and the verdict rates the certainty of that. ` +
+	`An underpowered null result is imprecision; it does not show the absence of an effect.
 
 Consensus status definitions (about the DIRECTION of the field's position; ` +
 	`verdict is about evidence STRENGTH — they are independent):
 - broad_agreement: most direct, high/moderate-quality studies point the same way
 - contested: strong studies genuinely disagree on direction
-- emerging: few studies yet, a direction is taking shape
+- emerging: one or a few direct studies point the same way (including "no effect")
 - no_consensus: enough studies, but no coherent position
-- insufficient_data: too few direct studies to speak of consensus at all
+- insufficient_data: no direct study reports the question's outcome, so no direction can be stated
 
 Hard rules:
 1. The numeric evidence matrix is assembled by the pipeline from the input; ` +
@@ -62,7 +76,16 @@ Hard rules:
 	`the field leans. Do not duplicate: verdict says how PROVEN it is, ` +
 	`consensus_status/consensus say WHERE the field leans.
 7. Compare author lists across studies: several studies from the same research group are ONE line of evidence, ` +
-	`not independent replications — weigh them accordingly and note any group overlap in contradictions or gaps.`
+	`not independent replications — weigh them accordingly and note any group overlap in contradictions or gaps.
+8. When pooled_estimate is present, it is the pooled effect of the direct studies computed by the pipeline: ` +
+	`use it for direction and imprecision (a CI that excludes no effect supports a direction; a narrow CI ` +
+	`around no effect supports no_effect); never recompute it; individual non-significant studies do not ` +
+	`outweigh a significant pooled estimate. The measure is intervention versus control: ratios (RR, OR, HR) ` +
+	`have no effect at 1, differences (MD, SMD) at 0; read the sign against the change the claim states ` +
+	`(e.g. a claim of lower risk is supported by RR below 1) before stating the direction. ` +
+	`With method "single_study" nothing was pooled: the numbers are one ` +
+	`study's own effect, and a CI that spans no effect with a point estimate near no effect is evidence for ` +
+	`little or no difference only when the CI is narrow; a wide CI is imprecision, not no_effect.`
 
 // synthesisResult is the judge LLM's output. The evidence matrix is NOT part
 // of it: rows are assembled deterministically in Go from the stage data, so
@@ -70,6 +93,7 @@ Hard rules:
 type synthesisResult struct {
 	Verdict          string            `json:"verdict"`
 	VerdictRationale string            `json:"verdict_rationale"`
+	EffectDirection  string            `json:"effect_direction,omitempty"`
 	ConsensusStatus  string            `json:"consensus_status,omitempty"`
 	Consensus        string            `json:"consensus,omitempty"`
 	Notes            map[string]string `json:"matrix_notes,omitempty"` // doi → note
@@ -203,7 +227,12 @@ func synthesisUserPrompt(st *State) (string, error) {
 		items = append(items, it)
 	}
 
-	b, err := json.Marshal(map[string]any{"question": st.Question, "studies": items})
+	data := map[string]any{"question": st.Question, "studies": items}
+	if st.Pooled != nil {
+		data["pooled_estimate"] = st.Pooled
+	}
+
+	b, err := json.Marshal(data)
 	if err != nil {
 		return "", fmt.Errorf("encoding the dataset: %w", err)
 	}
@@ -299,7 +328,12 @@ func renderContextCompact(st *State, skip map[string]bool) string {
 
 	if st.Report != nil {
 		r := st.Report
-		fmt.Fprintf(&b, "Verdict: %s. Consensus: %s.\n", verdictLabel(r.Verdict), consensusLabel(r.ConsensusStatus))
+		fmt.Fprintf(&b, "Verdict: %s.%s Consensus: %s.\n",
+			verdictLabel(r.Verdict), effectDirectionSentence(r.EffectDirection), consensusLabel(r.ConsensusStatus))
+
+		if line := pooledLine(r.PooledEstimate); line != "" {
+			b.WriteString(line + "\n")
+		}
 
 		if r.VerdictRationale != "" {
 			fmt.Fprintf(&b, "Rationale: %s\n", truncate(r.VerdictRationale, 1200))

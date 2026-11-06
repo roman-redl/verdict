@@ -23,7 +23,11 @@ type State struct {
 	Enriched      []model.EnrichedPaper `json:"enriched,omitempty"`
 	Critiques     []model.Critique      `json:"critiques,omitempty"`
 	VisionNotes   []model.VisionNote    `json:"vision_notes,omitempty"`
-	Report        *model.Report         `json:"report,omitempty"`
+	// Pooled is the pooled effect of the direct studies, computed from the
+	// critiques' extracted numbers right before the synthesis; nil when no
+	// direct study reported usable numbers.
+	Pooled *model.PooledEstimate `json:"pooled_estimate,omitempty"`
+	Report *model.Report         `json:"report,omitempty"`
 	// HybridDone records that the hybrid deepening pass (the tail of the
 	// critique stage) has already run for this state, even if it found no full
 	// text to deepen; resume must not repeat it. False in a critique artifact

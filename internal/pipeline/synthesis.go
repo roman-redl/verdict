@@ -26,6 +26,10 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 		return errors.New("final synthesis requires an LLM backend")
 	}
 
+	// the final critiques are in (the hybrid re-critique included): pool the
+	// extracted effects in Go, so that the judge reads the numbers
+	st.Pooled = p.poolEffects(st)
+
 	user, err := judgePrompt(st)
 	if err != nil {
 		return err
@@ -54,6 +58,8 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 		VerdictRationale: jr.VerdictRationale,
 		ConsensusStatus:  jr.ConsensusStatus,
 		Consensus:        jr.Consensus,
+		EffectDirection:  p.effectDirection(jr.EffectDirection),
+		PooledEstimate:   st.Pooled,
 		Contradictions:   jr.Contradictions,
 		Gaps:             jr.Gaps,
 		Matrix:           buildMatrix(st, jr.Notes),
@@ -62,6 +68,20 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 	st.Report = &r
 
 	return nil
+}
+
+// effectDirection normalizes the judge's effect_direction: a missing or
+// unknown value (the model drifted from the prompt) becomes "unclear", with a
+// warning, so the report never carries a word outside the vocabulary.
+func (p *Pipeline) effectDirection(raw string) model.EffectDirection {
+	d, err := model.ParseEffectDirection(raw)
+	if err != nil {
+		p.log.Warn("synthesis effect_direction replaced with unclear", "err", err)
+
+		return model.EffectUnclear
+	}
+
+	return d
 }
 
 // judgePrompt is the judge's user message: the dataset, the optional chart

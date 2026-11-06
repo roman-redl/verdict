@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,14 @@ func RenderMarkdown(st *State) string {
 	b.WriteString("# Evidence Report\n\n")
 	fmt.Fprintf(&b, "**Question:** %s\n\n", r.Question)
 	fmt.Fprintf(&b, "## Verdict: %s\n\n", verdictLabel(r.Verdict))
+
+	if r.EffectDirection != "" {
+		fmt.Fprintf(&b, "**Effect direction:** %s\n\n", effectDirectionLabel(r.EffectDirection))
+	}
+
+	if pe := r.PooledEstimate; pe != nil {
+		fmt.Fprintf(&b, "**%s:** %s\n\n", pooledLabel(pe), pooledText(pe))
+	}
 
 	if r.Consensus != "" || r.ConsensusStatus != "" {
 		fmt.Fprintf(&b, "### Scientific consensus: %s\n\n", consensusLabel(r.ConsensusStatus))
@@ -135,7 +144,12 @@ func RenderContext(st *State) string {
 
 // writeVerdictDigest writes the verdict block of the digest.
 func writeVerdictDigest(b *strings.Builder, r *model.Report) {
-	fmt.Fprintf(b, "Verdict: %s. Consensus: %s.\n", verdictLabel(r.Verdict), consensusLabel(r.ConsensusStatus))
+	fmt.Fprintf(b, "Verdict: %s.%s Consensus: %s.\n",
+		verdictLabel(r.Verdict), effectDirectionSentence(r.EffectDirection), consensusLabel(r.ConsensusStatus))
+
+	if line := pooledLine(r.PooledEstimate); line != "" {
+		b.WriteString(line + "\n")
+	}
 
 	if r.Consensus != "" {
 		fmt.Fprintf(b, "Field position: %s\n", r.Consensus)
@@ -237,6 +251,91 @@ func consensusLabel(s string) string {
 	}
 
 	return orDash(s)
+}
+
+// effectDirectionLabel is the report's wording of the effect direction; a
+// value outside the vocabulary (a hand-edited artifact) is shown as it is.
+func effectDirectionLabel(d model.EffectDirection) string {
+	switch d {
+	case model.EffectSupports:
+		return "supports the claim"
+	case model.EffectNoEffect:
+		return "no meaningful effect"
+	case model.EffectOpposite:
+		return "opposite effect"
+	case model.EffectUnclear:
+		return "cannot be stated"
+	}
+
+	return orDash(string(d))
+}
+
+// effectDirectionSentence is the digest's sentence for the effect direction,
+// with a leading space; empty for a report written before the field existed.
+func effectDirectionSentence(d model.EffectDirection) string {
+	if d == "" {
+		return ""
+	}
+
+	return " Effect direction: " + effectDirectionLabel(d) + "."
+}
+
+// pooledLabel names what pooledText shows.
+func pooledLabel(pe *model.PooledEstimate) string {
+	if pe.Method == model.PoolSingleStudy {
+		return "Effect of the one direct study with numbers (not pooled)"
+	}
+
+	return "Pooled effect of the direct studies (random effects, DerSimonian-Laird)"
+}
+
+// pooledText renders the pooled numbers; Go formats them, the LLM never
+// retypes them.
+func pooledText(pe *model.PooledEstimate) string {
+	// one precision for the three numbers: two decimals, three when any of
+	// them is small, so that a small effect does not read as zero
+	prec := 2
+
+	for _, v := range []float64{pe.Estimate, pe.CILow, pe.CIHigh} {
+		if a := math.Abs(v); a != 0 && a < 0.1 {
+			prec = 3
+		}
+	}
+
+	est := fmt.Sprintf("%s %.*f", pe.Measure, prec, pe.Estimate)
+	if pe.Unit != "" {
+		est += " " + pe.Unit
+	}
+
+	s := fmt.Sprintf("%s (95%% CI %.*f to %.*f), %d %s", est, prec, pe.CILow, prec, pe.CIHigh,
+		pe.K, plural(pe.K, "study", "studies"))
+
+	if pe.Participants > 0 {
+		s += fmt.Sprintf(", %d participants", pe.Participants)
+	}
+
+	if pe.I2 != nil {
+		s += fmt.Sprintf(", I² = %.0f%%", *pe.I2)
+	}
+
+	return s
+}
+
+// pooledLine is the one-line digest entry; empty without a pooled estimate.
+func pooledLine(pe *model.PooledEstimate) string {
+	if pe == nil {
+		return ""
+	}
+
+	return pooledLabel(pe) + ": " + pooledText(pe) + "."
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+
+	return many
 }
 
 func sectionList(b *strings.Builder, title string, items []string) {

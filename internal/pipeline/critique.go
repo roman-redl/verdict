@@ -31,6 +31,36 @@ const (
 	relevanceIndirect = "indirect"
 )
 
+// critiqueEffectField documents the optional effect object in the field list
+// of both critique prompts. The numbers are only extracted here: the pipeline
+// pools them in Go (pool.go), the model never computes.
+const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the text has no numbers for the ` +
+	`question's outcome): the numbers the text reports for the question's outcome, with
+  outcome (short text: which outcome these numbers are for), timepoint (when it was measured; only if stated),
+  and ONE of these:
+  - binary outcome: intervention {events, total} and control {events, total};
+  - continuous outcome: unit (string), intervention {mean, sd, n} and control {mean, sd, n};
+  - only an estimate is reported: measure ("RR" | "OR" | "HR" | "MD" | "SMD"), value, ci_low, ci_high ` +
+	`(the 95% interval as reported), and unit for an MD.`
+
+// critiqueEffectRules are the extraction and judgement rules that go with the
+// effect field.
+const critiqueEffectRules = `Effect extraction rules:
+- "intervention" is the arm that receives the question's intervention, "control" is its comparator — ` +
+	`whatever order the paper lists the arms in; never swap them.
+- Copy the numbers verbatim from the provided text. Do not compute, convert, round or infer anything: ` +
+	`no totals from percentages, no SD from a standard error or an interval, no estimate from counts.
+- Prefer counts or means for both arms; use a reported estimate with its 95% CI only when the arms' numbers ` +
+	`are not given. All numbers are JSON numbers, not strings. When a number is missing, omit the effect ` +
+	`rather than guess. Take the question's primary outcome at its main timepoint.
+
+Result direction from numbers: when the text gives counts, means or an estimate for the question's outcome, ` +
+	`judge result_direction from those numbers even if the authors report no significance test or effect ` +
+	`estimate — "no test reported" alone is not "unclear". Compare the arms: a clear difference in the claim's ` +
+	`direction is positive, a negligible difference is null, the opposite difference is negative; add the ` +
+	`concern "no significance test reported" or "imprecise: few events" where it applies. Use "unclear" only ` +
+	`when the outcome's numbers are absent.`
+
 // critiqueSystemPrompt — the single-study form, used as the fallback for
 // studies a batch dropped. Data comes only from what is provided; the sample
 // size is reported only when it is actually stated in the abstract
@@ -41,6 +71,7 @@ const critiqueSystemPrompt = `You are a rigorous methodologist and peer reviewer
 	`Never invent facts; if data is missing, use the "unknown"/"unclear" values. ` +
 	`Report sample size only if it is explicitly stated. ` +
 	`When full_text is provided, it supersedes the abstract: read the methods and results sections, ` +
+	`judge relevance and result_direction from them, ` +
 	`and report concerns invisible in the abstract (statistical issues, endpoint switching, ` +
 	`dropout handling, unreported exclusions).
 
@@ -53,13 +84,29 @@ relevance: "direct" | "indirect" | "tangential" | "unknown",
 result_direction: "positive" | "null" | "negative" | "mixed" | "unclear" — ` +
 	`the direction of THIS study's own findings relative to the research question ` +
 	`(positive = supports the claim, null = no effect found, negative = opposite effect, mixed = inconsistent outcomes, ` +
-	`unclear = not determinable from the abstract); judge from the reported results only, never from the title's framing,
+	`unclear = not determinable from the provided text); judge from the reported results only, ` +
+	`never from the title's framing; null means the study reports the question's outcome and finds ` +
+	`no meaningful difference — say in strengths or concerns whether it was powered for that outcome,
 strengths (array of short strings),
-concerns (array of short strings).
+concerns (array of short strings),
+` + critiqueEffectField + `
+
+Relevance — the match with the question's population, intervention, comparator and outcome:
+- direct: the study tests the question's intervention against its comparator (or a close equivalent) ` +
+	`in its population. Minor differences (dose, duration, setting, a wait-list instead of a usual-care ` +
+	`control) keep it direct — list them as concerns.
+- indirect: a materially different population, intervention or comparator; the result transfers ` +
+	`to the question only under a stated assumption.
+- tangential: a different question; the study cannot inform this claim.
+Relevance follows the study's design, not what the provided text happens to report: when the ` +
+	`question's outcome is not reported in it, keep the relevance the design deserves, set result_direction ` +
+	`to "unclear" and add the concern "outcome not reported in the provided text".
 
 Design quality guidance: meta-analysis / systematic review of RCTs = high; RCT = high; ` +
 	`large prospective cohort = moderate; small cohort / case-control = low; ` +
-	`case report / narrative review / animal or in-vitro only = low.`
+	`case report / narrative review / animal or in-vitro only = low.
+
+` + critiqueEffectRules
 
 // batchCritiqueSystemPrompt — the batched form of the same contract: same
 // fields, same rules, several studies per call, each assessed independently
@@ -71,6 +118,7 @@ const batchCritiqueSystemPrompt = `You are a rigorous methodologist and peer rev
 	`Never invent facts; if data is missing, use the "unknown"/"unclear" values. ` +
 	`Report sample size only if it is explicitly stated. ` +
 	`When a study's full_text is provided, it supersedes its abstract: read the methods and results sections, ` +
+	`judge relevance and result_direction from them, ` +
 	`and report concerns invisible in the abstract (statistical issues, endpoint switching, ` +
 	`dropout handling, unreported exclusions).
 
@@ -84,13 +132,29 @@ relevance: "direct" | "indirect" | "tangential" | "unknown",
 result_direction: "positive" | "null" | "negative" | "mixed" | "unclear" — ` +
 	`the direction of THIS study's own findings relative to the research question ` +
 	`(positive = supports the claim, null = no effect found, negative = opposite effect, mixed = inconsistent outcomes, ` +
-	`unclear = not determinable from the abstract); judge from the reported results only, never from the title's framing,
+	`unclear = not determinable from the provided text); judge from the reported results only, ` +
+	`never from the title's framing; null means the study reports the question's outcome and finds ` +
+	`no meaningful difference — say in strengths or concerns whether it was powered for that outcome,
 strengths (array of short strings),
-concerns (array of short strings).
+concerns (array of short strings),
+` + critiqueEffectField + `
+
+Relevance — the match with the question's population, intervention, comparator and outcome:
+- direct: the study tests the question's intervention against its comparator (or a close equivalent) ` +
+	`in its population. Minor differences (dose, duration, setting, a wait-list instead of a usual-care ` +
+	`control) keep it direct — list them as concerns.
+- indirect: a materially different population, intervention or comparator; the result transfers ` +
+	`to the question only under a stated assumption.
+- tangential: a different question; the study cannot inform this claim.
+Relevance follows the study's design, not what the provided text happens to report: when the ` +
+	`question's outcome is not reported in it, keep the relevance the design deserves, set result_direction ` +
+	`to "unclear" and add the concern "outcome not reported in the provided text".
 
 Design quality guidance: meta-analysis / systematic review of RCTs = high; RCT = high; ` +
 	`large prospective cohort = moderate; small cohort / case-control = low; ` +
-	`case report / narrative review / animal or in-vitro only = low.`
+	`case report / narrative review / animal or in-vitro only = low.
+
+` + critiqueEffectRules
 
 // critiqueInput is the per-study payload sent to the critic — the explicit
 // field allowlist that keeps Consensus's own takeaways out of the evidence.
@@ -185,7 +249,7 @@ func critiqueBatch(
 		Critiques []model.Critique `json:"critiques"`
 	}
 
-	maxTokens := 1000 + 500*len(papers)
+	maxTokens := 1000 + 700*len(papers) // the extracted effect adds ~150 tokens per study
 
 	usage, err := AskJSON(ctx, client, batchCritiqueSystemPrompt,
 		"Assess each study independently:\n\n"+string(b), &out, maxTokens)

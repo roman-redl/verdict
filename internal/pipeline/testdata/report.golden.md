@@ -4,6 +4,10 @@
 
 ## Verdict: MODERATE — limited but consistent evidence
 
+**Effect direction:** supports the claim
+
+**Pooled effect of the direct studies (random effects, DerSimonian-Laird):** SMD -0.220 (95% CI -0.400 to -0.030), 3 studies, 1234 participants, I² = 42%
+
 ### Scientific consensus: contested
 
 Most direct studies lean positive (10.1000/a), one is mixed (10.1000/c).

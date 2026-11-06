@@ -174,7 +174,11 @@ type Critique struct {
 	ResultDirection string   `json:"result_direction,omitempty"`
 	Strengths       []string `json:"strengths,omitempty"`
 	Concerns        []string `json:"concerns,omitempty"`
-	Error           string   `json:"error,omitempty"`
+	// Effect holds the numbers the text reports for the question's outcome,
+	// extracted by the critic and pooled by the pipeline; nil when the text
+	// has none.
+	Effect *Effect `json:"effect,omitempty"`
+	Error  string  `json:"error,omitempty"`
 }
 
 // MatrixRow is one row of the evidence matrix in the final report. All
@@ -214,12 +218,18 @@ type Report struct {
 	// Consensus is about the DIRECTION the field leans (the verdict is about
 	// the strength of evidence).
 	// broad_agreement | contested | emerging | no_consensus | insufficient_data
-	ConsensusStatus string      `json:"consensus_status,omitempty"`
-	Consensus       string      `json:"consensus,omitempty"` // what the majority claims, with DOIs
-	Matrix          []MatrixRow `json:"evidence_matrix"`
-	Contradictions  []string    `json:"contradictions,omitempty"`
-	Gaps            []string    `json:"gaps,omitempty"`
-	Warnings        []string    `json:"warnings,omitempty"`
+	ConsensusStatus string `json:"consensus_status,omitempty"`
+	Consensus       string `json:"consensus,omitempty"` // what the majority claims, with DOIs
+	// EffectDirection is the direction of the effect the evidence states
+	// relative to the claim; empty in reports written before the field existed.
+	EffectDirection EffectDirection `json:"effect_direction,omitempty"`
+	// PooledEstimate is the pipeline's pooled effect of the direct studies;
+	// nil when no direct study reported usable numbers.
+	PooledEstimate *PooledEstimate `json:"pooled_estimate,omitempty"`
+	Matrix         []MatrixRow     `json:"evidence_matrix"`
+	Contradictions []string        `json:"contradictions,omitempty"`
+	Gaps           []string        `json:"gaps,omitempty"`
+	Warnings       []string        `json:"warnings,omitempty"`
 }
 
 var doiPrefixes = [...]string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"}

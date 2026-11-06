@@ -84,6 +84,11 @@ func reportState() *State {
 			VerdictRationale: "10.1000/a is a well-run RCT; 10.1000/c disagrees on direction.",
 			ConsensusStatus:  "contested",
 			Consensus:        "Most direct studies lean positive (10.1000/a), one is mixed (10.1000/c).",
+			EffectDirection:  model.EffectSupports,
+			PooledEstimate: &model.PooledEstimate{
+				Method: model.PoolRandomEffects, Measure: model.MeasureSMD, Estimate: -0.22, CILow: -0.40, CIHigh: -0.03,
+				K: 3, Participants: 1234, I2: new(41.6), Studies: []string{doiTrial, doiElderly},
+			},
 			Matrix: []model.MatrixRow{
 				{
 					DOI: doiTrial, Title: "Creatine and memory: a randomized trial", Year: 2021, Design: designRCT,
@@ -164,6 +169,71 @@ func TestMarkdownCellEscapes(t *testing.T) {
 	assert.Equal(t, "—", numOrDash(0))
 	assert.Equal(t, "12", numOrDash(12))
 	assert.Equal(t, "—", orDash("  "))
+}
+
+func TestPooledText(t *testing.T) {
+	i2 := new(0.0)
+
+	for _, tc := range []struct {
+		name string
+		pe   model.PooledEstimate
+		want string
+	}{
+		{
+			"ratio with all figures",
+			model.PooledEstimate{
+				Method: model.PoolRandomEffects, Measure: model.MeasureRR, Estimate: 0.4896,
+				CILow: 0.3449, CIHigh: 0.6951, K: 13, Participants: 400000, I2: new(92.12),
+			},
+			"RR 0.49 (95% CI 0.34 to 0.70), 13 studies, 400000 participants, I² = 92%",
+		},
+		{
+			"mean difference with a unit, no participants, no heterogeneity",
+			model.PooledEstimate{
+				Method: model.PoolRandomEffects, Measure: model.MeasureMD, Unit: unitMmHg, Estimate: -2.1,
+				CILow: -3.04, CIHigh: -1.16, K: 2, I2: i2,
+			},
+			"MD -2.10 mmHg (95% CI -3.04 to -1.16), 2 studies, I² = 0%",
+		},
+		{
+			"a single study, a small effect keeps three decimals",
+			model.PooledEstimate{
+				Method: model.PoolSingleStudy, Measure: model.MeasureSMD, Estimate: 0.045,
+				CILow: -0.31, CIHigh: 0.4, K: 1, Participants: 90,
+			},
+			"SMD 0.045 (95% CI -0.310 to 0.400), 1 study, 90 participants",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, pooledText(&tc.pe))
+		})
+	}
+
+	assert.Contains(t, pooledLabel(&model.PooledEstimate{Method: model.PoolSingleStudy}), "not pooled")
+	assert.Contains(t, pooledLabel(&model.PooledEstimate{Method: model.PoolRandomEffects}), "DerSimonian-Laird")
+	assert.Empty(t, pooledLine(nil))
+}
+
+// A report from before the effect fields renders as it did.
+func TestRenderWithoutEffectFields(t *testing.T) {
+	st := reportState()
+	st.Report.EffectDirection, st.Report.PooledEstimate = "", nil
+
+	md := RenderMarkdown(st)
+	assert.NotContains(t, md, "Effect direction")
+	assert.NotContains(t, md, "Pooled effect")
+	assert.NotContains(t, RenderContext(st), "Effect direction")
+	assert.NotContains(t, RenderContext(st), "Pooled")
+}
+
+func TestEffectDirectionLabels(t *testing.T) {
+	assert.Equal(t, "supports the claim", effectDirectionLabel(model.EffectSupports))
+	assert.Equal(t, "no meaningful effect", effectDirectionLabel(model.EffectNoEffect))
+	assert.Equal(t, "opposite effect", effectDirectionLabel(model.EffectOpposite))
+	assert.Equal(t, "cannot be stated", effectDirectionLabel(model.EffectUnclear))
+	assert.Equal(t, "odd", effectDirectionLabel("odd"))
+	assert.Empty(t, effectDirectionSentence(""))
+	assert.Equal(t, " Effect direction: opposite effect.", effectDirectionSentence(model.EffectOpposite))
 }
 
 func TestLabels(t *testing.T) {
