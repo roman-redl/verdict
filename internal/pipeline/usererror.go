@@ -6,6 +6,12 @@ package pipeline
 // daemon) show a generic text and keep the full error in the log.
 type UserError struct {
 	Msg string
+	// Cause is the sentinel behind the message (e.g. ErrLLMStop), so callers
+	// that act on it (the eval loop stops on a usage limit) can match with
+	// errors.Is; it is never shown.
+	Cause error
 }
 
 func (e *UserError) Error() string { return e.Msg }
+
+func (e *UserError) Unwrap() error { return e.Cause }

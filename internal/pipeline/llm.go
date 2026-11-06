@@ -50,7 +50,7 @@ var ErrLLMStop = errors.New("the LLM backend cannot take more calls in this run"
 // errLLMStopped is what the user sees when ErrLLMStop ended a stage.
 func errLLMStopped() *UserError {
 	return &UserError{Msg: "the LLM backend refused further calls (usage limit or login): " +
-		"finished critiques are cached — rerun with --resume after the limit resets"}
+		"finished critiques are cached — rerun with --resume after the limit resets", Cause: ErrLLMStop}
 }
 
 const jsonInstruct = "\n\nRespond with a single valid JSON object and nothing else."

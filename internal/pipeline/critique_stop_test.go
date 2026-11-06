@@ -91,6 +91,7 @@ func requireStopError(t *testing.T, err error) {
 	require.True(t, ok, "the stage must return a user-facing error, got %v", err)
 	assert.Contains(t, ue.Msg, "--resume")
 	assert.Contains(t, ue.Msg, "usage limit")
+	assert.ErrorIs(t, err, ErrLLMStop, "callers stop on the sentinel behind the message")
 }
 
 func critiqueStopRun(t *testing.T, s *stopCompleter, concurrency, chunk int, papers []model.EnrichedPaper) (
