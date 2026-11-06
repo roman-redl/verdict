@@ -39,6 +39,10 @@ A plain-language explanation of the design (what each service does, what
 retractions and smart citations are, how to read the report) lives in
 [docs/how-it-works.md](docs/how-it-works.md).
 
+`verdict eval` scores the verdicts against the expert conclusions of Cochrane
+reviews (MedEvidence benchmark) — see the "Evaluation" section of
+[docs/usage.md](docs/usage.md).
+
 ## LLM backends (no separate tokens required)
 
 The analytical stages (critique + synthesis) go through a pluggable
@@ -108,7 +112,7 @@ are not used. Each stage has a role with a default model:
 | Role | Stage | Default | Effort (`claude-max` only) |
 |---|---|---|---|
 | `plan` | `pico`, `brief` (question parsing, search plan) | `sonnet` | low |
-| `critique` | per-study critique on abstracts | `sonnet` | low |
+| `critique` | per-study critique on abstracts | `opus` | low |
 | `deep` | hybrid re-critique of pivotal studies with full texts | `opus` | high |
 | `synthesis` | the final verdict | `opus` (`fable` with `run --deep`) | high |
 | `ask` | `verdict ask` | `sonnet` | medium |
@@ -119,9 +123,9 @@ Overrides, most specific first: role flag (`--model-critique`,
 `LLM_MODEL` (all roles) → the role default. A cheap critic is a role model
 inside one wrapper, not a separate wrapper. Effort, and
 `--fallback-model sonnet` for the `opus`/`fable` roles, are passed only with
-`claude-max`; the GLM and DeepSeek gateways disable adaptive thinking. `haiku`
-is reasonable for critique only on 30+ studies and after comparing it with
-`sonnet` on saved critiques.
+`claude-max`; the GLM and DeepSeek gateways disable adaptive thinking. A
+cheaper critic (`sonnet`, `haiku`) only after comparing it with `opus` on the
+benchmark (`verdict eval`).
 
 Constraints that shaped the defaults:
 
@@ -196,9 +200,9 @@ paying twice.
 |---|---|---|
 | `0-input.txt` | always (`--dois`) | the raw paste/DOI list the corpus came from |
 | `1-discovery.json` | Consensus API / paste resolved to DOIs (or OpenAlex) | papers: DOIs, abstracts, design tags; the `discovery` block: engine, queries, pages spent, truncation |
-| `2-enrichment.json` | Scite tallies + OpenAlex + Crossref (in parallel) | supporting/contradicting/mentioning, retraction flags (two sources), OA links, contradicting DOIs (Scite key) |
-| `3-critique.json` | LLM, fan-out per paper | design quality, sample adequacy, N from the abstract, direction of findings, concerns |
-| `4-synthesis.json` + `report.md` + `matrix.csv` | LLM + deterministic assembly | evidence matrix, verdict + consensus + direction tally, contradictions, gaps |
+| `2-enrichment.json` | Scite tallies + OpenAlex + Crossref (in parallel), then Europe PMC for the abstracts still missing | supporting/contradicting/mentioning, retraction flags (two sources), OA links, abstracts (`abstract_source` marks the Europe PMC ones), contradicting DOIs (Scite key) |
+| `3-critique.json` | LLM, fan-out per paper | design quality, sample adequacy, N from the abstract, direction of findings, the extracted effect numbers (`effect`), concerns |
+| `4-synthesis.json` + `report.md` + `matrix.csv` | pooling in Go, then LLM + deterministic assembly | the pooled estimate (`pooled_estimate`), evidence matrix, verdict + effect direction + consensus + direction tally, contradictions, gaps |
 | `context.md` | always | compact digest for `ask` and interactive agents |
 
 Failure isolation: one source failing for one paper does not kill the run —
@@ -221,7 +225,7 @@ cmd/verdict, cmd/verdictd   flags, wiring, startup; one file per CLI command
 cmd/internal/app            config -> clients (the only reader of internal/config besides the mains)
 internal/pipeline           the domain: stages, state, artifacts, report rendering;
                             depends only on the ports it declares (ports.go)
-internal/openalex, crossref, scite, s2, pubpeer, consensus, pdf, llm
+internal/openalex, crossref, scite, s2, europepmc, pubpeer, consensus, pdf, llm
                             adapters: each implements a pipeline port over an external service
 internal/httpx              the shared HTTP client: timeout, retries, Retry-After, size cap
 internal/db                 SQLite: numbered migrations, run index, daemon jobs
@@ -253,7 +257,7 @@ refreshed with `go test ./internal/pipeline -update`. Logging is `slog`;
 |---|---|---|
 | Discovery | mode B: Consensus API — a few uses per run (500/mo on Pro $12/mo); no key → mode C paste / mode A, $0 | — |
 | Citations | $0 (tallies without a key, 1 batched request per run) | Scite Pro $50/mo — not needed at this volume |
-| Metadata/retractions | OpenAlex — $0 | — |
+| Metadata/retractions | OpenAlex — $0 (abstract fallback: Europe PMC — $0, no key) | — |
 | LLM | existing Claude Code tariff | direct API ≈ $0.3–0.5/run (a Sonnet-class model, estimate) |
 
 ## Verified live (2026-09-07)
@@ -276,6 +280,16 @@ refreshed with `go test ./internal/pipeline -update`. Logging is `slog`;
 - Semantic Scholar: the Graph API batch endpoint works keyless (one request
   per run); it supplies TLDRs, abstracts OpenAlex misses, influential-citation
   counts and OA PDF links.
+- Europe PMC (checked 2026-11-06): `/search?query=DOI:"a" OR DOI:"b"&resultType=core&format=json`
+  returns `resultList.result[]` with `doi`, `source` (`MED`, `PMC`, `PPR`
+  preprints) and `abstractText` — HTML (`<h4>` section headings, `<i>`), with
+  bare `<` characters (`<10 y`, `P<.001`) left unescaped, so the stripper only
+  removes well-formed tags. It has the abstracts OpenAlex withholds for
+  publisher-restricted works (Elsevier DOIs). The same record carries
+  `pmcid` and `isOpenAccess` (`Y`/`N`); for an open-access PMC article
+  `GET /{PMCID}/fullTextXML` returns the JATS full text (checked
+  2026-11-06; an unknown PMCID answers 500 with a JSON body), which the
+  pipeline converts to plain text (tables, results, methods, the rest).
 - PubPeer: the v3 API exists but **requires a manually issued developer
   key** (POST `/v3/publications`, field `dois` + `devkey`; response shape
   `{feedbacks: [{id, total_comments, url, last_commented_at}]}` per the
@@ -305,6 +319,13 @@ docs/how-it-works.md §2.2.
   copied from the data verbatim. The consensus field is separate: the
   verdict says how *proven* the claim is, the consensus says *where the
   field leans*.
+- **Effects are pooled in Go, like a meta-analysis:** the critic only
+  *extracts* the numbers a direct study reports (counts, means, or a
+  reported estimate with its 95% CI), `internal/meta` *computes* the
+  random-effects pooled estimate (DerSimonian-Laird), and the judge *reads*
+  it — so three non-significant trials with a significant pooled effect are
+  not judged one by one. The report states the direction of the effect
+  (`effect_direction`) next to the verdict.
 - **Deterministic checks stay out of the LLM:** retractions come from
   OpenAlex `is_retracted` plus Crossref's Retraction Watch notices (and
   corrections land as notes), not from a model's opinion. The evidence
@@ -350,7 +371,8 @@ v1–v3 are all implemented in this codebase:
   stateless JSON retry fixed to resend the payload it is asking to correct.
 - **v4.1 — text modes + pickup fixes (2026-10-19)**: one `--text-mode lean |
   hybrid | full` flag instead of the bool `--fulltext` (hybrid — abstracts
-  critique, then OA full texts for the pivotal studies and their deep
+  critique, then OA full texts for the pivotal studies (direct first,
+  indirect in the free slots; Europe PMC XML, else the PDF) and their deep
   re-critique before the single synthesis — is the default); the full-text pickup no longer dies on a warm enrichment cache
   or a resume (PDFs in `fulltext/` always enter, at critique time if stage
   2 was skipped); multi-query discovery fetches page 0 of every query

@@ -88,7 +88,13 @@ artifacts are JSON too.
 
 **The verdict** — the final GRADE-adapted scale from evidence-based
 medicine: **strong / moderate / weak / insufficient**, with exact
-definitions baked into the prompt.
+definitions baked into the prompt. As in GRADE, it rates the certainty of
+the stated direction, "no effect" included: randomized trials start at
+strong and observational studies at weak, each serious problem (risk of
+bias, inconsistency, indirectness, imprecision, publication bias) lowers it
+one level, and the study count is not a level by itself — one adequate,
+well-conducted trial is usually moderate. Measured against Cochrane
+conclusions with `verdict eval` (docs/usage.md, "Evaluation").
 
 **Consensus** — where the field as a whole stands on the question. The
 important distinction: the verdict answers "how well-proven", the consensus
@@ -131,6 +137,50 @@ matching this text".
   the Retraction Watch Database lives — it usually learns of retraction
   notices earlier than OpenAlex; corrections and expressions of concern
   land there too).
+- enrichment, abstract fallback: OpenAlex withholds the abstracts of
+  publisher-restricted works (every Elsevier DOI, for one), and a critic
+  without an abstract judges a study by its title alone. After all the primary
+  sources, the papers still without an abstract are looked up in
+  [Europe PMC](https://europepmc.org/RestfulWebService) — free, no key, one
+  batched request per run, abstracts for the biomedical literature. Its
+  HTML markup (section headings, italics) is reduced to plain text, and
+  `abstract_source` in `2-enrichment.json` records where the abstract came
+  from. Papers served from the enrichment cache and a run resumed with
+  `--resume` get the same fallback; when Europe PMC is down the run goes on
+  and `report.md` carries a data warning.
+- full texts (the default `hybrid` text mode, critique stage): the first
+  critique pass reads abstracts; then the studies the verdict will rest on —
+  *pivotal* — get their full texts and a deep re-critique, before the single
+  synthesis. Pivotal means direct studies first (best design quality, then
+  most Scite support/contradiction activity), up to `HYBRID_PIVOTAL_MAX`;
+  slots the direct studies leave free go to *indirect* ones (same ranking),
+  never to tangential or unknown ones. An indirect study is often one whose
+  abstract just does not report the asked outcome (a secondary outcome lives
+  in the full text only), and without its full text it could never be
+  re-judged; the deep critique replaces the abstract one — relevance and
+  direction included — so such a study can come out direct. The full text
+  comes from Europe PMC when the paper is an open-access PMC article: the
+  JATS XML is turned into plain text with every table first (caption, then
+  one row per line, cells separated by ` | `; tables a publisher keeps
+  outside the body are included), then the results, the methods and the
+  rest — the critic reads only the head of the text, and the secondary
+  outcomes are in the tables and the results, so a long Results section
+  must not push the tables out of the window. The reference list, formulas
+  and front matter are dropped. The stored text is capped at 60,000
+  characters (`fullTextMaxChars`), and the critic reads the first 30,000 of
+  it (`critiqueFullTextChars`; the abstract keeps its 3,500). Both limits are
+  constants, not settings: the window decides the input size of every
+  critique batch, and a changed window changes the critique cache key. Europe
+  PMC requests are retried like every other adapter's (network errors, 429
+  and 5xx, four attempts with exponential backoff and `Retry-After`; other
+  4xx are final). Papers outside PMC fall back to the OA PDF
+  link (a landing page or a bot-protected publisher page yields nothing);
+  `full_text_source` in `2-enrichment.json` / `3-critique.json` records
+  `europepmc` or `pdf`. When the XML is used the critic still reads the XML
+  text, and the OA PDF (if the paper has a link) is downloaded as well and
+  saved in `fulltext/` for the chart check; its text is not extracted. A
+  failed PDF download then is only logged, not recorded on the paper — drop
+  one in with `verdict addpdf` if the charts matter.
 
 **Limits.** Its search is "by words" (occurrences in titles/abstracts), not
 "by meaning" — it misses on convoluted questions; hence modes B and C.
@@ -260,6 +310,35 @@ two jobs:
   Numbers must be copied from the input verbatim — recomputing or inventing
   them is forbidden by the prompt.
 
+**Effect numbers and pooling.** A meta-analysis does not judge studies one
+by one: three trials that are each non-significant can add up to a
+significant pooled effect. The pipeline does the same, with a strict split
+of duties. The **critic extracts**: for the question's outcome it copies
+from the text the numbers the study reports — events and totals per arm
+(binary outcome), mean, SD and n per arm with the unit (continuous), or an
+estimate with its 95% interval when that is all there is (`RR`, `OR`, `HR`,
+`MD`, `SMD`) — never computed, never invented, and omitted when the text has
+none. **Go computes** (`internal/meta`): each direct study's effect goes on
+a common scale — the log risk ratio from counts (a 0.5 correction for a zero
+cell, studies without events in both arms are skipped), the mean difference
+from means when every study states the same unit and Hedges' g otherwise,
+the log of a reported ratio or the difference with the standard error taken
+from its interval — and the direct, non-retracted studies of one measure
+(ratio measures are never mixed; the largest group is pooled) are combined
+with the DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
+number of studies, participants when known, I². A single study is shown with
+its own interval and marked "not pooled". The **judge reads** the result
+(`pooled_estimate` in its input) and may not recompute it; `report.md`
+prints the numbers from Go. The method is checked against the BCG vaccine
+example of the metafor package.
+
+**Effect direction.** The judge also states the direction of the effect the
+evidence supports relative to the claim — `effect_direction`: `supports`,
+`no_effect`, `opposite` or `unclear`. It is separate from the verdict (how
+certain that direction is) and the consensus status (how much the studies
+agree), and it has to agree with the consensus text and the rationale. An
+unknown value is replaced by `unclear` with a warning.
+
 Both answers are JSON (machine-readable and checkable); everything is saved
 into stage artifacts. If the LLM is unavailable, the pipeline honestly says
 "critique skipped" and refuses to synthesize.
@@ -335,15 +414,17 @@ question ──> [Consensus API] | [OpenAlex search] | [you + the free Consensus
 
 ## Part 5. Reading the report, and honest limits
 
-**In the report:** the Verdict + Consensus (the field's position and its
-status); the Rationale (which DOIs drive the conclusion); the matrix
+**In the report:** the Verdict + the effect direction + the pooled estimate
+when direct studies reported numbers (rendered by Go) + Consensus (the
+field's position and its status); the Rationale (which DOIs drive the conclusion); the matrix
 (the Sup/Contra column = supported/refuted); Contradictions (empty ≠
 "everyone agrees"); Gaps; Data warnings (what could not be collected).
 
 **What the tool honestly cannot do:**
 - full texts only where a legal copy exists: `--text-mode lean` runs on
   abstracts alone, the default `hybrid` reads full texts for the pivotal
-  studies the verdict rests on, `full` for everybody with an OA copy — a
+  studies the verdict rests on (direct first, indirect ones in the free
+  slots), `full` for everybody with an OA copy — a
   paywalled paper still gets an abstracts-only critique (drop its PDF into
   `fulltext/` yourself); hidden methodology otherwise yields an honest
   "unclear";

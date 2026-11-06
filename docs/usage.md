@@ -177,12 +177,12 @@ Keep only correct runs: when a run is superseded or broken, delete it
 |---|---|
 | `0-input.txt` | the raw paste/DOI list the corpus came from (audit trail) |
 | `1-discovery.json` | found papers (DOIs, abstracts, design tags); its `question` field is reused verbatim by challenge re-runs |
-| `2-enrichment.json` | Scite tallies + retraction flags (OpenAlex **and** Crossref/Retraction Watch) + OA links + who contradicts (Scite key) |
+| `2-enrichment.json` | Scite tallies + retraction flags (OpenAlex **and** Crossref/Retraction Watch) + OA links + who contradicts (Scite key) + abstracts OpenAlex withholds (Europe PMC fallback, `abstract_source`) |
 | `3-critique.json` | per-paper LLM critiques (quality, relevance, direction of findings) |
 | `4-synthesis.json` | the final report JSON |
 | `report.md` / `matrix.csv` | human-readable report / matrix as a table (numbers assembled deterministically, never LLM-copied) |
 | `context.md` | digest for `ask` and interactive agents |
-| `fulltext/*.pdf` | paper PDFs: ones you drop in yourself (`<doi>.pdf`, always read in every mode — `verdict addpdf`) plus OA downloads in `full` mode or for the pivotal studies the hybrid pass deepens — kept for full-text critique + chart checks |
+| `fulltext/*.pdf` | paper PDFs: ones you drop in yourself (`<doi>.pdf`, always read in every mode — `verdict addpdf`) plus OA PDF downloads in `full` mode or for the pivotal studies the hybrid pass deepens (also where Europe PMC supplies the XML full text: that text is what the critic reads, the PDF is saved besides it and not read; a failed download there is only logged) — kept for full-text critique + chart checks |
 | `3b-vision.json` | optional agent-written chart critique (via the vision tool, or the agent's own eyes in a Claude session); the synthesis stage weighs it |
 
 Every `N-*.json` is a full state snapshot: `--resume` continues a failed
@@ -270,14 +270,13 @@ this on three fronts:
 - **Batched critique**: one call assesses `LLM_CHUNK` (default 5) studies,
   each in its own JSON object, independently; studies a batch drops fall
   back to single-study calls. 15 papers = 3 calls instead of 15.
-- **Per-role models** inside one wrapper: `sonnet` at low effort for the
-  routine abstract critique, `opus` at high effort for the judge call and
-  for the hybrid re-critique of pivotal studies (`--deep`: `fable` for the
-  judge). Defaults per role are in the README (LLM backends); override with
+- **Per-role models** inside one wrapper: `opus` at low effort for the
+  abstract critique, `opus` at high effort for the judge call and for the
+  hybrid re-critique of pivotal studies (`--deep`: `fable` for the judge). Defaults per role are in the README (LLM backends); override with
   `LLM_MODEL_PLAN`, `LLM_MODEL_CRITIQUE`, `LLM_MODEL_DEEP`,
   `LLM_MODEL_SYNTHESIS`, `LLM_MODEL_ASK` (`LLM_MODEL` / `--llm-model` for all
-  roles). `haiku` for the critique only on 30+ studies, after comparing it
-  with `sonnet` on saved critiques.
+  roles). A cheaper critic (`sonnet`, `haiku`) only after comparing it with
+  `opus` on the benchmark (`verdict eval`, see Evaluation).
 
 Two more levers cut the bill without touching quality:
 
@@ -306,9 +305,13 @@ bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
   warning-only soft cap — the 113-paper run slipped through it);
   `--text-mode full` multiplies prompt size 5–10× and is for deep single
   questions by deliberate choice only. The default `hybrid` adds one
-  deepening pass at the end of the critique stage (OA full-text fetch for up
-  to `HYBRID_PIVOTAL_MAX`, default 5, pivotal studies + ~1 deep re-critique
-  call over lean); the synthesis still runs once, on the final critiques.
+  deepening pass at the end of the critique stage (OA full-text fetch — Europe
+  PMC XML, else the PDF — for up to `HYBRID_PIVOTAL_MAX`, default 5, pivotal
+  studies, direct ones first and indirect ones in the free slots, + ~1 deep
+  re-critique call over lean); the synthesis still runs once, on the final critiques.
+  A full text is stored up to 60,000 characters and the critic reads the
+  first 30,000 of them (tables first), so a batch of five deepened studies
+  carries up to ~150,000 characters (~37,500 tokens) of full text.
   `--resume` of a run whose critique artifact predates the pass deepens
   before the synthesis; once `4-synthesis.json` exists the pass is not
   repeated.
@@ -325,6 +328,74 @@ hollow `insufficient` whose rationale literally says *"no per-study input data
 was received"*. The critiques are intact. Fix for 1 LLM call: delete
 `4-synthesis.json`, `report.md`, `matrix.csv` in the run dir and
 `run --run-dir runs/<...> --resume` — synthesis re-runs on the kept critiques.
+
+## Evaluation
+
+`verdict eval` measures how well verdict's judgment matches the expert
+conclusions of Cochrane reviews (the MedEvidence benchmark; the question set
+is `evals/medevidence.yaml`, the header there credits the dataset). For every
+question the normal pipeline runs on exactly the studies the review used (a
+DOI list, no search) with the question's claim as the research question; the
+outcome is then compared with the expert answer. The prompts are not changed:
+the eval measures verdict as users run it.
+
+Both sides are reduced to one of four outcomes, relative to the claim:
+
+| Outcome | Expert answer | verdict's report |
+|---|---|---|
+| `works` | the same direction as the claim (`works_if`) | the report's `effect_direction` is `supports` |
+| `opposite` | the other direction | `effect_direction` is `opposite` |
+| `no_effect` | `no difference` | `effect_direction` is `no_effect` |
+| `not_proven` | `uncertain effect`, `insufficient data` | `effect_direction` is `unclear`, or the verdict level is `insufficient` |
+
+The report's own `effect_direction` decides; the verdict level `insufficient`
+comes first and always gives `not_proven`. The summary shows it in the
+`Effect direction` column.
+
+A report without `effect_direction` (an artifact written before the field
+existed) keeps the older rule: a consensus status of `insufficient_data`,
+`contested` or `no_consensus` gives `not_proven` (verdict says the direction
+of the evidence cannot be stated or the studies disagree); with
+`broad_agreement`, `emerging`, or a status that is empty or not one of the
+five values (shown as `unknown` in the summary) the majority of the matrix
+rows with relevance `direct` decides — strictly more `positive` than any
+other direction is `works`, `negative` is `opposite`, `null` is `no_effect`;
+a tie, a majority of `mixed` / `unclear` studies or no direct studies is
+`not_proven`. The summary shows the consensus status in the `Consensus
+status` column next to the direct-study tally. The strength of the evidence is scored separately:
+the expert certainty maps to a verdict level (high → strong, moderate →
+moderate, low → weak, very low → insufficient); the summary reports exact
+matches and matches within one level, and skips questions without a
+certainty.
+
+```bash
+bin/verdict eval                              # all questions, hybrid text mode
+bin/verdict eval --ids 10,30 --repeat 3       # chosen questions, three runs each
+bin/verdict eval --text-mode lean --llm-model sonnet --out runs/eval-lean
+```
+
+Flags: `--set` (default `evals/medevidence.yaml`), `--ids`, `--repeat`,
+`--out` (default `runs/eval-<YYYYMMDD-HHMMSS>`), `--text-mode` (default
+`hybrid`) and the model flags of `run` (`--llm-command`, `--llm-model`,
+`--model-critique`, `--model-deep`, `--model-synthesis`, `--deep`).
+
+Every run lives in `<out>/<id>-<n>/run/` with its own caches, so repeats never
+reuse each other's critiques; `<out>/summary.md` and `<out>/summary.csv` list
+every run (expected and actual outcome, the direct-study tally, strength,
+studies given versus studies that reached the report, LLM calls and tokens)
+and the totals, including the expected-by-actual outcome table and, with
+`--repeat` above 1, how many questions gave the same outcome every time.
+
+Questions run one at a time. A usage limit stops the eval and writes the
+summary of the finished runs; after the limit resets, rerun the same command
+with the same `--out`: finished runs are loaded from disk, an interrupted one
+resumes, the rest run. A failed question is recorded in the summary and the
+eval goes on. `runs/` is not committed.
+
+Cost: one hybrid run per question is about 4–6 LLM calls (batched critique,
+the deep re-critique of the pivotal studies, one synthesis); `--repeat` and
+the number of questions multiply it. `--text-mode lean` is cheaper. Plan the
+run against the usage limit of the wrapper before starting it.
 
 ## verdictd (the HTTP wrapper)
 

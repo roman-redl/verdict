@@ -91,7 +91,8 @@ modes A/B/C are a different thing — see docs/usage.md.)
    stated honestly.
 8. **Deep mode — extra depth beyond the default run.** The default
    `--text-mode hybrid` already reads full texts for the pivotal studies
-   (direct + highest design quality, capped by `HYBRID_PIVOTAL_MAX`, 5) and
+   (direct studies first by design quality, indirect ones in the free slots,
+   capped by `HYBRID_PIVOTAL_MAX`, 5; Europe PMC XML, else the PDF) and
    re-critiques them before the synthesis. What is left when the user asks for more ("with all
    the texts", "exhaustively"):
    - **A paywalled pivotal paper** the hybrid pass could not download: take
