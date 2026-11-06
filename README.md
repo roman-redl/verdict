@@ -321,7 +321,7 @@ docs/how-it-works.md §2.2.
   field leans*.
 - **Effects are pooled in Go, like a meta-analysis:** the critic only
   *extracts* the numbers a direct study reports (counts, means, or a
-  reported estimate with its 95% CI), `internal/meta` *computes* the
+  reported estimate with its CI and the CI's level), `internal/meta` *computes* the
   random-effects pooled estimate (DerSimonian-Laird), and the judge *reads*
   it — so three non-significant trials with a significant pooled effect are
   not judged one by one. The report states the direction of the effect

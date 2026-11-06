@@ -12,9 +12,17 @@ import (
 	"math"
 )
 
-// z95 is the normal quantile of a 95% interval, rounded the way the Cochrane
-// Handbook does when it turns a confidence interval into a standard error.
-const z95 = 1.96
+// Bounds of a reported confidence level, in percent: a level of 50% or less
+// is not a confidence interval anyone reports, and above 99.9% the normal
+// quantile is dominated by tail error.
+const (
+	minLevel = 50.0
+	maxLevel = 99.9
+)
+
+// DefaultLevel is the confidence level, in percent, of an interval whose level
+// the study does not state.
+const DefaultLevel = 95.0
 
 // zInterval is the exact normal quantile (97.5%) of the pooled interval, as
 // R's metafor uses it.
@@ -114,24 +122,48 @@ func HedgesG(a, b Arm) (Study, error) {
 	return Study{Y: g, SE: math.Sqrt(variance)}, nil
 }
 
-// RatioCI turns a reported ratio (RR, OR, HR) with its 95% interval into a
-// log-scale effect: SE = (ln high - ln low) / (2 * 1.96).
-func RatioCI(value, low, high float64) (Study, error) {
+// ZForLevel is the two-sided normal quantile of a confidence level given in
+// percent: z = Phi^-1(1 - (1 - level/100) / 2), which equals
+// sqrt(2) * erfinv(level/100). 95 gives 1.959964. A level outside (50, 99.9]
+// is ErrInvalid.
+func ZForLevel(level float64) (float64, error) {
+	if math.IsNaN(level) || level <= minLevel || level > maxLevel {
+		return 0, invalid("confidence level %v%% (want above %v and up to %v)", level, minLevel, maxLevel)
+	}
+
+	return math.Sqrt2 * math.Erfinv(level/100), nil
+}
+
+// RatioCI turns a reported ratio (RR, OR, HR) with its confidence interval
+// of the given level (percent) into a log-scale effect:
+// SE = (ln high - ln low) / (2 * z), z the quantile of the level.
+func RatioCI(value, low, high, level float64) (Study, error) {
+	z, err := ZForLevel(level)
+	if err != nil {
+		return Study{}, err
+	}
+
 	if value <= 0 || low <= 0 || high <= low || value < low || value > high {
 		return Study{}, invalid("ratio %v (%v to %v)", value, low, high)
 	}
 
-	return Study{Y: math.Log(value), SE: (math.Log(high) - math.Log(low)) / (2 * z95)}, nil
+	return Study{Y: math.Log(value), SE: (math.Log(high) - math.Log(low)) / (2 * z)}, nil
 }
 
-// DifferenceCI turns a reported difference (MD, SMD) with its 95% interval
-// into an effect: SE = (high - low) / (2 * 1.96).
-func DifferenceCI(value, low, high float64) (Study, error) {
+// DifferenceCI turns a reported difference (MD, SMD) with its confidence
+// interval of the given level (percent) into an effect:
+// SE = (high - low) / (2 * z).
+func DifferenceCI(value, low, high, level float64) (Study, error) {
+	z, err := ZForLevel(level)
+	if err != nil {
+		return Study{}, err
+	}
+
 	if high <= low || value < low || value > high || math.IsNaN(value) || math.IsInf(value, 0) {
 		return Study{}, invalid("difference %v (%v to %v)", value, low, high)
 	}
 
-	return Study{Y: value, SE: (high - low) / (2 * z95)}, nil
+	return Study{Y: value, SE: (high - low) / (2 * z)}, nil
 }
 
 func checkStudies(studies []Study) error {

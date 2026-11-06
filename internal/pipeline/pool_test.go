@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,6 +43,12 @@ func means(sd float64, unit string) *model.Effect {
 // reported is an estimate with its 95% interval.
 func reported(measure string, value, low, high float64) *model.Effect {
 	return &model.Effect{Measure: measure, Value: new(value), CILow: new(low), CIHigh: new(high)}
+}
+
+// withLevel states the confidence level, in percent, of a reported interval.
+func withLevel(ef *model.Effect, level float64) *model.Effect {
+	ef.CILevel = new(level)
+	return ef
 }
 
 // poolState is a corpus of direct studies, one per effect (nil = no numbers).
@@ -202,6 +209,130 @@ func TestPoolEffectsReportedEstimates(t *testing.T) {
 	assert.Equal(t, model.MeasureSMD, pe.Measure)
 }
 
+// The interval's own level sets the quantile: HR 1.183 (97.2% CI 0.989 to
+// 1.416) has a log-SE of (ln 1.416 - ln 0.989) / (2 * 2.197).
+func TestPoolEffectsReportedIntervalLevel(t *testing.T) {
+	p, _ := poolPipeline(t)
+
+	ef := reported("HR", 1.183, 0.989, 1.416)
+	ef.CILevel = new(97.2)
+
+	pe := p.poolEffects(poolState(ef))
+	require.NotNil(t, pe)
+	assert.InDelta(t, 1.183, pe.Estimate, 1e-9)
+
+	// a single study's interval is the 95% one for SE: recover it from the log-scale width
+	se := (math.Log(pe.CIHigh) - math.Log(pe.CILow)) / (2 * 1.959964)
+	assert.InDelta(t, (math.Log(1.416)-math.Log(0.989))/(2*2.197), se, 0.0005)
+
+	// the same bounds read as a 95% interval imply a larger SE (a smaller z), so a wider result
+	at95 := p.poolEffects(poolState(reported("HR", 1.183, 0.989, 1.416)))
+	require.NotNil(t, at95)
+	assert.Greater(t, at95.CIHigh-at95.CILow, pe.CIHigh-pe.CILow)
+
+	// and as a 90% interval, a larger one still
+	ninety := reported("HR", 1.183, 0.989, 1.416)
+	ninety.CILevel = new(90.0)
+
+	pe90 := p.poolEffects(poolState(ninety))
+	require.NotNil(t, pe90)
+	assert.Greater(t, pe90.CIHigh-pe90.CILow, at95.CIHigh-at95.CILow)
+}
+
+// An estimate of the comparator versus the intervention is flipped: a ratio to
+// 1/value (1/high .. 1/low), a difference to -value (-high .. -low); the flip
+// is logged.
+func TestPoolEffectsReversedEstimate(t *testing.T) {
+	p, logs := poolPipeline(t)
+
+	hr := reported("HR", 1.2, 1.03, 1.4)
+	hr.Reversed = true
+
+	pe := p.poolEffects(poolState(hr))
+	require.NotNil(t, pe)
+	assert.InDelta(t, 0.8333, pe.Estimate, 1e-4)
+	assert.Contains(t, logs.String(), "reversed to intervention vs control")
+
+	// the converted bounds themselves (a single study's pooled interval is rebuilt from its SE)
+	v, lo, hi, err := reverseEstimate(model.MeasureHR, 1.2, 1.03, 1.4)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.8333, v, 1e-4)
+	assert.InDelta(t, 0.7143, lo, 1e-4)
+	assert.InDelta(t, 0.9709, hi, 1e-4)
+
+	v, lo, hi, err = reverseEstimate(model.MeasureMD, 2, 1, 3)
+	require.NoError(t, err)
+	assert.InDelta(t, -2, v, 1e-9)
+	assert.InDelta(t, -3, lo, 1e-9)
+	assert.InDelta(t, -1, hi, 1e-9)
+
+	md := reported("MD", 2, 1, 3)
+	md.Unit = unitMmHg
+	md.Reversed = true
+
+	pe = p.poolEffects(poolState(md))
+	require.NotNil(t, pe)
+	assert.InDelta(t, -2, pe.Estimate, 1e-9)
+	assert.InDelta(t, -3, pe.CILow, 1e-9)
+	assert.InDelta(t, -1, pe.CIHigh, 1e-9)
+
+	// pooled with another study, a reversed one equals the same study entered in the right order
+	other := reported("HR", 0.7, 0.5, 0.98)
+	right := p.poolEffects(poolState(other, reported("HR", 1/1.2, 1/1.4, 1/1.03)))
+	flipped := p.poolEffects(poolState(other, hr))
+
+	require.NotNil(t, right)
+	require.NotNil(t, flipped)
+	assert.InDelta(t, right.Estimate, flipped.Estimate, 1e-9)
+	assert.InDelta(t, right.CILow, flipped.CILow, 1e-9)
+	assert.InDelta(t, right.CIHigh, flipped.CIHigh, 1e-9)
+	assert.Equal(t, 2, flipped.K)
+
+	// the flag applies to a reported estimate only: the arms' numbers stay as they are
+	arms := counts(10, 100, 20, 100)
+	arms.Reversed = true
+	assert.Equal(t, p.poolEffects(poolState(counts(10, 100, 20, 100))), p.poolEffects(poolState(arms)))
+
+	// a ratio that cannot be inverted is not pooled
+	bad := reported("HR", 1.2, 0, 1.4)
+	bad.Reversed = true
+	assert.Nil(t, p.poolEffects(poolState(bad)))
+}
+
+// A binary outcome given only as percentages of the arms: the count is
+// computed in Go, and the conversion is logged.
+func TestPoolEffectsEventsFromPercent(t *testing.T) {
+	p, logs := poolPipeline(t)
+
+	// 33% of 300 = 99 against 20% of 300 = 60: the same as counts(99, 300, 60, 300)
+	ef := &model.Effect{
+		Intervention: &model.Arm{Percent: new(33.0), Total: new(300.0)},
+		Control:      &model.Arm{Percent: new(20.0), Total: new(300.0)},
+	}
+
+	got := p.poolEffects(poolState(ef))
+	want := p.poolEffects(poolState(counts(99, 300, 60, 300)))
+
+	require.NotNil(t, got)
+	require.NotNil(t, want)
+	assert.Equal(t, want, got)
+	assert.Equal(t, 600, got.Participants)
+	assert.Contains(t, logs.String(), "derived from percentages")
+	assert.Contains(t, logs.String(), "intervention 33% of 300 = 99 events")
+
+	// rounding: 12.5% of 30 = 3.75 -> 4
+	rounded := &model.Effect{
+		Intervention: &model.Arm{Percent: new(12.5), Total: new(30.0)},
+		Control:      &model.Arm{Events: new(9.0), Total: new(30.0)},
+	}
+	assert.Equal(t, p.poolEffects(poolState(counts(4, 30, 9, 30))), p.poolEffects(poolState(rounded)))
+
+	// given events win over a percentage
+	both := counts(10, 100, 20, 100)
+	both.Intervention.Percent = new(99.0)
+	assert.Equal(t, p.poolEffects(poolState(counts(10, 100, 20, 100))), p.poolEffects(poolState(both)))
+}
+
 // An estimate-only study counts its participants from the critique when known.
 func TestPoolEffectsParticipantsFromTheStudySize(t *testing.T) {
 	p, _ := poolPipeline(t)
@@ -266,6 +397,14 @@ func TestPoolEffectsIgnoresBadValuesWithAWarning(t *testing.T) {
 		reported("RR", 1.5, 0.6, 1.0),
 		reported("HR", -0.5, -1, 1),
 		reported("MD", -2, -3, -1),
+		// a confidence level out of range, a percentage out of range, a percentage without a total
+		withLevel(reported("RR", 0.8, 0.6, 1.0), 40),
+		withLevel(reported("RR", 0.8, 0.6, 1.0), 99.95),
+		{
+			Intervention: &model.Arm{Percent: new(120.0), Total: new(50.0)},
+			Control:      &model.Arm{Percent: new(10.0), Total: new(50.0)},
+		},
+		{Intervention: &model.Arm{Percent: new(30.0)}, Control: &model.Arm{Percent: new(10.0)}},
 		// an effect without numbers, arms without totals
 		{Outcome: "mortality"},
 		{Intervention: &model.Arm{Events: new(3.0)}, Control: &model.Arm{Events: new(2.0)}},
@@ -279,7 +418,7 @@ func TestPoolEffectsIgnoresBadValuesWithAWarning(t *testing.T) {
 
 	require.NotNil(t, pe)
 	assert.Equal(t, 2, pe.K, "only the two good trials are pooled")
-	assert.Equal(t, 10, bytes.Count(logs.Bytes(), []byte("effect not pooled")), "one warning per bad effect")
+	assert.Equal(t, 14, bytes.Count(logs.Bytes(), []byte("effect not pooled")), "one warning per bad effect")
 }
 
 func TestPoolEffectsUsesTheTitleWithoutDOI(t *testing.T) {
@@ -343,6 +482,12 @@ func TestPromptsCarryTheEffectInstructions(t *testing.T) {
 		assert.Contains(t, prompt, "Copy the numbers verbatim", name)
 		assert.Contains(t, prompt, "never swap them", name)
 		assert.Contains(t, prompt, `"no test reported" alone is not "unclear"`, name)
+		assert.Contains(t, prompt, "ci_level", name)
+		assert.Contains(t, prompt, "Time-to-event outcomes", name)
+		assert.Contains(t, prompt, "Cluster-randomized trials", name)
+		assert.Contains(t, prompt, "{percent, total}", name)
+		assert.Contains(t, prompt, "reversed: true", name)
+		assert.Contains(t, prompt, "never invert the value or the interval yourself", name)
 	}
 
 	assert.Contains(t, synthesisSystemPrompt, `effect_direction: "supports" | "no_effect" | "opposite" | "unclear"`)

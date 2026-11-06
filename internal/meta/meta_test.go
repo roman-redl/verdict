@@ -185,26 +185,72 @@ func TestHedgesG(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
-func TestRatioCI(t *testing.T) {
-	s, err := RatioCI(0.80, 0.65, 0.99)
-	require.NoError(t, err)
-	assert.InDelta(t, math.Log(0.80), s.Y, 1e-12)
-	assert.InDelta(t, (math.Log(0.99)-math.Log(0.65))/3.92, s.SE, 1e-12)
+func TestZForLevel(t *testing.T) {
+	for level, want := range map[float64]float64{
+		95:   1.959964,
+		90:   1.644854,
+		99:   2.575829,
+		97.2: 2.197, // the 97.2% interval of a trial that spent alpha on an interim look
+	} {
+		z, err := ZForLevel(level)
+		require.NoError(t, err)
+		assert.InDelta(t, want, z, 0.0005, "%v%%", level)
+	}
 
-	for _, c := range [][3]float64{{0, 0.5, 1}, {2, 0.5, 1}, {0.5, 1, 0.9}, {0.5, -1, 1}} {
-		_, err = RatioCI(c[0], c[1], c[2])
-		require.ErrorIs(t, err, ErrInvalid, "%v", c)
+	z, err := ZForLevel(95)
+	require.NoError(t, err)
+	assert.InDelta(t, zInterval, z, 1e-12, "the pooled interval and a reported 95% use one quantile")
+
+	for _, level := range []float64{50, 0, -95, 99.95, 100, math.NaN()} {
+		_, err = ZForLevel(level)
+		require.ErrorIs(t, err, ErrInvalid, "%v", level)
 	}
 }
 
+func TestRatioCI(t *testing.T) {
+	s, err := RatioCI(0.80, 0.65, 0.99, DefaultLevel)
+	require.NoError(t, err)
+	assert.InDelta(t, math.Log(0.80), s.Y, 1e-12)
+	assert.InDelta(t, (math.Log(0.99)-math.Log(0.65))/(2*1.959964), s.SE, 1e-7)
+
+	for _, c := range [][3]float64{{0, 0.5, 1}, {2, 0.5, 1}, {0.5, 1, 0.9}, {0.5, -1, 1}} {
+		_, err = RatioCI(c[0], c[1], c[2], DefaultLevel)
+		require.ErrorIs(t, err, ErrInvalid, "%v", c)
+	}
+
+	_, err = RatioCI(0.80, 0.65, 0.99, 40)
+	require.ErrorIs(t, err, ErrInvalid, "a level out of range")
+}
+
+// The same interval at a lower level means a larger standard error: a 90%
+// interval has the same bounds only if the estimate is less precise.
+func TestRatioCIUsesTheLevel(t *testing.T) {
+	// HR 1.183 (97.2% CI 0.989 to 1.416)
+	s, err := RatioCI(1.183, 0.989, 1.416, 97.2)
+	require.NoError(t, err)
+	assert.InDelta(t, (math.Log(1.416)-math.Log(0.989))/(2*2.197), s.SE, 0.0005)
+
+	at95, err := RatioCI(1.183, 0.989, 1.416, 95)
+	require.NoError(t, err)
+	assert.Greater(t, at95.SE, s.SE)
+
+	at90, err := RatioCI(1.183, 0.989, 1.416, 90)
+	require.NoError(t, err)
+	assert.Greater(t, at90.SE, at95.SE)
+}
+
 func TestDifferenceCI(t *testing.T) {
-	s, err := DifferenceCI(-0.22, -0.40, -0.03)
+	s, err := DifferenceCI(-0.22, -0.40, -0.03, DefaultLevel)
 	require.NoError(t, err)
 	assert.InDelta(t, -0.22, s.Y, 1e-12)
-	assert.InDelta(t, 0.37/3.92, s.SE, 1e-12)
+	assert.InDelta(t, 0.37/(2*1.959964), s.SE, 1e-7)
+
+	s, err = DifferenceCI(-0.22, -0.40, -0.03, 90)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.37/(2*1.644854), s.SE, 1e-7)
 
 	for _, c := range [][3]float64{{0, 1, 2}, {0, -1, -2}, {1, 1, 1}} {
-		_, err = DifferenceCI(c[0], c[1], c[2])
+		_, err = DifferenceCI(c[0], c[1], c[2], DefaultLevel)
 		require.ErrorIs(t, err, ErrInvalid, "%v", c)
 	}
 }

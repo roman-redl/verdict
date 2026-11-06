@@ -67,17 +67,22 @@ func (m Measure) IsRatio() bool {
 // Arm is the numbers one study arm reports for the question's outcome: events
 // and total for a binary outcome, mean, SD and n for a continuous one. A
 // field is a pointer so that "not stated" differs from a real zero.
+// Percent is the alternative to Events for a binary outcome the study gives
+// only as a percentage of the arm (it needs Total); the pipeline turns it into
+// a count.
 type Arm struct {
-	Events *float64 `json:"events,omitempty"`
-	Total  *float64 `json:"total,omitempty"`
-	Mean   *float64 `json:"mean,omitempty"`
-	SD     *float64 `json:"sd,omitempty"`
-	N      *float64 `json:"n,omitempty"`
+	Events  *float64 `json:"events,omitempty"`
+	Percent *float64 `json:"percent,omitempty"` // 0-100, instead of events
+	Total   *float64 `json:"total,omitempty"`
+	Mean    *float64 `json:"mean,omitempty"`
+	SD      *float64 `json:"sd,omitempty"`
+	N       *float64 `json:"n,omitempty"`
 }
 
 // Effect is what the critic extracts from a study's text for the question's
-// outcome: the raw numbers per arm, or, when only an estimate is reported,
-// the estimate with its 95% confidence interval. The numbers are copied from
+// outcome: the raw numbers per arm, or, when only an estimate is reported (or
+// the estimate is the better source), the estimate with its confidence
+// interval and the interval's level. The numbers are copied from
 // the text, never computed by the model; the pipeline pools them.
 // Intervention is the claim's intervention, Control its comparator.
 type Effect struct {
@@ -87,11 +92,19 @@ type Effect struct {
 	Intervention *Arm   `json:"intervention,omitempty"`
 	Control      *Arm   `json:"control,omitempty"`
 
-	// The reported estimate (only when the arms' numbers are not available).
+	// The reported estimate.
 	Measure string   `json:"measure,omitempty"` // RR | OR | HR | MD | SMD
 	Value   *float64 `json:"value,omitempty"`
 	CILow   *float64 `json:"ci_low,omitempty"`
 	CIHigh  *float64 `json:"ci_high,omitempty"`
+	// CILevel is the level of the interval in percent (90, 95, 97.2); absent
+	// means 95.
+	CILevel *float64 `json:"ci_level,omitempty"`
+	// Reversed is true when the reported estimate compares the claim's
+	// comparator against its intervention (control vs intervention), as printed;
+	// the pipeline flips it. It applies to the reported estimate only: the arms'
+	// numbers are already assigned to intervention and control.
+	Reversed bool `json:"reversed,omitempty"`
 }
 
 // PoolMethod names how a PooledEstimate was obtained.

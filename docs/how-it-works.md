@@ -315,17 +315,34 @@ by one: three trials that are each non-significant can add up to a
 significant pooled effect. The pipeline does the same, with a strict split
 of duties. The **critic extracts**: for the question's outcome it copies
 from the text the numbers the study reports — events and totals per arm
-(binary outcome), mean, SD and n per arm with the unit (continuous), or an
-estimate with its 95% interval when that is all there is (`RR`, `OR`, `HR`,
-`MD`, `SMD`) — never computed, never invented, and omitted when the text has
-none. **Go computes** (`internal/meta`): each direct study's effect goes on
-a common scale — the log risk ratio from counts (a 0.5 correction for a zero
-cell, studies without events in both arms are skipped), the mean difference
-from means when every study states the same unit and Hedges' g otherwise,
-the log of a reported ratio or the difference with the standard error taken
-from its interval — and the direct, non-retracted studies of one measure
-(ratio measures are never mixed; the largest group is pooled) are combined
-with the DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
+(binary outcome; a percentage of the arm with its total, `percent` and
+`total`, when the text gives no count), mean, SD and n per arm with the unit
+(continuous), or an estimate with its interval and the interval's level
+(`ci_level`, in percent: 90, 95, 97.2; 95 when absent) for `RR`, `OR`, `HR`,
+`MD`, `SMD` — never computed, never invented, and omitted when the text has
+none. A reported estimate is copied as printed; when the paper compares the
+comparator against the intervention (a "HR for carboplatin vs cisplatin" for a
+question about cisplatin), the critic sets `reversed: true` and leaves the
+numbers alone (the field applies only to a reported estimate, not to the arms).
+Counts are the default source; a reported estimate comes first for
+time-to-event outcomes (the hazard ratio, because counts ignore follow-up
+time; medians alone are not poolable and go into the strengths or concerns)
+and for cluster-randomized trials (the adjusted estimate, because raw counts
+overstate precision). **Go computes** (`internal/meta`): each direct study's
+effect goes on a common scale — the log risk ratio from counts (events from
+a percentage are `round(percent / 100 × total)`, computed in Go and logged as
+derived; a 0.5 correction for a zero cell, studies without events in both
+arms are skipped), the mean difference from means when every study states
+the same unit and Hedges' g otherwise, the log of a reported ratio or the
+difference with the standard error taken from its interval at the z of its
+level (`z = Φ⁻¹(1 − (1 − level/100) / 2)`; 1.9600 for 95%, 1.6449 for 90%).
+A `reversed` estimate is flipped first, in Go, and the flip is logged: a ratio
+becomes `1/value` with the interval `1/ci_high … 1/ci_low`, a difference
+becomes `−value` with `−ci_high … −ci_low`.
+A `ci_level` outside (50, 99.9], a percent outside 0–100 or a percentage
+without a total is ignored with a warning, like any other bad number. The
+direct, non-retracted studies of one measure (ratio measures are never
+mixed; the largest group is pooled) are combined with the DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
 number of studies, participants when known, I². A single study is shown with
 its own interval and marked "not pooled". The **judge reads** the result
 (`pooled_estimate` in its input) and may not recompute it; `report.md`

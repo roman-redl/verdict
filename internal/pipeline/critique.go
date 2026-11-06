@@ -38,20 +38,33 @@ const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the 
 	`question's outcome): the numbers the text reports for the question's outcome, with
   outcome (short text: which outcome these numbers are for), timepoint (when it was measured; only if stated),
   and ONE of these:
-  - binary outcome: intervention {events, total} and control {events, total};
+  - binary outcome: intervention {events, total} and control {events, total}; when the text gives only a ` +
+	`percentage of each arm, {percent, total} instead of events (percent copied as printed, 0-100);
   - continuous outcome: unit (string), intervention {mean, sd, n} and control {mean, sd, n};
-  - only an estimate is reported: measure ("RR" | "OR" | "HR" | "MD" | "SMD"), value, ci_low, ci_high ` +
-	`(the 95% interval as reported), and unit for an MD.`
+  - a reported estimate: measure ("RR" | "OR" | "HR" | "MD" | "SMD"), value, ci_low, ci_high, ci_level ` +
+	`(the interval's level in percent as the text states it, e.g. 90, 95, 97.2; omit when not stated), ` +
+	`reversed (true only when the paper's comparison is the comparator versus the intervention; omit otherwise), ` +
+	`and unit for an MD.`
 
 // critiqueEffectRules are the extraction and judgement rules that go with the
 // effect field.
 const critiqueEffectRules = `Effect extraction rules:
 - "intervention" is the arm that receives the question's intervention, "control" is its comparator — ` +
 	`whatever order the paper lists the arms in; never swap them.
+- A reported estimate is copied as printed, with its own direction. When the paper's comparison is the ` +
+	`comparator versus the intervention (e.g. "HR for carboplatin vs cisplatin" when the question's ` +
+	`intervention is cisplatin), set reversed: true; never invert the value or the interval yourself.
 - Copy the numbers verbatim from the provided text. Do not compute, convert, round or infer anything: ` +
-	`no totals from percentages, no SD from a standard error or an interval, no estimate from counts.
-- Prefer counts or means for both arms; use a reported estimate with its 95% CI only when the arms' numbers ` +
-	`are not given. All numbers are JSON numbers, not strings. When a number is missing, omit the effect ` +
+	`no counts from percentages (give the percent and the arm's total instead), no SD from a standard error ` +
+	`or an interval, no estimate from counts. Copy a reported interval together with its stated level ` +
+	`(ci_level), whatever it is: 90%, 95%, 97.2%.
+- Prefer counts or means for both arms; use a reported estimate with its interval only when the arms' ` +
+	`numbers are not given, with two exceptions where the estimate comes first. Time-to-event outcomes ` +
+	`(survival, time to relapse, progression or healing): give the reported hazard ratio with its interval, ` +
+	`not counts of events, because counts ignore follow-up time; if only medians are reported, omit the ` +
+	`effect and mention the medians in strengths or concerns. Cluster-randomized trials: give the reported ` +
+	`adjusted estimate with its interval, because it accounts for clustering and raw counts overstate ` +
+	`precision. All numbers are JSON numbers, not strings. When a number is missing, omit the effect ` +
 	`rather than guess. Take the question's primary outcome at its main timepoint.
 
 Result direction from numbers: when the text gives counts, means or an estimate for the question's outcome, ` +

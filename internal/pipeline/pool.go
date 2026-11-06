@@ -32,6 +32,14 @@ type pooledStudy struct {
 	study   meta.Study
 	n       int // participants in the effect's arms; 0 when unknown
 
+	// converted says which counts Go derived from the arms' percentages
+	// ("" when none), so that the conversion is visible in the log.
+	converted string
+
+	// flipped describes a reported estimate turned from control-vs-intervention
+	// into intervention-vs-control ("" when it was not reversed).
+	flipped string
+
 	// Raw continuous data waits until the pool knows whether every such study
 	// shares one unit (then MD) or not (then SMD).
 	continuous bool
@@ -61,6 +69,14 @@ func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate {
 		}
 
 		ps.doi = cmp.Or(e.DOI, e.Title)
+		if ps.converted != "" {
+			p.log.Info("effect counts derived from percentages", "doi", e.DOI, "derived", ps.converted)
+		}
+
+		if ps.flipped != "" {
+			p.log.Info("reported estimate reversed to intervention vs control", "doi", e.DOI, "flipped", ps.flipped)
+		}
+
 		if ps.n == 0 {
 			ps.n = cmp.Or(e.SampleSize, c.SampleSizeReported)
 		}
@@ -79,13 +95,22 @@ func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate {
 // counts first, then means, then a reported estimate with its interval.
 func deriveEffect(ef *model.Effect) (pooledStudy, error) {
 	if ef.Intervention != nil && ef.Control != nil {
-		if a, b, ok := countArms(ef.Intervention, ef.Control); ok {
-			s, err := meta.LogRR(a[0], a[1], b[0], b[1])
+		a, b, ok, err := countArms(ef.Intervention, ef.Control)
+		if err != nil {
+			return pooledStudy{}, fmt.Errorf("counts: %w", err)
+		}
+
+		if ok {
+			s, err := meta.LogRR(a.events, a.total, b.events, b.total)
 			if err != nil {
 				return pooledStudy{}, fmt.Errorf("counts: %w", err)
 			}
 
-			return pooledStudy{measure: model.MeasureRR, study: s, n: int(a[1] + b[1])}, nil
+			return pooledStudy{
+				measure: model.MeasureRR, study: s, n: int(a.total + b.total),
+				converted: strings.Join(slices.DeleteFunc([]string{a.derived, b.derived},
+					func(s string) bool { return s == "" }), "; "),
+			}, nil
 		}
 
 		if a, b, ok := meanArms(ef.Intervention, ef.Control); ok {
@@ -100,13 +125,56 @@ func deriveEffect(ef *model.Effect) (pooledStudy, error) {
 	return pooledStudy{}, errNoNumbers
 }
 
-// countArms returns the events and totals of both arms when all four are given.
-func countArms(i, c *model.Arm) (a, b [2]float64, ok bool) {
-	if i.Events == nil || i.Total == nil || c.Events == nil || c.Total == nil {
-		return a, b, false
+// countedArm is the events and total of one arm; derived describes the count
+// when it was computed from a percentage.
+type countedArm struct {
+	events, total float64
+	derived       string
+}
+
+// countArms returns the events and totals of both arms when both can be
+// counted. An error means a percentage that cannot be one.
+func countArms(i, c *model.Arm) (a, b countedArm, ok bool, err error) {
+	a, okA, err := countArm(i, "intervention")
+	if err != nil {
+		return a, b, false, err
 	}
 
-	return [2]float64{*i.Events, *i.Total}, [2]float64{*c.Events, *c.Total}, true
+	b, okB, err := countArm(c, "control")
+	if err != nil {
+		return a, b, false, err
+	}
+
+	return a, b, okA && okB, nil
+}
+
+// countArm reads one arm: events and total as given, or, when the study
+// reports only a percentage of the arm, events = round(percent / 100 * total).
+// A percentage outside 0-100 is an error; given events win over a percentage.
+func countArm(a *model.Arm, label string) (countedArm, bool, error) {
+	if a.Total == nil {
+		return countedArm{}, false, nil
+	}
+
+	if a.Events != nil {
+		return countedArm{events: *a.Events, total: *a.Total}, true, nil
+	}
+
+	if a.Percent == nil {
+		return countedArm{}, false, nil
+	}
+
+	pct := *a.Percent
+	if math.IsNaN(pct) || pct < 0 || pct > 100 {
+		return countedArm{}, false, fmt.Errorf("%s arm: percent %v is outside 0-100", label, pct)
+	}
+
+	events := math.Round(pct / 100 * *a.Total)
+
+	return countedArm{
+		events: events, total: *a.Total,
+		derived: fmt.Sprintf("%s %v%% of %v = %v events", label, pct, *a.Total, events),
+	}, true, nil
 }
 
 // meanArms returns the means, SDs and sizes of both arms when all are given.
@@ -134,7 +202,8 @@ func deriveContinuous(a, b meta.Arm, unit string) (pooledStudy, error) {
 	}, nil
 }
 
-// deriveReported handles a study that reports only an estimate and its 95% CI.
+// deriveReported handles a study that reports an estimate and its confidence
+// interval, at the stated level (95% when none is stated).
 func deriveReported(ef *model.Effect) (pooledStudy, error) {
 	m, err := model.ParseMeasure(ef.Measure)
 	if err != nil {
@@ -147,10 +216,27 @@ func deriveReported(ef *model.Effect) (pooledStudy, error) {
 
 	ps := pooledStudy{measure: m}
 
+	level := meta.DefaultLevel
+	if ef.CILevel != nil {
+		level = *ef.CILevel
+	}
+
+	value, low, high := *ef.Value, *ef.CILow, *ef.CIHigh
+
+	if ef.Reversed {
+		value, low, high, err = reverseEstimate(m, value, low, high)
+		if err != nil {
+			return pooledStudy{}, fmt.Errorf("estimate %s: %w", m, err)
+		}
+
+		ps.flipped = fmt.Sprintf("%s %v (%v to %v) -> %v (%v to %v)",
+			m, *ef.Value, *ef.CILow, *ef.CIHigh, value, low, high)
+	}
+
 	if m.IsRatio() {
-		ps.study, err = meta.RatioCI(*ef.Value, *ef.CILow, *ef.CIHigh)
+		ps.study, err = meta.RatioCI(value, low, high, level)
 	} else {
-		ps.study, err = meta.DifferenceCI(*ef.Value, *ef.CILow, *ef.CIHigh)
+		ps.study, err = meta.DifferenceCI(value, low, high, level)
 	}
 
 	if err != nil {
@@ -165,6 +251,21 @@ func deriveReported(ef *model.Effect) (pooledStudy, error) {
 	}
 
 	return ps, nil
+}
+
+// reverseEstimate turns an estimate of the comparator versus the intervention
+// into the intervention versus the comparator: a ratio becomes 1/value with the
+// interval 1/high .. 1/low, a difference becomes -value with -high .. -low.
+func reverseEstimate(m model.Measure, value, low, high float64) (v, lo, hi float64, err error) {
+	if !m.IsRatio() {
+		return -value, -high, -low, nil
+	}
+
+	if value <= 0 || low <= 0 || high <= 0 {
+		return 0, 0, 0, fmt.Errorf("ratio %v (%v to %v) cannot be reversed: it must be positive", value, low, high)
+	}
+
+	return 1 / value, 1 / high, 1 / low, nil
 }
 
 // tidyUnit collapses the spaces of a unit as the critic wrote it; normUnit is
