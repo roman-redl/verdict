@@ -30,7 +30,7 @@ func (c *cli) root() *cobra.Command {
 		Short: "Evidence assessment for scientific claims: discovery → Scite/OpenAlex → LLM",
 	}
 	root.AddCommand(c.runCmd(), webCmd(), doisCmd(), c.resolveCmd(), c.snowballCmd(),
-		c.addpdfCmd(), c.askCmd(), c.briefCmd(), c.picoCmd(), c.indexCmd())
+		c.addpdfCmd(), c.askCmd(), c.briefCmd(), c.picoCmd(), c.indexCmd(), c.evalCmd())
 
 	return root
 }

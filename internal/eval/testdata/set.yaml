@@ -1,0 +1,43 @@
+# A small copy of the set format for the tests.
+questions:
+  - id: 10
+    question: >-
+      Is the breast cancer detection rate higher, lower, or the same with mammography plus ultrasonography?
+    claim: >-
+      In women with dense breasts, screening with mammography plus ultrasonography detects more breast
+      cancers than screening with mammography alone.
+    works_if: higher
+    answer: higher
+    certainty: high
+    specialty: Oncology & Hematology
+    review_pmid: "36999589"
+    review_doi: 10.1002/14651858.CD009632.pub3
+    studies:
+      - {pmid: "34406400", doi: 10.1001/jamanetworkopen.2021.21505}
+      - {pmid: "29571797", doi: 10.1016/j.ejrad.2018.01.022}
+      - {pmid: "11111111", doi: ""}
+
+  - id: 30
+    question: Is fatigue severity higher, lower, or the same when comparing exercise to usual care?
+    claim: In people with Parkinson's disease, exercise reduces fatigue severity compared with usual care.
+    works_if: lower
+    answer: no difference
+    certainty: low
+    specialty: Psychiatry & Neurology
+    review_pmid: "26447539"
+    review_doi: 10.1002/14651858.CD010925.pub2
+    studies:
+      - {pmid: "22257506", doi: 10.1177/0269215511432652}
+      - {pmid: "21953509", doi: 10.1002/mds.23966}
+
+  - id: 230
+    question: Is global cognitive function higher, lower, or the same with computerised cognitive training?
+    claim: In cognitively healthy older people, computerised cognitive training improves global cognition.
+    works_if: higher
+    answer: insufficient data
+    certainty: ""
+    specialty: Psychiatry & Neurology
+    review_pmid: "32104914"
+    review_doi: 10.1002/14651858.CD012277.pub3
+    studies:
+      - {pmid: "23531885", doi: 10.3389/fnagi.2013.00008}

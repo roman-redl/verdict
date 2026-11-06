@@ -134,6 +134,22 @@ linters:
               desc: "the pipeline starts no processes; the LLM backends do that"
             - pkg: github.com/roman-redl/verdict/internal/httpx
               desc: "HTTP belongs to the adapters"
+        # the eval is domain logic over the pipeline port: it writes its DOI
+        # lists and summaries to disk itself (`os` stays allowed), and reaches
+        # databases, the network and processes through nothing at all
+        eval-pure:
+          files: ["**/internal/eval/**", "!$test"]
+          deny:
+            - pkg: modernc.org/sqlite
+              desc: "the eval does not touch a database driver; the run index is cmd's business"
+            - pkg: database/sql
+              desc: "the eval does not touch a database"
+            - pkg: net/http
+              desc: "the eval reaches the network only through the pipeline"
+            - pkg: os/exec
+              desc: "the eval starts no processes"
+            - pkg: github.com/roman-redl/verdict/internal/httpx
+              desc: "HTTP belongs to the adapters"
   exclusions:
     paths: ["vendor/"]
     rules:
