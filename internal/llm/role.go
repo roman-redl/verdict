@@ -51,9 +51,9 @@ func ParseRole(s string) (Role, error) {
 // deep (the run's --deep flag) lifts the synthesis to the strongest model.
 func (r Role) DefaultModel(deep bool) string {
 	switch r {
-	case RolePlan, RoleCritique, RoleAsk:
+	case RolePlan, RoleAsk:
 		return ModelSonnet
-	case RoleDeep:
+	case RoleCritique, RoleDeep:
 		return ModelOpus
 	case RoleSynthesis:
 		if deep {

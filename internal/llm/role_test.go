@@ -29,14 +29,14 @@ func TestRoleDefaults(t *testing.T) {
 		effort string
 	}{
 		{RolePlan, false, "sonnet", "low"},
-		{RoleCritique, false, "sonnet", "low"},
+		{RoleCritique, false, "opus", "low"},
 		{RoleDeep, false, "opus", "high"},
 		{RoleSynthesis, false, "opus", "high"},
 		{RoleSynthesis, true, "fable", "high"},
 		{RoleAsk, false, "sonnet", "medium"},
 		// the --deep flag lifts only the synthesis
 		{RolePlan, true, "sonnet", "low"},
-		{RoleCritique, true, "sonnet", "low"},
+		{RoleCritique, true, "opus", "low"},
 		{RoleDeep, true, "opus", "high"},
 		{RoleAsk, true, "sonnet", "medium"},
 	}

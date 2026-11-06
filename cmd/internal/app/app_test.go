@@ -122,11 +122,11 @@ func TestBuildCompleterPicksTheBackend(t *testing.T) {
 		cfg      config.Config
 		wantName string
 	}{
-		{"auto without keys is the claude-cli wrapper", config.Config{LLMCommand: wrapperDS}, "claude-cli:claude-ds/sonnet"},
+		{"auto without keys is the claude-cli wrapper", config.Config{LLMCommand: wrapperDS}, "claude-cli:claude-ds/opus"},
 		{
 			"an Anthropic key never switches auto to the paid API",
 			config.Config{AnthropicAPIKey: "k", AnthropicProxy: proxyURL, AnthropicModel: modelX},
-			maxName + llm.ModelSonnet,
+			maxName + llm.ModelOpus,
 		},
 		{
 			"an OpenAI key never switches auto to the paid API",
@@ -159,7 +159,7 @@ func TestBuildCompleterPicksTheBackend(t *testing.T) {
 		{
 			"an explicit claude-cli wins over keys",
 			config.Config{LLMBackend: llm.BackendClaudeCLI, AnthropicAPIKey: "k", LLMCommand: wrapperZai},
-			"claude-cli:claude-zai/sonnet",
+			"claude-cli:claude-zai/opus",
 		},
 		{
 			"an explicit openai-compat uses LLM_MODEL",
@@ -242,14 +242,14 @@ func TestModelPrecedence(t *testing.T) {
 		{"synthesis variable beats --deep", full, CompleterSpec{Role: llm.RoleSynthesis, Deep: true}, synthEnv},
 		{"ask variable", full, CompleterSpec{Role: llm.RoleAsk}, "ask-env"},
 		{"plan default", config.Config{}, CompleterSpec{Role: llm.RolePlan}, llm.ModelSonnet},
-		{"critique default", config.Config{}, CompleterSpec{Role: llm.RoleCritique}, llm.ModelSonnet},
+		{"critique default", config.Config{}, CompleterSpec{Role: llm.RoleCritique}, llm.ModelOpus},
 		{"deep default", config.Config{}, CompleterSpec{Role: llm.RoleDeep}, llm.ModelOpus},
 		{"synthesis default", config.Config{}, CompleterSpec{Role: llm.RoleSynthesis}, llm.ModelOpus},
 		{"synthesis default with --deep", config.Config{}, CompleterSpec{Role: llm.RoleSynthesis, Deep: true}, "fable"},
 		{
 			"--deep leaves the other roles alone",
 			config.Config{},
-			CompleterSpec{Role: llm.RoleCritique, Deep: true},
+			CompleterSpec{Role: llm.RolePlan, Deep: true},
 			llm.ModelSonnet,
 		},
 		{
@@ -323,10 +323,18 @@ func TestEffortAndFallbackOnlyForClaudeMax(t *testing.T) {
 		assert.Contains(t, argsOf(t, c, argsFile), "--model fable --effort high --fallback-model sonnet")
 	})
 
-	t.Run("claude-max critique has no fallback", func(t *testing.T) {
+	t.Run("claude-max critique is opus at low effort with the sonnet fallback", func(t *testing.T) {
 		argsFile := recordingWrapper(t, wrapperMax)
 
 		c, err := BuildCompleter(&cfg, quietLog(), CompleterSpec{Role: llm.RoleCritique})
+		require.NoError(t, err)
+		assert.Contains(t, argsOf(t, c, argsFile), "--model opus --effort low --fallback-model sonnet")
+	})
+
+	t.Run("claude-max plan has no fallback", func(t *testing.T) {
+		argsFile := recordingWrapper(t, wrapperMax)
+
+		c, err := BuildCompleter(&cfg, quietLog(), CompleterSpec{Role: llm.RolePlan})
 		require.NoError(t, err)
 
 		got := argsOf(t, c, argsFile)
@@ -409,7 +417,7 @@ func TestBuildClientsGivesEachRoleItsModel(t *testing.T) {
 
 	def, err := BuildClients(&cfg, quietLog(), pipeline.Options{})
 	require.NoError(t, err)
-	assert.Equal(t, maxName+llm.ModelSonnet, def.LLM.Name())
+	assert.Equal(t, maxName+llm.ModelOpus, def.LLM.Name())
 	assert.Equal(t, maxName+llm.ModelOpus, def.LLMDeep.Name())
 	assert.Equal(t, maxName+llm.ModelOpus, def.LLMSynthesis.Name())
 	assert.NotNil(t, def.Citations)
