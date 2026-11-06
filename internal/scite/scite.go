@@ -138,8 +138,12 @@ func parseTallies(raw json.RawMessage) (map[string]model.CitationTally, error) {
 }
 
 func isDOIMap(m map[string]tallyFields) bool {
+	// any key will do: map order is random, and a service key such as
+	// "status" may sit next to the DOIs
 	for k := range m {
-		return strings.HasPrefix(k, "10.")
+		if strings.HasPrefix(k, "10.") {
+			return true
+		}
 	}
 
 	return false
