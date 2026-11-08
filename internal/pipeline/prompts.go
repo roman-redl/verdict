@@ -36,20 +36,38 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 	`Non-direct studies need no note: the pipeline auto-generates one from the critique concerns.
 - contradictions (array of strings): unresolved conflicts, with DOIs; contradicting_dois in the input ` +
 	`lists the papers Scite found citing a study as refuted — ground "who exactly is against" in them when present
-- gaps (array of strings): what is missing to judge (no data, single study, few citations, publication-bias risk, ...)
+- gaps (array of strings): what is missing to judge (no data, missing numbers, few citations, ` +
+	`publication-bias risk, ...); a gap is not a downgrade by itself
 
 Verdict definitions — the certainty that the stated direction (supports the claim / no effect / opposite) ` +
 	`is right, rated GRADE-style over the direct studies:
 - Start from the design: randomized trials start at strong, observational studies at weak.
-- Lower one level for each serious problem: risk of bias; inconsistency between direct studies; ` +
-	`indirectness (population, intervention, comparator or outcome differ from the question); imprecision ` +
-	`(few participants or events, a single small study, results compatible with both benefit and no effect); ` +
-	`suspected publication bias or a single research group. Raise observational evidence only for a very large, ` +
-	`consistent effect.
+- Lower one level for each SERIOUS problem in one of five domains and two levels for a VERY SERIOUS one, ` +
+	`and name the domain; nothing else lowers the level, and one problem counts in one domain only:
+  - risk of bias: a flaw that could plausibly change this outcome's result (allocation, missing data, ` +
+	`selective or post hoc analysis). The flaw must be shown by the text; a detail the abstract does not ` +
+	`report (dropouts, concealment) is a gap, not a flaw. Lack of blinding does not lower an objective outcome ` +
+	`(death, survival, hospital admission, laboratory values);
+  - inconsistency: the direct studies disagree in direction or in size beyond chance; variation between ` +
+	`time points or subgroups of one study is not inconsistency;
+  - indirectness: the population, intervention, comparator or outcome differ from the question enough to ` +
+	`plausibly change the effect. Co-interventions given to both arms, a population narrower than the question ` +
+	`or a different setting are not serious by themselves;
+  - imprecision: judged from the confidence interval and the amount of data, not from the number of studies. ` +
+	`Serious when the interval includes no effect, or includes both an important and a trivial effect; ` +
+	`without an interval, serious when the data are small (under about 300 events, or 400 participants for a ` +
+	`continuous outcome). Very serious when all the direct data are a few dozen participants (under about ` +
+	`100 in total), whatever the interval or p-value; or when the interval includes no effect and reaches well ` +
+	`into both a clear benefit and a clear harm (e.g. RR 0.5 to 2), not a bound just past no effect. Otherwise ` +
+	`an interval that excludes no effect lowers at most one level, however wide; a narrow one that excludes ` +
+	`no effect is precise, however few the trials;
+  - publication bias: suspected when the evidence is a few small, positive, commercially funded studies.
+- Raise observational evidence only for a very large, consistent effect.
 - strong = high certainty, moderate = moderate, weak = low, insufficient = very low certainty ` +
 	`or no direct study reporting the question's outcome.
-- The number of studies is not a level by itself: one adequately sized, well-conducted randomized trial ` +
-	`reporting the outcome is usually moderate (lowered once for imprecision or lack of replication), not insufficient.
+- The number of studies and of research groups is not a domain: it lowers the level only through ` +
+	`imprecision. One large, well-conducted randomized trial with a precise result stays strong; ` +
+	`one adequately sized trial is moderate or strong, not insufficient.
 - No effect is a conclusion, not the lack of one: when adequately powered direct studies consistently find ` +
 	`no meaningful difference, the direction is "no effect" and the verdict rates the certainty of that. ` +
 	`An underpowered null result is imprecision; it does not show the absence of an effect.
@@ -76,7 +94,8 @@ Hard rules:
 	`the field leans. Do not duplicate: verdict says how PROVEN it is, ` +
 	`consensus_status/consensus say WHERE the field leans.
 7. Compare author lists across studies: several studies from the same research group are ONE line of evidence, ` +
-	`not independent replications — weigh them accordingly and note any group overlap in contradictions or gaps.
+	`not independent replications — weigh them accordingly and note any group overlap in contradictions or gaps; ` +
+	`the overlap alone does not lower the verdict.
 8. When pooled_estimate is present, it is the pooled effect of the direct studies computed by the pipeline: ` +
 	`use it for direction and imprecision (a CI that excludes no effect supports a direction; a narrow CI ` +
 	`around no effect supports no_effect); never recompute it; individual non-significant studies do not ` +
