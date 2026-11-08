@@ -211,6 +211,7 @@ func synthesisUserPrompt(st *State) (string, error) {
 
 		if c := crits[i]; hasCritique(c) {
 			cc := c
+			cc.Effect = usableEffect(c.Effect) // the stored critique keeps the critic's numbers as they are
 			it.Critique = &cc
 
 			if it.SampleSize == 0 {
