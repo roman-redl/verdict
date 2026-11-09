@@ -44,6 +44,46 @@ type pooledStudy struct {
 	// shares one unit (then MD) or not (then SMD).
 	continuous bool
 	md, smd    meta.Study
+
+	// sd is the SD of the outcome across both arms of a study derived from
+	// means; 0 when unknown (a reported estimate carries none).
+	sd float64
+
+	// outcome is the critic's name of the outcome with its time point.
+	outcome string
+}
+
+// maxOutcomeRunes caps the joined outcome texts of a pool.
+const maxOutcomeRunes = 200
+
+// outcomeLabel is "outcome (timepoint)" with the spaces collapsed; empty when
+// the critic named no outcome.
+func outcomeLabel(ef *model.Effect) string {
+	o := tidyUnit(ef.Outcome)
+	if o == "" {
+		return ""
+	}
+
+	if tp := tidyUnit(ef.Timepoint); tp != "" {
+		return o + " (" + tp + ")"
+	}
+
+	return o
+}
+
+// joinOutcomes lists the distinct outcome texts of a pool in study order,
+// separated by " / " and cut to a length that stays readable.
+func joinOutcomes(items []pooledStudy) string {
+	var seen []string
+
+	for i := range items {
+		o := items[i].outcome
+		if o != "" && !slices.ContainsFunc(seen, func(s string) bool { return strings.EqualFold(s, o) }) {
+			seen = append(seen, o)
+		}
+	}
+
+	return truncate(strings.Join(seen, " / "), maxOutcomeRunes)
 }
 
 var errNoNumbers = errors.New("no usable numbers")
@@ -69,6 +109,8 @@ func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate {
 		}
 
 		ps.doi = cmp.Or(e.DOI, e.Title)
+		ps.outcome = outcomeLabel(c.Effect)
+
 		if ps.converted != "" {
 			p.log.Info("effect counts derived from percentages", "doi", e.DOI, "derived", ps.converted)
 		}
@@ -197,8 +239,13 @@ func deriveContinuous(a, b meta.Arm, unit string) (pooledStudy, error) {
 		return pooledStudy{}, fmt.Errorf("means: %w", err)
 	}
 
+	sd, err := meta.PooledSD(a, b)
+	if err != nil {
+		return pooledStudy{}, fmt.Errorf("means: %w", err)
+	}
+
 	return pooledStudy{
-		continuous: true, unit: tidyUnit(unit), md: md, smd: smd, n: int(a.N + b.N),
+		continuous: true, unit: tidyUnit(unit), md: md, smd: smd, sd: sd, n: int(a.N + b.N),
 	}, nil
 }
 
@@ -420,7 +467,7 @@ func pooledFrom(g *poolGroup) (*model.PooledEstimate, error) {
 	pe := &model.PooledEstimate{
 		Method: method, Measure: g.measure, Unit: g.unit,
 		Estimate: back(res.Estimate), CILow: back(res.CILow), CIHigh: back(res.CIHigh),
-		K: res.K, Studies: dois,
+		K: res.K, Studies: dois, Outcome: joinOutcomes(g.items),
 	}
 
 	if method == model.PoolRandomEffects {
@@ -436,5 +483,31 @@ func pooledFrom(g *poolGroup) (*model.PooledEstimate, error) {
 		}
 	}
 
+	if g.measure == model.MeasureMD {
+		pe.SD = g.meanSD()
+	}
+
 	return pe, nil
+}
+
+// meanSD is the participant-weighted mean of the studies' SDs, the scale the
+// imprecision band of an MD is taken from. It is nil unless every study knows
+// its SD and size: a mean over some studies would describe another outcome
+// scale than the pooled one.
+func (g *poolGroup) meanSD() *float64 {
+	var sum, weight float64
+
+	for i := range g.items {
+		it := &g.items[i]
+		if it.sd <= 0 || it.n <= 0 {
+			return nil
+		}
+
+		sum += it.sd * float64(it.n)
+		weight += float64(it.n)
+	}
+
+	mean := sum / weight
+
+	return &mean
 }

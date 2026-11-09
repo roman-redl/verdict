@@ -135,6 +135,14 @@ type PooledEstimate struct {
 	// I2 is the heterogeneity in percent (0-100); nil for a single study.
 	I2 *float64 `json:"i2,omitempty"`
 	// Unit is the outcome's unit of a pooled MD.
-	Unit    string   `json:"unit,omitempty"`
+	Unit string `json:"unit,omitempty"`
+	// SD is the outcome's standard deviation of a pooled MD (the
+	// participant-weighted mean of the studies' pooled SDs); nil when any
+	// study gave only an estimate, and for the other measures.
+	SD *float64 `json:"sd,omitempty"`
+	// Outcome is what the pooled numbers measure, as the critics named it
+	// (with the time point when stated); it can be the complement of the
+	// claim's outcome, which the direction is read against.
+	Outcome string   `json:"outcome,omitempty"`
 	Studies []string `json:"studies"` // DOIs
 }

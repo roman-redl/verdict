@@ -29,6 +29,10 @@ func RenderMarkdown(st *State) string {
 		fmt.Fprintf(&b, "**%s:** %s\n\n", pooledLabel(pe), pooledText(pe))
 	}
 
+	if imp := r.Imprecision; imp != nil {
+		fmt.Fprintf(&b, "**Imprecision (computed):** %s\n\n", imprecisionText(imp))
+	}
+
 	if r.Consensus != "" || r.ConsensusStatus != "" {
 		fmt.Fprintf(&b, "### Scientific consensus: %s\n\n", consensusLabel(r.ConsensusStatus))
 
@@ -318,7 +322,22 @@ func pooledText(pe *model.PooledEstimate) string {
 		s += fmt.Sprintf(", I² = %.0f%%", *pe.I2)
 	}
 
+	if pe.Outcome != "" {
+		s += "; outcome: " + pe.Outcome
+	}
+
 	return s
+}
+
+// imprecisionText renders the computed rating: the levels, then the reason
+// (a sentence with the numbers).
+func imprecisionText(imp *model.Imprecision) string {
+	s := "not rated down"
+	if imp.Levels > 0 {
+		s = fmt.Sprintf("rated down %d %s", imp.Levels, plural(imp.Levels, "level", "levels"))
+	}
+
+	return s + " — " + imp.Reason
 }
 
 // pooledLine is the one-line digest entry; empty without a pooled estimate.

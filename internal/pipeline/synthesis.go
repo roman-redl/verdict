@@ -29,6 +29,7 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 	// the final critiques are in (the hybrid re-critique included): pool the
 	// extracted effects in Go, so that the judge reads the numbers
 	st.Pooled = p.poolEffects(st)
+	st.Imprecision = p.assessImprecision(st.Pooled)
 
 	user, err := judgePrompt(st)
 	if err != nil {
@@ -51,6 +52,9 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 	st.synthesisCost().add(usage) // accumulates: a rerun after deleting 4-synthesis.json adds its call
 	p.log.Info("synthesis llm usage", "in", usage.InputTokens, "out", usage.OutputTokens)
 
+	direction, directionWarning := p.directionFromPooled(st.Imprecision, jr.ClaimChange,
+		p.effectDirection(jr.EffectDirection))
+
 	r := model.Report{
 		Question:         st.Question,
 		GeneratedAt:      p.now().UTC(),
@@ -58,13 +62,19 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 		VerdictRationale: jr.VerdictRationale,
 		ConsensusStatus:  jr.ConsensusStatus,
 		Consensus:        jr.Consensus,
-		EffectDirection:  p.effectDirection(jr.EffectDirection),
+		EffectDirection:  direction,
 		PooledEstimate:   st.Pooled,
+		Imprecision:      st.Imprecision,
 		Contradictions:   jr.Contradictions,
 		Gaps:             jr.Gaps,
 		Matrix:           buildMatrix(st, jr.Notes),
 	}
-	r.Warnings = append(append([]string{}, st.Warnings...), r.Warnings...)
+	r.Warnings = append([]string{}, st.Warnings...)
+
+	if directionWarning != "" {
+		r.Warnings = append(r.Warnings, directionWarning)
+	}
+
 	st.Report = &r
 
 	return nil

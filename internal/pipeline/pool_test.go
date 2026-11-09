@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,15 +17,18 @@ import (
 )
 
 const (
-	unitMmHg = "mmHg"
-	study1   = "10.1/s1"
-	study2   = "10.1/s2"
+	unitMmHg   = "mmHg"
+	unitPoints = "points"
+	// outcomeName is what counts() reports its numbers for.
+	outcomeName = "outcome"
+	study1      = "10.1/s1"
+	study2      = "10.1/s2"
 )
 
 // counts is a binary outcome: events/total in the intervention and control arms.
 func counts(e1, n1, e2, n2 float64) *model.Effect {
 	return &model.Effect{
-		Outcome:      "outcome",
+		Outcome:      outcomeName,
 		Intervention: &model.Arm{Events: new(e1), Total: new(n1)},
 		Control:      &model.Arm{Events: new(e2), Total: new(n2)},
 	}
@@ -157,22 +161,75 @@ func TestPoolEffectsMeanDifferenceInOneUnit(t *testing.T) {
 	p, _ := poolPipeline(t)
 
 	// MD 2, SE of each sqrt(0.4); pooled SE sqrt(0.2) = 0.44721
-	pe := p.poolEffects(poolState(means(2, "points"), means(2, " Points ")))
+	pe := p.poolEffects(poolState(means(2, unitPoints), means(2, " Points ")))
 
 	require.NotNil(t, pe)
 	assert.Equal(t, model.MeasureMD, pe.Measure)
-	assert.Equal(t, "points", pe.Unit)
+	assert.Equal(t, unitPoints, pe.Unit)
 	assert.InDelta(t, 2, pe.Estimate, 1e-9)
 	assert.InDelta(t, 1.1235, pe.CILow, 0.0001)
 	assert.InDelta(t, 2.8765, pe.CIHigh, 0.0001)
 	assert.Equal(t, 80, pe.Participants)
 }
 
+// The SD an MD's imprecision band is taken from: the participant-weighted mean
+// of the studies' pooled SDs, known only when every study derived it from arms.
+func TestPoolEffectsMeanDifferenceSD(t *testing.T) {
+	p, _ := poolPipeline(t)
+
+	// pooled SDs 2 (40 participants) and 4 (120): (2 * 40 + 4 * 120) / 160 = 3.5
+	small := means(2, unitPoints)
+	large := &model.Effect{
+		Unit:         unitPoints,
+		Intervention: &model.Arm{Mean: new(10.0), SD: new(4.0), N: new(60.0)},
+		Control:      &model.Arm{Mean: new(8.0), SD: new(4.0), N: new(60.0)},
+	}
+
+	pe := p.poolEffects(poolState(small, large))
+	require.NotNil(t, pe)
+	require.NotNil(t, pe.SD)
+	assert.InDelta(t, 3.5, *pe.SD, 1e-9)
+
+	// unequal SDs inside a study: sqrt((19 * 4 + 29 * 9) / 48)
+	uneven := &model.Effect{
+		Unit:         unitPoints,
+		Intervention: &model.Arm{Mean: new(10.0), SD: new(2.0), N: new(20.0)},
+		Control:      &model.Arm{Mean: new(8.0), SD: new(3.0), N: new(30.0)},
+	}
+
+	pe = p.poolEffects(poolState(uneven))
+	require.NotNil(t, pe)
+	require.NotNil(t, pe.SD)
+	assert.InDelta(t, math.Sqrt(337.0/48), *pe.SD, 1e-9)
+}
+
+// An estimate-only MD has no SD, and one such study takes it from the pool.
+func TestPoolEffectsMeanDifferenceWithoutSD(t *testing.T) {
+	p, _ := poolPipeline(t)
+
+	reportedMD := reported("MD", 1.5, 0.5, 2.5)
+	reportedMD.Unit = unitPoints
+
+	for name, st := range map[string]*State{
+		"a reported estimate":      poolState(reportedMD),
+		"arms and a reported one":  poolState(means(2, unitPoints), reportedMD),
+		"standardized differences": poolState(means(2, unitMmHg), means(2, unitPoints)),
+		"a ratio":                  poolState(counts(10, 100, 20, 100)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			pe := p.poolEffects(st)
+
+			require.NotNil(t, pe)
+			assert.Nil(t, pe.SD)
+		})
+	}
+}
+
 // Differing or missing units cannot be pooled as a mean difference: Hedges' g.
 func TestPoolEffectsMeansInDifferentUnitsAreStandardized(t *testing.T) {
 	for name, units := range map[string][2]string{
-		"different units": {unitMmHg, "points"},
-		"a missing unit":  {"points", ""},
+		"different units": {unitMmHg, unitPoints},
+		"a missing unit":  {unitPoints, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p, _ := poolPipeline(t)
@@ -306,6 +363,7 @@ func TestPoolEffectsEventsFromPercent(t *testing.T) {
 
 	// 33% of 300 = 99 against 20% of 300 = 60: the same as counts(99, 300, 60, 300)
 	ef := &model.Effect{
+		Outcome:      outcomeName,
 		Intervention: &model.Arm{Percent: new(33.0), Total: new(300.0)},
 		Control:      &model.Arm{Percent: new(20.0), Total: new(300.0)},
 	}
@@ -322,6 +380,7 @@ func TestPoolEffectsEventsFromPercent(t *testing.T) {
 
 	// rounding: 12.5% of 30 = 3.75 -> 4
 	rounded := &model.Effect{
+		Outcome:      outcomeName,
 		Intervention: &model.Arm{Percent: new(12.5), Total: new(30.0)},
 		Control:      &model.Arm{Events: new(9.0), Total: new(30.0)},
 	}
@@ -331,6 +390,76 @@ func TestPoolEffectsEventsFromPercent(t *testing.T) {
 	both := counts(10, 100, 20, 100)
 	both.Intervention.Percent = new(99.0)
 	assert.Equal(t, p.poolEffects(poolState(counts(10, 100, 20, 100))), p.poolEffects(poolState(both)))
+}
+
+// The pooled estimate names what the numbers measure, as the critics wrote it:
+// the claim's outcome can be pooled as its complement, and the direction is
+// read against the pooled one.
+func TestPoolEffectsOutcome(t *testing.T) {
+	p, _ := poolPipeline(t)
+
+	named := func(ef *model.Effect, outcome, timepoint string) *model.Effect {
+		ef.Outcome, ef.Timepoint = outcome, timepoint
+		return ef
+	}
+
+	for name, tc := range map[string]struct {
+		effects []*model.Effect
+		want    string
+	}{
+		"one study with a time point": {
+			effects: []*model.Effect{named(counts(10, 100, 20, 100), " Children  still in pain ", "48 hours")},
+			want:    "Children still in pain (48 hours)",
+		},
+		"the same outcome twice, case aside": {
+			effects: []*model.Effect{
+				named(counts(10, 100, 20, 100), "Still in pain", ""), named(counts(10, 100, 20, 100), "still in pain", ""),
+			},
+			want: "Still in pain",
+		},
+		"distinct outcomes in study order": {
+			effects: []*model.Effect{
+				named(counts(10, 100, 20, 100), "Pain at 24 h", ""), named(counts(10, 100, 20, 100), "Pain at 48 h", ""),
+				named(counts(10, 100, 20, 100), "Pain at 24 h", ""),
+			},
+			want: "Pain at 24 h / Pain at 48 h",
+		},
+		"a study without an outcome adds nothing": {
+			effects: []*model.Effect{
+				named(counts(10, 100, 20, 100), "", "48 hours"), named(counts(10, 100, 20, 100), "Pain", ""),
+			},
+			want: "Pain",
+		},
+		"no outcome named": {
+			effects: []*model.Effect{named(counts(10, 100, 20, 100), "", "")},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pe := p.poolEffects(poolState(tc.effects...))
+
+			require.NotNil(t, pe)
+			assert.Equal(t, tc.want, pe.Outcome)
+		})
+	}
+}
+
+// A very long list of outcomes is cut, not dumped into the prompt.
+func TestPoolEffectsOutcomeIsCapped(t *testing.T) {
+	p, _ := poolPipeline(t)
+
+	effects := make([]*model.Effect, 0, 40)
+
+	for i := range 40 {
+		ef := counts(10, 100, 20, 100)
+		ef.Outcome = fmt.Sprintf("Outcome number %d", i)
+		effects = append(effects, ef)
+	}
+
+	pe := p.poolEffects(poolState(effects...))
+
+	require.NotNil(t, pe)
+	assert.Len(t, []rune(pe.Outcome), maxOutcomeRunes+1, "the cap and the ellipsis")
+	assert.True(t, strings.HasPrefix(pe.Outcome, "Outcome number 0 / Outcome number 1 / "))
 }
 
 // An estimate-only study counts its participants from the critique when known.
@@ -390,7 +519,7 @@ func TestPoolEffectsIgnoresBadValuesWithAWarning(t *testing.T) {
 		// more events than participants, negative events, an SD of zero
 		counts(12, 10, 2, 10),
 		counts(-1, 10, 2, 10),
-		means(0, "points"),
+		means(0, unitPoints),
 		// an unknown measure, no interval, the value outside its interval, a non-positive ratio, an MD without a unit
 		reported("RRR", 0.8, 0.6, 1.0),
 		{Measure: "RR", Value: new(0.8)},

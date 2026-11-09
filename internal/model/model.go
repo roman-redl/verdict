@@ -226,10 +226,13 @@ type Report struct {
 	// PooledEstimate is the pipeline's pooled effect of the direct studies;
 	// nil when no direct study reported usable numbers.
 	PooledEstimate *PooledEstimate `json:"pooled_estimate,omitempty"`
-	Matrix         []MatrixRow     `json:"evidence_matrix"`
-	Contradictions []string        `json:"contradictions,omitempty"`
-	Gaps           []string        `json:"gaps,omitempty"`
-	Warnings       []string        `json:"warnings,omitempty"`
+	// Imprecision is the GRADE imprecision rating computed from the pooled
+	// estimate; nil when there is none or in reports written before the field.
+	Imprecision    *Imprecision `json:"imprecision,omitempty"`
+	Matrix         []MatrixRow  `json:"evidence_matrix"`
+	Contradictions []string     `json:"contradictions,omitempty"`
+	Gaps           []string     `json:"gaps,omitempty"`
+	Warnings       []string     `json:"warnings,omitempty"`
 }
 
 var doiPrefixes = [...]string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"}

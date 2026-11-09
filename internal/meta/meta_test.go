@@ -185,6 +185,19 @@ func TestHedgesG(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
+func TestPooledSD(t *testing.T) {
+	// the variances of the arms weighted by n - 1: (19 * 4 + 29 * 9) / 48 = 337 / 48
+	sd, err := PooledSD(Arm{Mean: 10, SD: 2, N: 20}, Arm{Mean: 8, SD: 3, N: 30})
+	require.NoError(t, err)
+	assert.InDelta(t, math.Sqrt(337.0/48), sd, 1e-12)
+
+	_, err = PooledSD(Arm{Mean: 10, SD: 0, N: 20}, Arm{Mean: 8, SD: 3, N: 30})
+	require.ErrorIs(t, err, ErrInvalid)
+
+	_, err = PooledSD(Arm{Mean: 10, SD: 2, N: 20}, Arm{Mean: 8, SD: 3, N: 1})
+	require.ErrorIs(t, err, ErrInvalid)
+}
+
 func TestZForLevel(t *testing.T) {
 	for level, want := range map[float64]float64{
 		95:   1.959964,

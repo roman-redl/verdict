@@ -27,7 +27,13 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 	`states relative to the claim in the question (supports = the claim holds; no_effect = the evidence shows ` +
 	`no meaningful difference; opposite = the opposite effect; unclear = the direction cannot be stated: no ` +
 	`direct study reports the outcome, or the direct studies conflict). It MUST agree with consensus and with ` +
-	`the verdict rationale; the verdict says how certain this direction is
+	`the verdict rationale; the verdict says how certain this direction is. When the input has ` +
+	`imprecision, the pipeline derives the final effect_direction from the pooled estimate and your claim_change
+- claim_change: "lower" | "higher" — the change the CLAIM in the question implies for the intervention versus ` +
+	`the comparator in the outcome AS MEASURED in pooled_estimate.outcome (not in the claim's own wording when ` +
+	`they differ), taken from the claim and not from the evidence (e.g. "lowers the risk of stroke" → lower; ` +
+	`claim "increases pain relief" with a pooled outcome "children still in pain" → lower). Without a ` +
+	`pooled_estimate it is still required, read against the claim's own outcome
 - consensus_status: "broad_agreement" | "contested" | "emerging" | "no_consensus" | "insufficient_data"
 - consensus (string): WHAT the field's majority position actually IS (direction, not strength) — ` +
 	`1-3 sentences with DOI examples; if contested, state both camps briefly
@@ -53,7 +59,12 @@ Verdict definitions — the certainty that the stated direction (supports the cl
   - indirectness: the population, intervention, comparator or outcome differ from the question enough to ` +
 	`plausibly change the effect. Co-interventions given to both arms, a population narrower than the question ` +
 	`or a different setting are not serious by themselves;
-  - imprecision: judged from the confidence interval and the amount of data, not from the number of studies. ` +
+  - imprecision: when the input has imprecision, the pipeline computed it from the pooled estimate by GRADE ` +
+	`rules: use its levels as the imprecision rating exactly and do not judge imprecision again; its target is ` +
+	`the conclusion the levels apply to (little_or_no_difference = no effect; target "undetermined" means the ` +
+	`computed rating gives no direction, as no threshold for a trivial effect is known: use the levels and ` +
+	`judge the direction yourself). When imprecision is absent: ` +
+	`judged from the confidence interval and the amount of data, not from the number of studies. ` +
 	`Serious when the interval includes no effect, or includes both an important and a trivial effect; ` +
 	`without an interval, serious when the data are small (under about 300 events, or 400 participants for a ` +
 	`continuous outcome). Very serious when all the direct data are a few dozen participants (under about ` +
@@ -104,7 +115,11 @@ Hard rules:
 	`(e.g. a claim of lower risk is supported by RR below 1) before stating the direction. ` +
 	`With method "single_study" nothing was pooled: the numbers are one ` +
 	`study's own effect, and a CI that spans no effect with a point estimate near no effect is evidence for ` +
-	`little or no difference only when the CI is narrow; a wide CI is imprecision, not no_effect.`
+	`little or no difference only when the CI is narrow; a wide CI is imprecision, not no_effect. ` +
+	`When imprecision is present, it replaces the imprecision reading above: its target is the conclusion the ` +
+	`pooled estimate supports (read against the change the claim states; little_or_no_difference = no_effect; ` +
+	`"undetermined" = you judge the direction), and its levels are the imprecision rating; do not state a ` +
+	`different direction (unless the target is "undetermined") or rate imprecision again.`
 
 // synthesisResult is the judge LLM's output. The evidence matrix is NOT part
 // of it: rows are assembled deterministically in Go from the stage data, so
@@ -113,6 +128,7 @@ type synthesisResult struct {
 	Verdict          string            `json:"verdict"`
 	VerdictRationale string            `json:"verdict_rationale"`
 	EffectDirection  string            `json:"effect_direction,omitempty"`
+	ClaimChange      string            `json:"claim_change,omitempty"`
 	ConsensusStatus  string            `json:"consensus_status,omitempty"`
 	Consensus        string            `json:"consensus,omitempty"`
 	Notes            map[string]string `json:"matrix_notes,omitempty"` // doi → note
@@ -250,6 +266,10 @@ func synthesisUserPrompt(st *State) (string, error) {
 	data := map[string]any{"question": st.Question, "studies": items}
 	if st.Pooled != nil {
 		data["pooled_estimate"] = st.Pooled
+	}
+
+	if st.Imprecision != nil {
+		data["imprecision"] = st.Imprecision
 	}
 
 	b, err := json.Marshal(data)

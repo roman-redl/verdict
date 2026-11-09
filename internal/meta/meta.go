@@ -115,11 +115,25 @@ func HedgesG(a, b Arm) (Study, error) {
 	}
 
 	df := a.N + b.N - 2
-	pooledSD := math.Sqrt(((a.N-1)*a.SD*a.SD + (b.N-1)*b.SD*b.SD) / df)
-	g := (1 - 3/(4*df-1)) * (a.Mean - b.Mean) / pooledSD
+	g := (1 - 3/(4*df-1)) * (a.Mean - b.Mean) / pooledSD(a, b)
 	variance := 1/a.N + 1/b.N + g*g/(2*(a.N+b.N))
 
 	return Study{Y: g, SE: math.Sqrt(variance)}, nil
+}
+
+// PooledSD is the standard deviation of the outcome across both arms of a
+// study, weighted by the degrees of freedom of each arm.
+func PooledSD(a, b Arm) (float64, error) {
+	if !a.valid() || !b.valid() {
+		return 0, invalid("arms %+v and %+v", a, b)
+	}
+
+	return pooledSD(a, b), nil
+}
+
+// pooledSD expects valid arms.
+func pooledSD(a, b Arm) float64 {
+	return math.Sqrt(((a.N-1)*a.SD*a.SD + (b.N-1)*b.SD*b.SD) / (a.N + b.N - 2))
 }
 
 // ZForLevel is the two-sided normal quantile of a confidence level given in

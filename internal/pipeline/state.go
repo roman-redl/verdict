@@ -27,7 +27,10 @@ type State struct {
 	// critiques' extracted numbers right before the synthesis; nil when no
 	// direct study reported usable numbers.
 	Pooled *model.PooledEstimate `json:"pooled_estimate,omitempty"`
-	Report *model.Report         `json:"report,omitempty"`
+	// Imprecision is the GRADE rating computed from Pooled in the same step;
+	// nil when there is no pooled estimate and in artifacts written before it.
+	Imprecision *model.Imprecision `json:"imprecision,omitempty"`
+	Report      *model.Report      `json:"report,omitempty"`
 	// HybridDone records that the hybrid deepening pass (the tail of the
 	// critique stage) has already run for this state, even if it found no full
 	// text to deepen; resume must not repeat it. False in a critique artifact

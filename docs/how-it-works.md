@@ -347,14 +347,50 @@ number of studies, participants when known, I². A single study is shown with
 its own interval and marked "not pooled". The **judge reads** the result
 (`pooled_estimate` in its input) and may not recompute it; `report.md`
 prints the numbers from Go. The method is checked against the BCG vaccine
-example of the metafor package.
+example of the metafor package. A pooled mean difference also carries `sd`,
+the participant-weighted mean of the studies' pooled SDs, when every study
+gave its arms' SDs and sizes (a reported estimate has no SD).
 
-**Effect direction.** The judge also states the direction of the effect the
-evidence supports relative to the claim — `effect_direction`: `supports`,
-`no_effect`, `opposite` or `unclear`. It is separate from the verdict (how
-certain that direction is) and the consensus status (how much the studies
-agree), and it has to agree with the consensus text and the rationale. An
-unknown value is replaced by `unclear` with a warning.
+**Imprecision and effect direction.** A model's judgments of imprecision and
+of the direction of the effect vary between runs and mix up "no effect" with
+"not enough data", so both come from the pooled estimate by GRADE rules,
+computed in Go (`internal/grade`, pure arithmetic):
+`imprecision` (`levels` 0-2, `target`, the band, a `reason` sentence with the
+numbers) goes next to `pooled_estimate` in the judge's input, and the judge
+uses its `levels` exactly instead of judging imprecision again. The null is 1
+for ratios and 0 for differences. The thresholds are the defaults for when no
+minimal important difference is known: a ratio of 0.75 to 1.25, an SMD of ±0.2,
+an MD of ±0.2 SD (only when the SD is known).
+
+- *The interval includes the null.* The point estimate against the band gives
+  the `target`: inside it is `little_or_no_difference`, below `lower`, above
+  `higher`. An interval entirely inside the band is precise (0 levels);
+  otherwise each band edge strictly inside the interval costs one level, at
+  most two. An MD without an SD has no band: nothing tells little or no
+  difference from a small effect, so it costs one level and the `target` is
+  `undetermined` (no direction is implied).
+- *The interval excludes the null.* The `target` is the side of the null, and
+  the null is the threshold. For a ratio, an interval whose upper limit is at
+  least 3 times the lower (2.5 for an OR) is wide, few data behind a large
+  effect: one level. For a mean difference the optimal information size of
+  about 800 participants applies: under 240 two levels, under 800 one; with
+  unknown participants no level, and `size_checked` is false.
+
+The judge's own `effect_direction` (`supports`, `no_effect`, `opposite` or
+`unclear`) is separate from the verdict (how certain that direction is) and
+the consensus status (how much the studies agree), and it has to agree with
+the consensus text and the rationale; an unknown value is replaced by `unclear`
+with a warning. When the rating exists, the judge also returns `claim_change`
+(`lower` or `higher`): the change the claim implies for the outcome as the
+pooled estimate measures it (`pooled_estimate.outcome`, the critics' outcome
+text, because a critic often extracts the complement of the claim's outcome:
+a claim of more pain relief is pooled as "children still in pain", so its
+`claim_change` is `lower`). Go then sets the direction: `no_effect` for the target
+`little_or_no_difference`, `supports` when the target equals `claim_change`,
+`opposite` otherwise. If that differs from the judge's word, the code wins
+and a report warning records both. Without the rating, with the target
+`undetermined`, or with a missing or invalid `claim_change` (logged), the
+judge's direction stays.
 
 Both answers are JSON (machine-readable and checkable); everything is saved
 into stage artifacts. If the LLM is unavailable, the pipeline honestly says
@@ -432,7 +468,8 @@ question ──> [Consensus API] | [OpenAlex search] | [you + the free Consensus
 ## Part 5. Reading the report, and honest limits
 
 **In the report:** the Verdict + the effect direction + the pooled estimate
-when direct studies reported numbers (rendered by Go) + Consensus (the
+and its computed imprecision when direct studies reported numbers (rendered
+by Go) + Consensus (the
 field's position and its status); the Rationale (which DOIs drive the conclusion); the matrix
 (the Sup/Contra column = supported/refuted); Contradictions (empty ≠
 "everyone agrees"); Gaps; Data warnings (what could not be collected).

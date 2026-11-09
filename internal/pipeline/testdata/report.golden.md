@@ -6,7 +6,9 @@
 
 **Effect direction:** supports the claim
 
-**Pooled effect of the direct studies (random effects, DerSimonian-Laird):** SMD -0.220 (95% CI -0.400 to -0.030), 3 studies, 1234 participants, I² = 42%
+**Pooled effect of the direct studies (random effects, DerSimonian-Laird):** SMD -0.220 (95% CI -0.400 to -0.030), 3 studies, 1234 participants, I² = 42%; outcome: Memory score (12 weeks)
+
+**Imprecision (computed):** not rated down — CI -0.4 to -0.03 excludes no effect; 1234 participants, reaching the optimal information size of about 800
 
 ### Scientific consensus: contested
 

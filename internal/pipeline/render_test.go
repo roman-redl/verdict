@@ -88,6 +88,12 @@ func reportState() *State {
 			PooledEstimate: &model.PooledEstimate{
 				Method: model.PoolRandomEffects, Measure: model.MeasureSMD, Estimate: -0.22, CILow: -0.40, CIHigh: -0.03,
 				K: 3, Participants: 1234, I2: new(41.6), Studies: []string{doiTrial, doiElderly},
+				Outcome: "Memory score (12 weeks)",
+			},
+			Imprecision: &model.Imprecision{
+				Levels: 0, Target: model.TargetLower, SizeChecked: true,
+				Reason: "CI -0.4 to -0.03 excludes no effect; 1234 participants, " +
+					"reaching the optimal information size of about 800",
 			},
 			Matrix: []model.MatrixRow{
 				{
@@ -203,6 +209,14 @@ func TestPooledText(t *testing.T) {
 			},
 			"SMD 0.045 (95% CI -0.310 to 0.400), 1 study, 90 participants",
 		},
+		{
+			"with the outcome",
+			model.PooledEstimate{
+				Method: model.PoolSingleStudy, Measure: model.MeasureRR, Estimate: 0.28,
+				CILow: 0.11, CIHigh: 0.7, K: 1, Outcome: "Children still in pain (48 hours)",
+			},
+			"RR 0.28 (95% CI 0.11 to 0.70), 1 study; outcome: Children still in pain (48 hours)",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, pooledText(&tc.pe))
@@ -217,13 +231,20 @@ func TestPooledText(t *testing.T) {
 // A report from before the effect fields renders as it did.
 func TestRenderWithoutEffectFields(t *testing.T) {
 	st := reportState()
-	st.Report.EffectDirection, st.Report.PooledEstimate = "", nil
+	st.Report.EffectDirection, st.Report.PooledEstimate, st.Report.Imprecision = "", nil, nil
 
 	md := RenderMarkdown(st)
 	assert.NotContains(t, md, "Effect direction")
 	assert.NotContains(t, md, "Pooled effect")
+	assert.NotContains(t, md, "Imprecision")
 	assert.NotContains(t, RenderContext(st), "Effect direction")
 	assert.NotContains(t, RenderContext(st), "Pooled")
+}
+
+func TestImprecisionText(t *testing.T) {
+	assert.Equal(t, "not rated down — r", imprecisionText(&model.Imprecision{Reason: "r"}))
+	assert.Equal(t, "rated down 1 level — r", imprecisionText(&model.Imprecision{Levels: 1, Reason: "r"}))
+	assert.Equal(t, "rated down 2 levels — r", imprecisionText(&model.Imprecision{Levels: 2, Reason: "r"}))
 }
 
 func TestEffectDirectionLabels(t *testing.T) {
