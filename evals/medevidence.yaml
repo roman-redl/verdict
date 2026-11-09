@@ -1153,3 +1153,502 @@ questions:
     review_doi: "10.1002/14651858.CD008194.pub3"
     studies:
       - {pmid: "16322168", doi: "10.1542/peds.2005-0786"}
+
+  - id: 23
+    question: "Is the rate of hypotension higher, lower, or the same when comparing capnography to standard monitoring?"
+    claim: "In people undergoing emergency department procedural sedation and analgesia, capnography lowers the rate of hypotension compared with standard monitoring."
+    works_if: lower
+    answer: no difference
+    certainty: "moderate"
+    specialty: "Surgery"
+    review_pmid: "28334427"
+    review_doi: "10.1002/14651858.CD010698.pub2"
+    studies:
+      - {pmid: "27006732", doi: "https://doi.org/10.5847/wjem.j.1920-8642.2016.01.002"}
+
+  - id: 35
+    question: "Is the risk of HIV transmission at 24 months higher, lower, or the same when comparing nevirapine up to 14 weeks plus one week zidovudine to only single dose nevirapine plus one week zidovudine?"
+    claim: "In infants of HIV-infected breastfeeding mothers, nevirapine up to 14 weeks plus one week zidovudine lowers the risk of HIV transmission at 24 months compared with single dose nevirapine plus one week zidovudine."
+    works_if: lower
+    answer: lower
+    certainty: "moderate"
+    specialty: "Pediatrics & Neonatology"
+    review_pmid: "25280769"
+    review_doi: "10.1002/14651858.CD011323"
+    studies:
+      - {pmid: "21423025", doi: "https://doi.org/10.1097/qai.0b013e318217877a"}
+
+  - id: 47
+    question: "Is the incidence of breast hematomas within 90 days of breast surgery higher, lower, or the same when comparing NSAIDs to placebo?"
+    claim: "In women undergoing breast surgery, NSAIDs lower the incidence of breast hematomas within 90 days of surgery compared with placebo."
+    works_if: lower
+    answer: no difference
+    certainty: "low"
+    specialty: "Surgery"
+    review_pmid: "34753201"
+    review_doi: "10.1002/14651858.CD013290.pub2"
+    studies:
+      - {pmid: "27935990", doi: "https://doi.org/10.1371/journal.pone.0166601"}
+
+  - id: 52
+    question: "Is the rate of 50% or greater reduction in seizure frequency higher, lower, or the same when comparing eslicarbazepine acetate (ESL) of any dose to placebo?"
+    claim: "In people with drug-resistant partial epilepsy, eslicarbazepine acetate of any dose increases the rate of 50% or greater reduction in seizure frequency compared with placebo."
+    works_if: higher
+    answer: higher
+    certainty: "moderate"
+    specialty: "Psychiatry & Neurology"
+    review_pmid: "29067682"
+    review_doi: "10.1002/14651858.CD008907.pub3"
+    studies:
+      - {pmid: "20299189", doi: "https://doi.org/10.1016/j.eplepsyres.2010.01.014"}
+      - {pmid: "17319919", doi: "https://doi.org/10.1111/j.1528-1167.2007.00984.x"}
+      - {pmid: "19243424", doi: "https://doi.org/10.1111/j.1528-1167.2008.01946.x"}
+      - {pmid: "19832771", doi: "https://doi.org/10.1111/j.1600-0404.2009.01218.x"}
+      - {pmid: "25528898", doi: "https://doi.org/10.1111/epi.12894"}
+
+  - id: 67
+    question: "Is the risk of developing microbiologically confirmed tuberculosis higher, lower, or the same when comparing MVA85A added to BCG to BCG alone?"
+    claim: "In people vaccinated with BCG, MVA85A added to BCG lowers the risk of developing microbiologically confirmed tuberculosis compared with BCG alone."
+    works_if: lower
+    answer: no difference
+    certainty: "moderate"
+    specialty: "Public Health, Epidemiology & Health Systems"
+    review_pmid: "31038197"
+    review_doi: "10.1002/14651858.CD012915.pub2"
+    studies:
+      - {pmid: "25726088", doi: "https://doi.org/10.1016/s2213-2600(15)00037-5"}
+      - {pmid: "23391465", doi: "https://doi.org/10.1016/s0140-6736(13)60177-4"}
+
+  - id: 93
+    question: "Is the time to postvoid residual volume of urine ≤ 50 mL higher, lower, or the same when comparing nerve‐sparing radical hysterectomy to standard radical hysterectomy?"
+    claim: "In women with early stage cervical cancer (stage Ia2 to IIa), nerve-sparing radical hysterectomy lowers the time to postvoid residual volume of urine of 50 mL or less compared with standard radical hysterectomy."
+    works_if: lower
+    answer: lower
+    certainty: "low"
+    specialty: "Surgery"
+    review_pmid: "30746689"
+    review_doi: "10.1002/14651858.CD012828.pub2"
+    studies:
+      - {pmid: "22209773", doi: "https://doi.org/10.1016/j.ygyno.2011.12.448"}
+      - {pmid: "25872890", doi: "https://doi.org/10.3802/jgo.2015.26.2.90"}
+
+  - id: 104
+    question: "Is speed of processing at the end of intervention higher, lower, or the same when comparing computerised cognitive training (CCT) of at least 12 weeks to no intervention?"
+    claim: "In cognitively healthy people in late life, computerised cognitive training of at least 12 weeks increases speed of processing at the end of intervention compared with no intervention."
+    works_if: higher
+    answer: uncertain effect
+    certainty: "very low"
+    specialty: "Psychiatry & Neurology"
+    review_pmid: "32104914"
+    review_doi: "10.1002/14651858.CD012277.pub3"
+    studies:
+      - {pmid: "23531885", doi: "https://doi.org/10.3389/fnagi.2013.00008"}
+      - {pmid: "25511081", doi: "https://doi.org/10.1186/1471-2318-14-134"}
+
+  - id: 132
+    question: "Is the rate of all‐cause hospital admission higher, lower, or the same when comparing nurse-led titration (NLT) to usual care?"
+    claim: "In people with heart failure with reduced ejection fraction, nurse-led titration lowers the rate of all-cause hospital admission compared with usual care."
+    works_if: lower
+    answer: lower
+    certainty: "high"
+    specialty: "Family Medicine & Preventive Care"
+    review_pmid: "26689943"
+    review_doi: "10.1002/14651858.CD009889.pub2"
+    studies:
+      - {pmid: "16908918", doi: "https://doi.org/10.7326/0003-4819-145-4-200608150-00007"}
+      - {pmid: "25248944", doi: "https://doi.org/10.1186/1756-0500-7-668"}
+      - {pmid: "23150980", doi: "https://doi.org/10.1186/1471-2318-12-70"}
+
+  - id: 137
+    question: "Is educational attainment higher, lower, or the same when comparing vision screening with free spectacles to vision screening with spectacles by prescription only?"
+    claim: "In school-age children and adolescents with correctable visual acuity deficits, vision screening with free spectacles increases educational attainment compared with vision screening with spectacles by prescription only."
+    works_if: higher
+    answer: higher
+    certainty: "low"
+    specialty: "Public Health, Epidemiology & Health Systems"
+    review_pmid: "29446439"
+    review_doi: "10.1002/14651858.CD005023.pub3"
+    studies:
+      - {pmid: "25249453", doi: "https://doi.org/10.1136/bmj.g5740"}
+
+  - id: 158
+    question: "Is pain relief higher, lower, or the same when comparing 120 mg etoricoxib to placebo?"
+    claim: "In adults with acute postoperative pain, a single dose of 120 mg oral etoricoxib increases pain relief compared with placebo."
+    works_if: higher
+    answer: higher
+    certainty: "high"
+    specialty: "Surgery"
+    review_pmid: "24809657"
+    review_doi: "10.1002/14651858.CD004309.pub4"
+    studies:
+      - {pmid: "15333415", doi: "https://doi.org/10.1213/01.ane.0000133141.75831.57"}
+      - {pmid: "21188849", doi: "https://doi.org/10.1097/ajp.0b013e3181ed0639"}
+      - {pmid: "15100590", doi: "https://doi.org/10.1097/00002508-200405000-00004"}
+      - {pmid: "15220011", doi: "https://doi.org/10.1016/s0149-2918(04)90067-7"}
+      - {pmid: "15881486", doi: "https://doi.org/10.1185/030079904x17983"}
+      - {pmid: "16192529", doi: "https://doi.org/10.1213/01.ane.0000169294.41210.9e"}
+
+  - id: 159
+    question: "Is overall survival higher, lower, or the same when comparing chemoradiotherapy plus esophagectomy to chemoradiotherapy alone?"
+    claim: "In people with esophageal cancer, chemoradiotherapy plus esophagectomy increases overall survival compared with chemoradiotherapy alone."
+    works_if: higher
+    answer: no difference
+    certainty: "high"
+    specialty: "Surgery"
+    review_pmid: "28829911"
+    review_doi: "10.1002/14651858.CD010511.pub2"
+    studies:
+      - {pmid: "17401004", doi: "https://doi.org/10.1200/jco.2005.04.7118"}
+      - {pmid: "15800321", doi: "https://doi.org/10.1200/jco.2005.00.034"}
+
+  - id: 163
+    question: "Is neonatal mortality higher, lower, or the same when comparing community-led chlorhexidine cord cleansing to community-led dry cord care?"
+    claim: "In neonates, community-led chlorhexidine cord cleansing lowers neonatal mortality compared with community-led dry cord care."
+    works_if: lower
+    answer: lower
+    certainty: "high"
+    specialty: "Pediatrics & Neonatology"
+    review_pmid: "25739381"
+    review_doi: "10.1002/14651858.CD007835.pub2"
+    studies:
+      - {pmid: "22322124", doi: "https://doi.org/10.1016/s0140-6736(11)61848-5"}
+      - {pmid: "16546539", doi: "https://doi.org/10.1016/s0140-6736(06)68381-5"}
+      - {pmid: "22322126", doi: "https://doi.org/10.1016/s0140-6736(11)61877-1"}
+
+  - id: 170
+    question: "Is the risk of job loss higher, lower, or the same when comparing non-pharmacological job loss prevention interventions to usual care?"
+    claim: "In workers with inflammatory arthritis, non-pharmacological job loss prevention interventions lower the risk of job loss compared with usual care."
+    works_if: lower
+    answer: uncertain effect
+    certainty: "very low"
+    specialty: "Family Medicine & Preventive Care"
+    review_pmid: "25375291"
+    review_doi: "10.1002/14651858.CD010208.pub2"
+    studies:
+      - {pmid: "16208658", doi: "https://doi.org/10.1002/art.21452"}
+      - {pmid: "14613285", doi: "https://doi.org/10.1002/art.11256"}
+
+  - id: 176
+    question: "Is the risk of recurrence higher, lower, or the same when comparing absorbable tacks to nonabsorbable tacks?"
+    claim: "In people undergoing primary ventral or incisional hernia repair, absorbable tacks lower the risk of recurrence compared with nonabsorbable tacks."
+    works_if: lower
+    answer: uncertain effect
+    certainty: "very low"
+    specialty: "Surgery"
+    review_pmid: "34046884"
+    review_doi: "10.1002/14651858.CD011563.pub2"
+    studies:
+      - {pmid: "29799075", doi: "https://doi.org/10.1007/s00423-018-1676-z"}
+      - {pmid: "26885113", doi: "None"}
+
+  - id: 182
+    question: "Is the rate of falls higher, lower, or the same when comparing exercise to usual care?"
+    claim: "In people living with and beyond cancer, exercise lowers the rate of falls compared with usual care."
+    works_if: lower
+    answer: insufficient data
+    certainty: ""
+    specialty: "Family Medicine & Preventive Care"
+    review_pmid: "30320433"
+    review_doi: "10.1002/14651858.CD011687.pub2"
+    studies:
+      - {pmid: "19335674", doi: "https://doi.org/10.1111/j.1547-5069.2009.01247.x"}
+
+  - id: 188
+    question: "Is the incidence of neurodevelopmental impairment higher, lower, or the same when comparing prophylactic CPAP to very early CPAP?"
+    claim: "In preterm infants, prophylactic CPAP lowers the incidence of neurodevelopmental impairment compared with very early CPAP."
+    works_if: lower
+    answer: insufficient data
+    certainty: ""
+    specialty: "Pediatrics & Neonatology"
+    review_pmid: "34661278"
+    review_doi: "10.1002/14651858.CD001243.pub4"
+    studies:
+      - {pmid: "23930249", doi: "https://doi.org/10.4103/2277-9175.107965"}
+
+  - id: 193
+    question: "Is the risk of death or bronchopulmonary dysplasia (BPD) higher, lower, or the same when comparing prophylactic or very early CPAP to mechanical ventilation?"
+    claim: "In preterm infants, prophylactic or very early CPAP lowers the risk of death or bronchopulmonary dysplasia compared with mechanical ventilation."
+    works_if: lower
+    answer: lower
+    certainty: "moderate"
+    specialty: "Pediatrics & Neonatology"
+    review_pmid: "34661278"
+    review_doi: "10.1002/14651858.CD001243.pub4"
+    studies:
+      - {pmid: "18272893", doi: "https://doi.org/10.1056/nejmoa072788"}
+      - {pmid: "20472939", doi: "https://doi.org/10.1056/nejmoa0911783"}
+      - {pmid: "22025591", doi: "https://doi.org/10.1542/peds.2010-3848"}
+
+  - id: 194
+    question: "Is the risk of wound infection in open fracture wounds higher, lower, or the same when comparing negative pressure wound therapy (NPWT) at 125 mmHg to standard care?"
+    claim: "In people with open traumatic fracture wounds, negative pressure wound therapy at 125 mmHg lowers the risk of wound infection compared with standard care."
+    works_if: lower
+    answer: uncertain effect
+    certainty: "very low"
+    specialty: "Surgery"
+    review_pmid: "29969521"
+    review_doi: "10.1002/14651858.CD012522.pub2"
+    studies:
+      - {pmid: "29896626", doi: "https://doi.org/10.1001/jama.2018.6452"}
+      - {pmid: "19704269", doi: "https://doi.org/10.1097/bot.0b013e3181a2e2b6"}
+      - {pmid: "27857499", doi: "https://doi.org/10.1016/j.jcot.2016.05.007"}
+      - {pmid: "27022347", doi: "https://doi.org/10.12669/pjms.321.8568"}
+
+  - id: 200
+    question: "Is the rate of symptomatic PCR‐positive SARS‐COV‐2 infection higher, lower, or the same when comparing test‐based attendance to standard 10‐day self‐isolation?"
+    claim: "In workers outside healthcare settings, test-based attendance lowers the rate of symptomatic PCR-positive SARS-CoV-2 infection compared with standard 10-day self-isolation."
+    works_if: lower
+    answer: uncertain effect
+    certainty: "very low"
+    specialty: "Public Health, Epidemiology & Health Systems"
+    review_pmid: "35514111"
+    review_doi: "10.1002/14651858.CD015112.pub2"
+    studies:
+      - {pmid: "34534517", doi: "https://doi.org/10.1016/s0140-6736(21)01908-5"}
+
+  - id: 207
+    question: "Is depression at 1 year higher, lower, or the same when comparing video calls to usual care?"
+    claim: "In older people with social isolation and loneliness, video calls lower depression at 1 year compared with usual care."
+    works_if: lower
+    answer: uncertain effect
+    certainty: "very low"
+    specialty: "Psychiatry & Neurology"
+    review_pmid: "32441330"
+    review_doi: "10.1002/14651858.CD013632"
+    studies:
+      - {pmid: "22086660", doi: "https://doi.org/10.2196/jmir.1678"}
+
+  - id: 209
+    question: "Is anxiety higher, lower, or the same when comparing antidepressants to placebo?"
+    claim: "In people with inflammatory bowel disease, adjuvant antidepressants lower anxiety compared with placebo."
+    works_if: lower
+    answer: uncertain effect
+    certainty: "low"
+    specialty: "Psychiatry & Neurology"
+    review_pmid: "30977111"
+    review_doi: "10.1002/14651858.CD012680.pub2"
+    studies:
+      - {pmid: "27664274", doi: "https://doi.org/10.1093/ecco-jcc/jjw165"}
+      - {pmid: "21936344", doi: "None"}
+      - {pmid: "26600836", doi: "https://doi.org/10.4103/1735-1995.165969"}
+
+  - id: 222
+    question: "Is the overall survival rate higher, lower, or the same when comparing percutaneous ethanol injection (PEI) to sham intervention?"
+    claim: "In people with early hepatocellular carcinoma, percutaneous ethanol injection increases the overall survival rate compared with sham intervention."
+    works_if: higher
+    answer: insufficient data
+    certainty: ""
+    specialty: "Oncology & Hematology"
+    review_pmid: "25620061"
+    review_doi: "10.1002/14651858.CD006745.pub3"
+    studies:
+      - {pmid: "9425919", doi: "https://doi.org/10.1002/hep.510270112"}
+      - {pmid: "16009687", doi: "https://doi.org/10.1136/gut.2004.045203"}
+      - {pmid: "15973099", doi: "https://doi.org/10.1097/01.sla.0000167925.90380.fe"}
+
+  - id: 224
+    question: "Is the overall survival rate higher, lower, or the same when comparing percutaneous ethanol injection (PEI) to no intervention?"
+    claim: "In people with early hepatocellular carcinoma, percutaneous ethanol injection increases the overall survival rate compared with no intervention."
+    works_if: higher
+    answer: insufficient data
+    certainty: ""
+    specialty: "Oncology & Hematology"
+    review_pmid: "25620061"
+    review_doi: "10.1002/14651858.CD006745.pub3"
+    studies:
+      - {pmid: "9425919", doi: "https://doi.org/10.1002/hep.510270112"}
+      - {pmid: "16009687", doi: "https://doi.org/10.1136/gut.2004.045203"}
+      - {pmid: "15973099", doi: "https://doi.org/10.1097/01.sla.0000167925.90380.fe"}
+
+  - id: 233
+    question: "Is the risk of adverse effects higher, lower, or the same when comparing computerised cognitive training (CCT) of at least 12 weeks to no intervention?"
+    claim: "In cognitively healthy people in late life, computerised cognitive training of at least 12 weeks lowers the risk of adverse effects compared with no intervention."
+    works_if: lower
+    answer: insufficient data
+    certainty: ""
+    specialty: "Psychiatry & Neurology"
+    review_pmid: "32104914"
+    review_doi: "10.1002/14651858.CD012277.pub3"
+    studies:
+      - {pmid: "23531885", doi: "https://doi.org/10.3389/fnagi.2013.00008"}
+      - {pmid: "25511081", doi: "https://doi.org/10.1186/1471-2318-14-134"}
+      - {pmid: "20418350", doi: "https://doi.org/10.1093/gerona/glq053"}
+
+  - id: 239
+    question: "Is mortality rate at 30 days higher, lower, or the same when comparing early physical therapy to control?"
+    claim: "In critically ill people at risk of critical illness polyneuropathy and myopathy, early physical therapy lowers mortality at 30 days compared with control."
+    works_if: lower
+    answer: insufficient data
+    certainty: ""
+    specialty: "Public Health, Epidemiology & Health Systems"
+    review_pmid: "24477672"
+    review_doi: "10.1002/14651858.CD006832.pub3"
+    studies:
+      - {pmid: "19446324", doi: "https://doi.org/10.1016/s0140-6736(09)60658-9"}
+
+  - id: 242
+    question: "Is mortality rate at 30 days higher, lower, or the same when comparing electrical muscle stimulation (EMS) to no stimulation?"
+    claim: "In critically ill people at risk of critical illness polyneuropathy and myopathy, electrical muscle stimulation lowers mortality at 30 days compared with no stimulation."
+    works_if: lower
+    answer: insufficient data
+    certainty: ""
+    specialty: "Surgery"
+    review_pmid: "24477672"
+    review_doi: "10.1002/14651858.CD006832.pub3"
+    studies:
+      - {pmid: "20426834", doi: "https://doi.org/10.1186/cc8987"}
+
+  - id: 245
+    question: "Is radiographic progression higher, lower, or the same when comparing biologic + MTX to only MTX/other traditional DMARDs?"
+    claim: "In people with rheumatoid arthritis unsuccessfully treated with biologics, biologic plus MTX lowers radiographic progression compared with MTX or other traditional DMARDs alone."
+    works_if: lower
+    answer: insufficient data
+    certainty: ""
+    specialty: "Internal Medicine & Subspecialties"
+    review_pmid: "28282491"
+    review_doi: "10.1002/14651858.CD012591"
+    studies:
+      - {pmid: "16947627", doi: "https://doi.org/10.1002/art.22025"}
+      - {pmid: "18625622", doi: "https://doi.org/10.1136/ard.2008.092932"}
+      - {pmid: "19560810", doi: "https://doi.org/10.1016/s0140-6736(09)60506-7"}
+
+  - id: 255
+    question: "Is the need for mechanical ventilation in children with acute bronchiolitis higher, lower, or the same when comparing continuous positive airway pressure (CPAP) to control?"
+    claim: "In children with acute bronchiolitis, continuous positive airway pressure lowers the need for mechanical ventilation compared with control."
+    works_if: lower
+    answer: lower
+    certainty: "low"
+    specialty: "Pediatrics & Neonatology"
+    review_pmid: "35377462"
+    review_doi: "10.1002/14651858.CD010473.pub4"
+    studies:
+      - {pmid: "28952459", doi: "https://doi.org/10.1007/s13312-018-1222-7"}
+      - {pmid: "22431446", doi: "https://doi.org/10.1002/ppul.22533"}
+      - {pmid: "17344251", doi: "https://doi.org/10.1136/adc.2005.091231"}
+
+  - id: 257
+    question: "Is hospital mortality higher, lower, or the same when comparing the study group with omentoplasty to the control?"
+    claim: "In people undergoing oesophagectomy with oesophagogastrostomy, omentoplasty lowers hospital mortality compared with control."
+    works_if: lower
+    answer: no difference
+    certainty: ""
+    specialty: "Surgery"
+    review_pmid: "25274134"
+    review_doi: "10.1002/14651858.CD008446.pub3"
+    studies:
+      - {pmid: "17062260", doi: "https://doi.org/10.1016/j.athoracsur.2006.05.101"}
+      - {pmid: "22648923", doi: "https://doi.org/10.1093/ejcts/ezs285"}
+
+  - id: 259
+    question: "Is the overall survival higher, lower, or the same when comparing hormone replacement therapy (HRT) to control?"
+    claim: "In women after surgery for epithelial ovarian cancer, hormone replacement therapy increases overall survival compared with control."
+    works_if: higher
+    answer: higher
+    certainty: "low"
+    specialty: "Obstetrics & Gynecology"
+    review_pmid: "31989588"
+    review_doi: "10.1002/14651858.CD012559.pub2"
+    studies:
+      - {pmid: "26417001", doi: "https://doi.org/10.1200/jco.2015.60.9719"}
+      - {pmid: "10491528", doi: "https://doi.org/10.1002/(sici)1097-0142(19990915)86:6<1013::aid-cncr17>3.0.co;2-1"}
+      - {pmid: "22740889", doi: "https://doi.org/10.3892/ol.2011.461"}
+
+  - id: 260
+    question: "Is the incidence of congenital syphilis higher, lower, or the same when comparing on-site screening to control? "
+    claim: "In pregnant women, on-site syphilis screening lowers the incidence of congenital syphilis compared with control."
+    works_if: lower
+    answer: lower
+    certainty: ""
+    specialty: "Obstetrics & Gynecology"
+    review_pmid: "25352226"
+    review_doi: "10.1002/14651858.CD010385.pub2"
+    studies:
+      - {pmid: "19773681", doi: "https://doi.org/10.1097/olq.0b013e3181bc0960"}
+
+  - id: 265
+    question: "Is six-minute walk distance (6MWD) higher, lower, or the same when comparing following exercise training and control? "
+    claim: "In people with non-malignant dust-related respiratory diseases, exercise training increases six-minute walk distance compared with control."
+    works_if: higher
+    answer: higher
+    certainty: ""
+    specialty: "Internal Medicine & Subspecialties"
+    review_pmid: "26544672"
+    review_doi: "10.1002/14651858.CD009385.pub2"
+    studies:
+      - {pmid: "25407957", doi: "https://doi.org/10.1186/1471-2466-14-180"}
+      - {pmid: "18245143", doi: "https://doi.org/10.1136/thx.2007.088070"}
+
+  - id: 266
+    question: "Is functional status at 9 to 12 months higher, lower, or the same when comparing reablement and usual care? "
+    claim: "In older adults receiving home care, reablement increases functional status at 9 to 12 months compared with usual care."
+    works_if: higher
+    answer: higher
+    certainty: ""
+    specialty: "Family Medicine & Preventive Care"
+    review_pmid: "27726122"
+    review_doi: "10.1002/14651858.CD010825.pub2"
+    studies:
+      - {pmid: "23009672", doi: "https://doi.org/10.1111/j.1365-2524.2012.01088.x"}
+      - {pmid: "26537789", doi: "https://doi.org/10.1186/s12877-015-0142-9"}
+
+  - id: 273
+    question: "Is the number of antibiotics used by patients higher, lower, or the same when comparing the use of written information to usual care?"
+    claim: "In patients (or parents of child patients) with acute upper respiratory tract infections in primary care, written information lowers the number of antibiotics used compared with usual care."
+    works_if: lower
+    answer: lower
+    certainty: "moderate"
+    specialty: "Public Health, Epidemiology & Health Systems"
+    review_pmid: "27886368"
+    review_doi: "10.1002/14651858.CD011360.pub2"
+    studies:
+      - {pmid: "19640941", doi: "https://doi.org/10.1136/bmj.b2885"}
+
+  - id: 274
+    question: "Is primary patency rate higher, lower, or the same when comparing endovascular group and the surgery group?"
+    claim: "In people with asymptomatic popliteal artery aneurysm, endovascular repair increases primary patency rate compared with open surgical repair."
+    works_if: higher
+    answer: no difference
+    certainty: "moderate"
+    specialty: "Surgery"
+    review_pmid: "31868929"
+    review_doi: "10.1002/14651858.CD010149.pub3"
+    studies:
+      - {pmid: "16102611", doi: "https://doi.org/10.1016/j.jvs.2005.04.049"}
+
+  - id: 275
+    question: "Is visual acuity higher, lower, or the same when comparing part-time occlusion (with any necessary glasses) to glasses alone?"
+    claim: "In children with strabismic amblyopia, part-time occlusion with any necessary glasses increases visual acuity compared with glasses alone."
+    works_if: higher
+    answer: higher
+    certainty: ""
+    specialty: "Other"
+    review_pmid: "25051925"
+    review_doi: "10.1002/14651858.CD006461.pub4"
+    studies:
+      - {pmid: "16751033", doi: "https://doi.org/10.1016/j.ophtha.2006.01.069"}
+      - {pmid: "15838439", doi: "https://doi.org/10.1016/j.jaapos.2004.12.014"}
+
+  - id: 280
+    question: "Is measures of pain at any of the time points higher, lower, or the same when comparing  systemic antibiotics and placebo?"
+    claim: "In adults with symptomatic apical periodontitis and acute apical abscess, systemic antibiotics lower pain at any of the time points compared with placebo."
+    works_if: lower
+    answer: no difference
+    certainty: "very low"
+    specialty: "Public Health, Epidemiology & Health Systems"
+    review_pmid: "30259968"
+    review_doi: "10.1002/14651858.CD010136.pub3"
+    studies:
+      - {pmid: "8734709", doi: "https://doi.org/10.1016/s1079-2104(96)80054-0"}
+      - {pmid: "11491635", doi: "https://doi.org/10.1097/00004770-200102000-00016"}
+
+  - id: 282
+    question: "Is the time to establish enteral feeds higher, lower, or the same when comparing re-feeding to discarding gastric residuals?"
+    claim: "In preterm infants, re-feeding gastric residuals lowers the time to establish enteral feeds compared with discarding gastric residuals."
+    works_if: lower
+    answer: no difference
+    certainty: "low"
+    specialty: "Emergency Medicine & Critical Care"
+    review_pmid: "37387544"
+    review_doi: "10.1002/14651858.CD012940.pub3"
+    studies:
+      - {pmid: "25552280", doi: "https://doi.org/10.1136/archdischild-2014-307067"}
