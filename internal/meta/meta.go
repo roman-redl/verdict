@@ -88,6 +88,35 @@ func LogRR(events1, total1, events2, total2 float64) (Study, error) {
 	}, nil
 }
 
+// LogOR is the log odds ratio of two arms (the first is the intervention) with
+// the standard error of the Woolf method, sqrt(1/a + 1/b + 1/c + 1/d) over the
+// cells of the 2x2 table. The zero-cell convention is LogRR's: a table with a
+// zero cell (no events, or events in everyone, in either arm) gets 0.5 added to
+// every cell, and a table without events in either arm (or with events in
+// everyone) is ErrNoEvents. The same counts therefore stay usable as an RR or
+// as an OR under one rule.
+func LogOR(events1, total1, events2, total2 float64) (Study, error) {
+	if events1 < 0 || events2 < 0 || total1 <= 0 || total2 <= 0 || events1 > total1 || events2 > total2 {
+		return Study{}, invalid("counts %v/%v vs %v/%v", events1, total1, events2, total2)
+	}
+
+	if (events1 == 0 && events2 == 0) || (events1 == total1 && events2 == total2) {
+		return Study{}, ErrNoEvents
+	}
+
+	// the cells: events and non-events of the intervention, then of the control
+	a, b, c, d := events1, total1-events1, events2, total2-events2
+
+	if a == 0 || b == 0 || c == 0 || d == 0 {
+		a, b, c, d = a+continuityCorrection, b+continuityCorrection, c+continuityCorrection, d+continuityCorrection
+	}
+
+	return Study{
+		Y:  math.Log(a*d) - math.Log(b*c),
+		SE: math.Sqrt(1/a + 1/b + 1/c + 1/d),
+	}, nil
+}
+
 // Arm is the mean, SD and size of one arm of a continuous outcome.
 type Arm struct {
 	Mean, SD, N float64

@@ -326,6 +326,10 @@ func pooledText(pe *model.PooledEstimate) string {
 		s += "; outcome: " + pe.Outcome
 	}
 
+	if n := len(pe.LeftOut); n > 0 {
+		s += fmt.Sprintf("; not pooled (other measure): %d %s", n, plural(n, "study", "studies"))
+	}
+
 	return s
 }
 

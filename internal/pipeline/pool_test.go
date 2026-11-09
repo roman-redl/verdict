@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/roman-redl/verdict/internal/meta"
 	"github.com/roman-redl/verdict/internal/model"
 )
 
@@ -23,6 +24,7 @@ const (
 	outcomeName = "outcome"
 	study1      = "10.1/s1"
 	study2      = "10.1/s2"
+	study3      = "10.1/s3"
 )
 
 // counts is a binary outcome: events/total in the intervention and control arms.
@@ -151,7 +153,7 @@ func TestPoolEffectsZeroCells(t *testing.T) {
 
 	require.NotNil(t, pe)
 	assert.Equal(t, 2, pe.K, "the double-zero trial is skipped")
-	assert.Equal(t, []string{study1, "10.1/s3"}, pe.Studies)
+	assert.Equal(t, []string{study1, study3}, pe.Studies)
 	assert.Contains(t, logs.String(), study2)
 	assert.Contains(t, logs.String(), "no events")
 	assert.Less(t, pe.Estimate, 1.0)
@@ -475,11 +477,13 @@ func TestPoolEffectsParticipantsFromTheStudySize(t *testing.T) {
 	assert.Equal(t, 500, pe.Participants)
 }
 
-// Ratio measures are never mixed: the family with most studies is pooled,
-// and equal families go by the fixed measure order.
+// Ratio measures are never mixed (HR apart from RR and OR): the family with
+// the most data is pooled, and equal families go by studies, then by the
+// fixed measure order.
 func TestPoolEffectsDoesNotMixMeasures(t *testing.T) {
 	p, logs := poolPipeline(t)
 
+	// no sizes known: the families tie on participants, the OR pair has more studies
 	pe := p.poolEffects(poolState(
 		reported("OR", 0.7, 0.5, 0.98), reported("HR", 0.6, 0.4, 0.9), reported("OR", 0.9, 0.6, 1.3),
 	))
@@ -487,17 +491,181 @@ func TestPoolEffectsDoesNotMixMeasures(t *testing.T) {
 	require.NotNil(t, pe)
 	assert.Equal(t, model.MeasureOR, pe.Measure)
 	assert.Equal(t, 2, pe.K)
+	assert.Equal(t, []string{"10.1/s2 (HR)"}, pe.LeftOut)
 	assert.Contains(t, logs.String(), "several measures")
 
+	// the counts have 200 participants, the HR none known: counts win
 	tie := p.poolEffects(poolState(reported("HR", 0.6, 0.4, 0.9), counts(10, 100, 20, 100)))
 	require.NotNil(t, tie)
-	assert.Equal(t, model.MeasureRR, tie.Measure, "equal families: RR comes first")
+	assert.Equal(t, model.MeasureRR, tie.Measure)
 	assert.Equal(t, 1, tie.K)
 
 	// an RR from counts and a reported RR are one family
 	same := p.poolEffects(poolState(counts(10, 100, 20, 100), reported("RR", 0.6, 0.4, 0.9)))
 	require.NotNil(t, same)
 	assert.Equal(t, 2, same.K)
+	assert.Empty(t, same.LeftOut)
+}
+
+// A study that reports only an OR joins the studies with counts: counts give an
+// OR as well as an RR, and the OR pool holds the most data.
+func TestPoolEffectsReportedORJoinsCountStudies(t *testing.T) {
+	p, logs := poolPipeline(t)
+
+	st := poolState(reported("OR", 0.69, 0.49, 0.99), counts(30, 200, 45, 200), counts(25, 180, 40, 180))
+	st.Enriched[0].SampleSize = 2000
+
+	pe := p.poolEffects(st)
+
+	require.NotNil(t, pe)
+	assert.Equal(t, model.MeasureOR, pe.Measure)
+	assert.Equal(t, 3, pe.K)
+	assert.Empty(t, pe.LeftOut)
+	assert.Equal(t, []string{study1, study2, study3}, pe.Studies)
+	assert.Equal(t, 2760, pe.Participants)
+	assert.NotContains(t, logs.String(), "other measure")
+
+	// the count studies enter on the log OR scale, not on the log RR scale
+	reportedOR, err := meta.RatioCI(0.69, 0.49, 0.99, meta.DefaultLevel)
+	require.NoError(t, err)
+
+	or1, err := meta.LogOR(30, 200, 45, 200)
+	require.NoError(t, err)
+
+	or2, err := meta.LogOR(25, 180, 40, 180)
+	require.NoError(t, err)
+
+	want, err := meta.Pool([]meta.Study{reportedOR, or1, or2})
+	require.NoError(t, err)
+	assert.InDelta(t, math.Exp(want.Estimate), pe.Estimate, 1e-9)
+	assert.InDelta(t, math.Exp(want.CILow), pe.CILow, 1e-9)
+}
+
+// Two pilot trials with counts (49 participants) do not beat one large trial
+// that reported means: the pool is chosen by the amount of data, and the pilots
+// are named as left out under their default measure, RR.
+func TestPoolEffectsLargeTrialBeatsTwoPilots(t *testing.T) {
+	p, logs := poolPipeline(t)
+
+	large := &model.Effect{
+		Unit:         unitPoints,
+		Intervention: &model.Arm{Mean: new(12.0), SD: new(5.0), N: new(203.0)},
+		Control:      &model.Arm{Mean: new(10.0), SD: new(5.0), N: new(203.0)},
+	}
+
+	pe := p.poolEffects(poolState(counts(5, 12, 9, 12), counts(4, 12, 8, 13), large))
+
+	require.NotNil(t, pe)
+	assert.Equal(t, model.MeasureMD, pe.Measure)
+	assert.Equal(t, model.PoolSingleStudy, pe.Method)
+	assert.Equal(t, 1, pe.K)
+	assert.Equal(t, 406, pe.Participants)
+	assert.Equal(t, []string{study3}, pe.Studies)
+	assert.Equal(t, []string{study1 + " (RR)", study2 + " (RR)"}, pe.LeftOut)
+	assert.Equal(t, 2, bytes.Count(logs.Bytes(), []byte("effect not pooled: other measure")))
+	assert.Contains(t, logs.String(), "doi="+study1)
+	assert.Contains(t, logs.String(), "measure=RR")
+}
+
+// The choice among the candidate pools: participants, then studies, then the
+// measure order; a study of unknown size counts for 0.
+func TestPoolEffectsChoosesTheLargestData(t *testing.T) {
+	tests := []struct {
+		name        string
+		effects     []*model.Effect
+		sizes       map[int]int // study index -> sample size, for the estimate-only studies
+		wantMeasure model.Measure
+		wantStudies []string
+		wantLeftOut []string
+	}{
+		{
+			name:        "counts only: RR as before",
+			effects:     []*model.Effect{counts(10, 100, 20, 100), counts(12, 110, 22, 108)},
+			wantMeasure: model.MeasureRR,
+			wantStudies: []string{study1, study2},
+		},
+		{
+			name: "same participants: more studies wins over the measure order",
+			effects: []*model.Effect{
+				reported("HR", 0.7, 0.5, 0.98), reported("HR", 0.8, 0.6, 1.0), reported("OR", 0.6, 0.4, 0.9),
+			},
+			sizes:       map[int]int{0: 100, 1: 100, 2: 200},
+			wantMeasure: model.MeasureHR,
+			wantStudies: []string{study1, study2},
+			wantLeftOut: []string{"10.1/s3 (OR)"},
+		},
+		{
+			name: "same participants and studies: the measure order",
+			effects: []*model.Effect{
+				reported("HR", 0.7, 0.5, 0.98), reported("OR", 0.6, 0.4, 0.9),
+			},
+			sizes:       map[int]int{0: 100, 1: 100},
+			wantMeasure: model.MeasureOR,
+			wantStudies: []string{study2},
+			wantLeftOut: []string{study1 + " (HR)"},
+		},
+		{
+			name: "an HR is not merged with counts, the larger data wins",
+			effects: []*model.Effect{
+				counts(10, 100, 20, 100), counts(12, 110, 22, 108), reported("HR", 0.7, 0.5, 0.98),
+			},
+			sizes:       map[int]int{2: 5000},
+			wantMeasure: model.MeasureHR,
+			wantStudies: []string{study3},
+			wantLeftOut: []string{study1 + " (RR)", study2 + " (RR)"},
+		},
+		{
+			name: "an HR is not merged with counts, the counts win with more data",
+			effects: []*model.Effect{
+				counts(10, 100, 20, 100), counts(12, 110, 22, 108), reported("HR", 0.7, 0.5, 0.98),
+			},
+			sizes:       map[int]int{2: 300},
+			wantMeasure: model.MeasureRR,
+			wantStudies: []string{study1, study2},
+			wantLeftOut: []string{"10.1/s3 (HR)"},
+		},
+		{
+			name: "unknown sizes count for 0: one sized study beats two unsized",
+			effects: []*model.Effect{
+				reported("RR", 0.7, 0.5, 0.98), reported("RR", 0.8, 0.6, 1.0), reported("OR", 0.6, 0.4, 0.9),
+			},
+			sizes:       map[int]int{2: 50},
+			wantMeasure: model.MeasureOR,
+			wantStudies: []string{study3},
+			wantLeftOut: []string{study1 + " (RR)", study2 + " (RR)"},
+		},
+		{
+			name: "a reported RR keeps the counts in the RR pool",
+			effects: []*model.Effect{
+				counts(10, 100, 20, 100), reported("RR", 0.6, 0.4, 0.9), reported("OR", 0.6, 0.4, 0.9),
+			},
+			sizes:       map[int]int{1: 100, 2: 100},
+			wantMeasure: model.MeasureRR,
+			wantStudies: []string{study1, study2},
+			wantLeftOut: []string{"10.1/s3 (OR)"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _ := poolPipeline(t)
+
+			st := poolState(tt.effects...)
+			for i, n := range tt.sizes {
+				st.Enriched[i].SampleSize = n
+			}
+
+			pe := p.poolEffects(st)
+
+			require.NotNil(t, pe)
+			assert.Equal(t, tt.wantMeasure, pe.Measure)
+			assert.Equal(t, tt.wantStudies, pe.Studies)
+			assert.Equal(t, tt.wantLeftOut, pe.LeftOut)
+			// every study is either pooled or left out, never both, never twice
+			assert.Len(t, pe.Studies, pe.K)
+			assert.Len(t, pe.Studies, len(tt.effects)-len(pe.LeftOut))
+		})
+	}
 }
 
 // Only direct, non-retracted studies are pooled.
@@ -575,7 +743,7 @@ func TestPoolEffectsLeavesOutAReviewAndPoolsItsTrials(t *testing.T) {
 
 	pe := p.poolEffects(st)
 	require.NotNil(t, pe)
-	assert.Equal(t, []string{study2, "10.1/s3"}, pe.Studies)
+	assert.Equal(t, []string{study2, study3}, pe.Studies)
 	assert.Equal(t, 2, pe.K)
 
 	assert.Contains(t, logs.String(), "secondary research")
@@ -720,6 +888,7 @@ func TestPromptsCarryTheEffectInstructions(t *testing.T) {
 	assert.Contains(t, synthesisSystemPrompt, `effect_direction: "supports" | "no_effect" | "opposite" | "unclear"`)
 	assert.Contains(t, synthesisSystemPrompt, "When pooled_estimate is present")
 	assert.Contains(t, synthesisSystemPrompt, "never recompute it")
+	assert.Contains(t, synthesisSystemPrompt, "Studies listed in left_out")
 }
 
 func TestSynthesisInputCarriesThePooledEstimate(t *testing.T) {
@@ -736,6 +905,13 @@ func TestSynthesisInputCarriesThePooledEstimate(t *testing.T) {
 	with, err := synthesisUserPrompt(st)
 	require.NoError(t, err)
 	assert.Contains(t, with, `"pooled_estimate":{"method":"random_effects_dl","measure":"RR"`)
+	assert.NotContains(t, with, "left_out", "omitted when every study is pooled")
+
+	st.Pooled.LeftOut = []string{"10.1/s9 (MD)"}
+
+	with, err = synthesisUserPrompt(st)
+	require.NoError(t, err)
+	assert.Contains(t, with, `"left_out":["10.1/s9 (MD)"]`)
 }
 
 // A missing or unknown effect_direction becomes "unclear", with a warning.

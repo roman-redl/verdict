@@ -92,7 +92,7 @@ func reportState() *State {
 			PooledEstimate: &model.PooledEstimate{
 				Method: model.PoolRandomEffects, Measure: model.MeasureSMD, Estimate: -0.22, CILow: -0.40, CIHigh: -0.03,
 				K: 3, Participants: 1234, I2: new(41.6), Studies: []string{doiTrial, doiElderly},
-				Outcome: "Memory score (12 weeks)",
+				Outcome: "Memory score (12 weeks)", LeftOut: []string{"10.1000/d (RR)"},
 			},
 			Imprecision: &model.Imprecision{
 				Levels: 0, Target: model.TargetLower, SizeChecked: true,
@@ -220,6 +220,14 @@ func TestPooledText(t *testing.T) {
 				CILow: 0.11, CIHigh: 0.7, K: 1, Outcome: "Children still in pain (48 hours)",
 			},
 			"RR 0.28 (95% CI 0.11 to 0.70), 1 study; outcome: Children still in pain (48 hours)",
+		},
+		{
+			"with studies left out",
+			model.PooledEstimate{
+				Method: model.PoolRandomEffects, Measure: model.MeasureOR, Estimate: 0.69,
+				CILow: 0.49, CIHigh: 0.99, K: 3, LeftOut: []string{"10.1/a (MD)", "10.1/b (HR)"},
+			},
+			"OR 0.69 (95% CI 0.49 to 0.99), 3 studies; not pooled (other measure): 2 studies",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

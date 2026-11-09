@@ -18,7 +18,7 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
-// measureOrder breaks ties between equally large pools: a count-based RR
+// measureOrder breaks ties between pools of equal size: a count-based RR
 // first, then the other ratios, then the continuous measures.
 var measureOrder = []model.Measure{
 	model.MeasureRR, model.MeasureOR, model.MeasureHR, model.MeasureSMD, model.MeasureMD,
@@ -31,6 +31,12 @@ type pooledStudy struct {
 	unit    string // of an MD
 	study   meta.Study
 	n       int // participants in the effect's arms; 0 when unknown
+
+	// Counts give an odds ratio as well as a risk ratio: a study from counts
+	// carries its RR in study (measure RR, its default) and the OR here, so that
+	// it can join whichever ratio pool is chosen.
+	fromCounts bool
+	or         meta.Study
 
 	// converted says which counts Go derived from the arms' percentages
 	// ("" when none), so that the conversion is visible in the log.
@@ -153,16 +159,7 @@ func deriveEffect(ef *model.Effect) (pooledStudy, error) {
 		}
 
 		if ok {
-			s, err := meta.LogRR(a.events, a.total, b.events, b.total)
-			if err != nil {
-				return pooledStudy{}, fmt.Errorf("counts: %w", err)
-			}
-
-			return pooledStudy{
-				measure: model.MeasureRR, study: s, n: int(a.total + b.total),
-				converted: strings.Join(slices.DeleteFunc([]string{a.derived, b.derived},
-					func(s string) bool { return s == "" }), "; "),
-			}, nil
+			return deriveCounts(a, b)
 		}
 
 		if a, b, ok := meanArms(ef.Intervention, ef.Control); ok {
@@ -175,6 +172,28 @@ func deriveEffect(ef *model.Effect) (pooledStudy, error) {
 	}
 
 	return pooledStudy{}, errNoNumbers
+}
+
+// deriveCounts turns the counts of both arms into the study's log RR (its
+// default measure) and the log OR it can be pooled as instead.
+func deriveCounts(a, b countedArm) (pooledStudy, error) {
+	rr, err := meta.LogRR(a.events, a.total, b.events, b.total)
+	if err != nil {
+		return pooledStudy{}, fmt.Errorf("counts: %w", err)
+	}
+
+	// LogOR rejects exactly the counts LogRR rejects, so this error is not
+	// expected; it is returned all the same instead of dropping the OR silently
+	or, err := meta.LogOR(a.events, a.total, b.events, b.total)
+	if err != nil {
+		return pooledStudy{}, fmt.Errorf("counts: %w", err)
+	}
+
+	return pooledStudy{
+		measure: model.MeasureRR, study: rr, fromCounts: true, or: or, n: int(a.total + b.total),
+		converted: strings.Join(slices.DeleteFunc([]string{a.derived, b.derived},
+			func(s string) bool { return s == "" }), "; "),
+	}, nil
 }
 
 // countedArm is the events and total of one arm; derived describes the count
@@ -365,11 +384,14 @@ func settleContinuous(items []pooledStudy) []pooledStudy {
 	return items
 }
 
-// poolGroup is the studies sharing one measure (and, for MD, one unit).
+// poolGroup is a candidate pool: the studies that can be expressed on one
+// measure (and, for MD, one unit). Its items are copies already put on the
+// group's measure; idx are the studies' positions in the poolBest input.
 type poolGroup struct {
 	measure model.Measure
 	unit    string
 	items   []pooledStudy
+	idx     []int
 }
 
 func (g *poolGroup) participants() int {
@@ -382,15 +404,16 @@ func (g *poolGroup) participants() int {
 	return total
 }
 
-// better orders groups: more studies, then more participants, then the fixed
-// measure order, then the unit (so that the choice is deterministic).
+// better orders groups by the amount of data: more participants (a study of
+// unknown size counts 0), then more studies, then the fixed measure order, then
+// the unit (so that the choice is deterministic).
 func (g *poolGroup) better(o *poolGroup) bool {
-	if len(g.items) != len(o.items) {
-		return len(g.items) > len(o.items)
-	}
-
 	if a, b := g.participants(), o.participants(); a != b {
 		return a > b
+	}
+
+	if len(g.items) != len(o.items) {
+		return len(g.items) > len(o.items)
 	}
 
 	if a, b := slices.Index(measureOrder, g.measure), slices.Index(measureOrder, o.measure); a != b {
@@ -400,26 +423,50 @@ func (g *poolGroup) better(o *poolGroup) bool {
 	return normUnit(g.unit) < normUnit(o.unit)
 }
 
-// poolBest groups the studies by measure (ratio measures are never mixed, and
-// an MD only pools within one unit), takes the largest group and pools it:
-// random effects for two or more studies, the study's own effect for one.
-func (p *Pipeline) poolBest(items []pooledStudy) *model.PooledEstimate {
+// candidateGroups builds the pools the studies could form, one per measure
+// (and, for MD, per unit). Ratio measures are never mixed with each other,
+// except that a study from counts is eligible for both RR and OR (it has both
+// on its analysis scale); HR stays apart (time-to-event), an MD pools only
+// within one unit. A study from counts is therefore in two candidates, but
+// only one candidate is ever pooled.
+func candidateGroups(items []pooledStudy) []*poolGroup {
 	var groups []*poolGroup
 
-	for i := range items {
-		it := &items[i]
+	add := func(i int, measure model.Measure, study meta.Study) {
+		it := items[i] // a copy: it is put on this group's measure
+		it.measure, it.study = measure, study
 
-		idx := slices.IndexFunc(groups, func(g *poolGroup) bool {
-			return g.measure == it.measure && normUnit(g.unit) == normUnit(it.unit)
+		gi := slices.IndexFunc(groups, func(g *poolGroup) bool {
+			return g.measure == measure && normUnit(g.unit) == normUnit(it.unit)
 		})
-		if idx < 0 {
-			groups = append(groups, &poolGroup{measure: it.measure, unit: it.unit})
-			idx = len(groups) - 1
+		if gi < 0 {
+			groups = append(groups, &poolGroup{measure: measure, unit: it.unit})
+			gi = len(groups) - 1
 		}
 
-		groups[idx].items = append(groups[idx].items, *it)
+		groups[gi].items = append(groups[gi].items, it)
+		groups[gi].idx = append(groups[gi].idx, i)
 	}
 
+	for i := range items {
+		add(i, items[i].measure, items[i].study)
+
+		if items[i].fromCounts {
+			add(i, model.MeasureOR, items[i].or)
+		}
+	}
+
+	return groups
+}
+
+// poolBest takes the candidate with the most data and pools it: random effects
+// for two or more studies, the study's own effect for one. The candidate with
+// the most participants wins, so that a pair of pilot trials does not beat one
+// large trial that happens to be on another measure; ties go by the number of
+// studies, then measureOrder (RR before OR for counts), then the unit. The
+// studies outside the winner are named in LeftOut and logged.
+func (p *Pipeline) poolBest(items []pooledStudy) *model.PooledEstimate {
+	groups := candidateGroups(items)
 	best := groups[0]
 
 	for _, g := range groups[1:] {
@@ -428,15 +475,26 @@ func (p *Pipeline) poolBest(items []pooledStudy) *model.PooledEstimate {
 		}
 	}
 
-	if len(groups) > 1 {
-		p.log.Info("effects use several measures: pooling the largest group",
-			"measure", best.measure, "studies", len(best.items), "groups", len(groups))
-	}
-
 	pe, err := pooledFrom(best)
 	if err != nil {
 		p.log.Warn("effects not pooled", "measure", best.measure, "err", err)
 		return nil
+	}
+
+	for i := range items {
+		if slices.Contains(best.idx, i) {
+			continue
+		}
+
+		// a count study is labelled with its default measure, RR, though it
+		// could have joined an OR pool
+		p.log.Info("effect not pooled: other measure", "doi", items[i].doi, "measure", items[i].measure)
+		pe.LeftOut = append(pe.LeftOut, fmt.Sprintf("%s (%s)", items[i].doi, items[i].measure))
+	}
+
+	if len(pe.LeftOut) > 0 {
+		p.log.Info("effects use several measures: pooling the group with most participants",
+			"measure", best.measure, "studies", len(best.items), "left_out", len(pe.LeftOut))
 	}
 
 	return pe

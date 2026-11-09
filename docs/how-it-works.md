@@ -346,10 +346,25 @@ becomes `1/value` with the interval `1/ci_high … 1/ci_low`, a difference
 becomes `−value` with `−ci_high … −ci_low`.
 A `ci_level` outside (50, 99.9], a percent outside 0–100 or a percentage
 without a total is ignored with a warning, like any other bad number. The
-direct, non-retracted primary studies of one measure (ratio measures are never
-mixed; the largest group is pooled) are combined with the DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
+direct, non-retracted primary studies of one measure are combined with the
+DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
 number of studies, participants when known, I². A single study is shown with
-its own interval and marked "not pooled". The **judge reads** the result
+its own interval and marked "not pooled".
+
+**Which studies are pooled.** Counts give an odds ratio as well as a risk
+ratio (`meta.LogOR` and `meta.LogRR` share the zero-cell rule), so a study
+from counts is a candidate for both an RR pool and an OR pool; a study that
+reports only an OR can join the studies with counts in the OR pool. The
+candidate pools are RR, OR, HR (time-to-event, never merged with RR or OR),
+SMD, and MD per unit. The pool with the most participants wins (a study of
+unknown size counts 0), so two small pilot trials do not outweigh one large
+trial on another measure; ties go to more studies, then to the order RR, OR,
+HR, SMD, MD, then to the unit. A study from counts is never in two pools at
+once. Every direct study with usable numbers that is not in the winning pool
+is listed in `pooled_estimate.left_out` as `doi (MEASURE)` (a study from
+counts is labelled RR) and logged; the judge weighs those studies as
+individual results, and the report's pooled line says how many were not
+pooled. The **judge reads** the result
 (`pooled_estimate` in its input) and may not recompute it; `report.md`
 prints the numbers from Go. The method is checked against the BCG vaccine
 example of the metafor package. A pooled mean difference also carries `sd`,

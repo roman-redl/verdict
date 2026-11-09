@@ -159,6 +159,60 @@ func TestLogRRDoubleZeroAndInvalid(t *testing.T) {
 	}
 }
 
+// LogOR against hand-computed 2x2 tables; a zero cell (or events in everyone)
+// gets 0.5 in every cell, as in LogRR.
+func TestLogOR(t *testing.T) {
+	tests := []struct {
+		name                       string
+		e1, n1, e2, n2             float64
+		wantY, wantVariance, delta float64
+	}{
+		// OR = (10 * 80) / (90 * 20) = 4/9; variance 1/10 + 1/90 + 1/20 + 1/80 = 25/144
+		{
+			name: "no zero cell", e1: 10, n1: 100, e2: 20, n2: 100,
+			wantY: math.Log(4.0 / 9), wantVariance: 25.0 / 144, delta: 1e-12,
+		},
+		// OR = (30 * 45) / (30 * 15) = 3; variance 1/30 + 1/30 + 1/15 + 1/45 = 7/45
+		{
+			name: "unequal arms", e1: 30, n1: 60, e2: 15, n2: 60,
+			wantY: math.Log(3), wantVariance: 7.0 / 45, delta: 1e-12,
+		},
+		// no events in the intervention arm: cells 0.5, 50.5, 5.5, 45.5
+		{
+			name: "zero events", e1: 0, n1: 50, e2: 5, n2: 50,
+			wantY: math.Log(0.5 * 45.5 / (50.5 * 5.5)), wantVariance: 2.223598, delta: 1e-5,
+		},
+		// events in everyone of the intervention arm: cells 20.5, 0.5, 5.5, 15.5
+		{
+			name: "events in everyone", e1: 20, n1: 20, e2: 5, n2: 20,
+			wantY: math.Log(20.5 * 15.5 / (0.5 * 5.5)), wantVariance: 2.295115, delta: 1e-5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := LogOR(tt.e1, tt.n1, tt.e2, tt.n2)
+
+			require.NoError(t, err)
+			assert.InDelta(t, tt.wantY, s.Y, 1e-9)
+			assert.InDelta(t, tt.wantVariance, s.SE*s.SE, tt.delta)
+		})
+	}
+}
+
+func TestLogORDoubleZeroAndInvalid(t *testing.T) {
+	_, err := LogOR(0, 40, 0, 40)
+	require.ErrorIs(t, err, ErrNoEvents)
+
+	_, err = LogOR(40, 40, 30, 30)
+	require.ErrorIs(t, err, ErrNoEvents)
+
+	for _, c := range [][4]float64{{-1, 10, 2, 10}, {11, 10, 2, 10}, {1, 0, 2, 10}, {1, 10, 2, -5}} {
+		_, err = LogOR(c[0], c[1], c[2], c[3])
+		require.ErrorIs(t, err, ErrInvalid, "%v", c)
+	}
+}
+
 func TestMD(t *testing.T) {
 	s, err := MD(Arm{Mean: 10, SD: 2, N: 20}, Arm{Mean: 8, SD: 2, N: 20})
 	require.NoError(t, err)

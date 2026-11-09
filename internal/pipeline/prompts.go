@@ -119,7 +119,9 @@ Hard rules:
 	`When imprecision is present, it replaces the imprecision reading above: its target is the conclusion the ` +
 	`pooled estimate supports (read against the change the claim states; little_or_no_difference = no_effect; ` +
 	`"undetermined" = you judge the direction), and its levels are the imprecision rating; do not state a ` +
-	`different direction (unless the target is "undetermined") or rate imprecision again.
+	`different direction (unless the target is "undetermined") or rate imprecision again. ` +
+	`Studies listed in left_out reported the outcome on another scale and are not in the pooled numbers: ` +
+	`weigh them as individual results.
 9. Systematic reviews and meta-analyses (see design and critique.study_design) are a cross-check of the ` +
 	`primary studies, not independent evidence: do not count a review in the direct tally together with the ` +
 	`trials it includes. The pooled_estimate never includes them.`

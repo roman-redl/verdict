@@ -145,4 +145,9 @@ type PooledEstimate struct {
 	// claim's outcome, which the direction is read against.
 	Outcome string   `json:"outcome,omitempty"`
 	Studies []string `json:"studies"` // DOIs
+	// LeftOut lists the direct studies with usable numbers that are not in the
+	// pool because they report the outcome on another measure, each as
+	// "doi (MEASURE)". A study from counts is labelled RR, its default measure,
+	// even when the pool is an OR that it could have joined.
+	LeftOut []string `json:"left_out,omitempty"`
 }
