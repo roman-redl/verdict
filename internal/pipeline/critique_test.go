@@ -37,11 +37,11 @@ func TestCritiqueBatchFallsBackForDroppedStudies(t *testing.T) {
 	single := `{"doi":"10.1/c","design_quality":"low","relevance":"tangential","result_direction":"unclear"}`
 	s := &scriptCompleter{replies: []string{batch, single}}
 
-	got, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA), ep(doiB)}, "q")
+	got, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA), ep(doiB)}, "q", quietLog())
 	require.NoError(t, err)
 	require.Len(t, got, 2, "batch must return its two studies")
 
-	fb, _, err := critiquePaper(context.Background(), s, ep("10.1/c"), "q")
+	fb, _, err := critiquePaper(context.Background(), s, ep("10.1/c"), "q", quietLog())
 	require.NoError(t, err)
 
 	assert.Equal(t, qualityHigh, got[doiA].DesignQuality)
@@ -62,7 +62,8 @@ func TestCritiquePayloadsCarryTheQuestionOnce(t *testing.T) {
 	single := `{"doi":"10.1/a"}`
 	s := &scriptCompleter{replies: []string{batch, single}}
 
-	_, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA), ep(doiB)}, "does X work?")
+	_, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA), ep(doiB)},
+		"does X work?", quietLog())
 	require.NoError(t, err)
 
 	_, user, ok := strings.Cut(s.prompts[0], "\n\n")
@@ -84,7 +85,7 @@ func TestCritiquePayloadsCarryTheQuestionOnce(t *testing.T) {
 		assert.Contains(t, st, "abstract")
 	}
 
-	_, _, err = critiquePaper(context.Background(), s, ep(doiA), "does X work?")
+	_, _, err = critiquePaper(context.Background(), s, ep(doiA), "does X work?", quietLog())
 	require.NoError(t, err)
 	assert.Contains(t, s.prompts[1], `"question":"does X work?"`, "the single form keeps the question")
 }
@@ -93,7 +94,7 @@ func TestCritiquePayloadsCarryTheQuestionOnce(t *testing.T) {
 func TestCritiqueBatchTotalFailureReturnsNil(t *testing.T) {
 	s := &scriptCompleter{replies: []string{"complete garbage, not json at all", "still not json"}}
 
-	got, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA)}, "q")
+	got, _, err := critiqueBatch(context.Background(), s, []model.EnrichedPaper{ep(doiA)}, "q", quietLog())
 	require.Error(t, err, "the failure must be reported, not swallowed")
 	require.Nil(t, got, "failed batch must return nil map")
 

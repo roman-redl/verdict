@@ -562,6 +562,104 @@ func TestPoolEffectsUsesTheTitleWithoutDOI(t *testing.T) {
 	assert.Equal(t, []string{"Untitled trial"}, pe.Studies)
 }
 
+// A review's estimate repeats the trials it includes: only the trials are
+// pooled, and the skipped review is logged with its design.
+func TestPoolEffectsLeavesOutAReviewAndPoolsItsTrials(t *testing.T) {
+	p, logs := poolPipeline(t)
+
+	// s1 is the meta-analysis (its interval is much narrower than any trial's), s2 and s3 are its trials
+	st := poolState(counts(100, 1000, 200, 1000), counts(10, 100, 20, 100), counts(12, 110, 22, 108))
+	st.Critiques[0].StudyDesign = model.DesignMetaAnalysis
+	st.Critiques[1].StudyDesign = model.DesignRCT
+	st.Critiques[2].StudyDesign = model.DesignRCT
+
+	pe := p.poolEffects(st)
+	require.NotNil(t, pe)
+	assert.Equal(t, []string{study2, "10.1/s3"}, pe.Studies)
+	assert.Equal(t, 2, pe.K)
+
+	assert.Contains(t, logs.String(), "secondary research")
+	assert.Contains(t, logs.String(), "doi="+study1)
+	assert.Contains(t, logs.String(), "design=meta_analysis")
+}
+
+// Which designs stay out of the pool: reviews and guidelines, by the critic's
+// word, the discovery tag or the title; an unknown design stays in (the old
+// behaviour), so that a trial is not dropped on a guess.
+func TestPoolEffectsByDesign(t *testing.T) {
+	tests := []struct {
+		name   string
+		critic model.StudyDesign
+		tag    string
+		title  string
+		pooled bool
+	}{
+		{name: "rct", critic: model.DesignRCT, pooled: true},
+		{name: "observational", critic: model.DesignCohort, pooled: true},
+		{name: "outside the list", critic: model.DesignOther, pooled: true},
+		{name: "systematic review", critic: model.DesignSystematicReview},
+		{name: "meta-analysis", critic: model.DesignMetaAnalysis},
+		{name: "narrative review", critic: model.DesignNarrativeReview},
+		{name: "guideline", critic: model.DesignGuideline},
+		{name: "unknown design", critic: model.DesignUnclear, pooled: true},
+		{name: "no critic design, no tag", pooled: true},
+		{name: "no critic design, review tag", tag: tagMetaAnalysis},
+		{name: "no critic design, trial tag", tag: designRCT, pooled: true},
+		{name: "no critic design, review title", title: "Zinc for colds: a systematic review"},
+		{name: "the critic overrides a review tag", critic: model.DesignRCT, tag: tagMetaAnalysis, pooled: true},
+		{name: "the critic overrides a trial tag", critic: model.DesignMetaAnalysis, tag: designRCT},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _ := poolPipeline(t)
+
+			// the second study is a trial, so the pool is never empty
+			st := poolState(counts(10, 100, 20, 100), counts(10, 100, 20, 100))
+			st.Critiques[0].StudyDesign = tt.critic
+			st.Enriched[0].StudyDesign = tt.tag
+
+			if tt.title != "" {
+				st.Enriched[0].Title = tt.title
+			}
+
+			pe := p.poolEffects(st)
+			require.NotNil(t, pe)
+
+			if tt.pooled {
+				assert.Equal(t, []string{study1, study2}, pe.Studies)
+			} else {
+				assert.Equal(t, []string{study2}, pe.Studies)
+			}
+		})
+	}
+}
+
+// When every direct study is secondary research there is nothing to pool.
+func TestPoolEffectsOnlyReviewsPoolNothing(t *testing.T) {
+	p, _ := poolPipeline(t)
+
+	st := poolState(counts(10, 100, 20, 100), counts(10, 100, 20, 100))
+	st.Critiques[0].StudyDesign = model.DesignMetaAnalysis
+	st.Enriched[1].StudyDesign = tagSystematicReview
+
+	assert.Nil(t, p.poolEffects(st))
+}
+
+// An artifact written before study_design existed pools as the tag says.
+func TestPoolEffectsOldArtifactUsesTheTag(t *testing.T) {
+	p, _ := poolPipeline(t)
+
+	st := poolState(counts(10, 100, 20, 100), counts(10, 100, 20, 100))
+	st.Enriched[0].StudyDesign = tagMetaAnalysis
+
+	require.Empty(t, st.Critiques[0].StudyDesign)
+
+	pe := p.poolEffects(st)
+	require.NotNil(t, pe)
+	assert.Equal(t, []string{study2}, pe.Studies)
+}
+
 const (
 	effectBatchReply = `{"critiques":[` +
 		`{"doi":"10.1000/a","design_quality":"high","relevance":"direct","result_direction":"null",` +

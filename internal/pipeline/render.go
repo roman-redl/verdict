@@ -208,7 +208,7 @@ func writePaperDigest(b *strings.Builder, e *model.EnrichedPaper, c model.Critiq
 	fmt.Fprintf(b, "- %s%s — %s (%d); design: %s; N=%d; "+
 		"Scite: %d support / %d contradict (of %d citations); "+
 		"quality: %s; relevance: %s; direction: %s",
-		orDash(e.DOI), flag, e.Title, e.Year, orDash(e.StudyDesign), n, sup, con, total, quality, relevance, direction)
+		orDash(e.DOI), flag, e.Title, e.Year, orDash(displayDesign(e, c)), n, sup, con, total, quality, relevance, direction)
 
 	if concerns != "" {
 		fmt.Fprintf(b, "; concerns: %s", concerns)

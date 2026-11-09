@@ -16,7 +16,7 @@ type Paper struct {
 	Authors      []string `json:"authors,omitempty"`
 	Venue        string   `json:"venue,omitempty"`
 	Abstract     string   `json:"abstract,omitempty"`
-	StudyDesign  string   `json:"study_design,omitempty"` // discovery tags or the critic's estimate
+	StudyDesign  string   `json:"study_design,omitempty"` // the discovery tag only
 	SampleSize   int      `json:"sample_size,omitempty"`  // filled at the critique stage (from the abstract)
 	OALink       string   `json:"oa_link,omitempty"`
 	CitedByCount int      `json:"cited_by_count,omitempty"`
@@ -169,6 +169,10 @@ type Critique struct {
 	SampleAdequacy     string `json:"sample_adequacy"` // adequate | small | very_small | unclear | na
 	SampleSizeReported int    `json:"sample_size_reported,omitempty"`
 	Relevance          string `json:"relevance"` // direct | indirect | tangential | unknown
+	// StudyDesign is the design of THIS paper as its text states it. Empty in
+	// critiques written before the field existed; the pipeline then falls back
+	// to the discovery tag and the title (pipeline.resolveDesign).
+	StudyDesign StudyDesign `json:"study_design,omitempty"`
 	// ResultDirection is where the study's OWN findings point relative to the
 	// question: positive | null | negative | mixed | unclear.
 	ResultDirection string   `json:"result_direction,omitempty"`

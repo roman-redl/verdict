@@ -57,13 +57,13 @@ func reportState() *State {
 		Papers:   []model.Paper{{DOI: doiTrial}, {DOI: doiCohort}, {DOI: doiElderly}},
 		Enriched: []model.EnrichedPaper{
 			{
-				DOI: doiTrial, Title: "Creatine and memory: a randomized trial", Year: 2021,
+				DOI: doiTrial, Title: titleTrial, Year: 2021,
 				StudyDesign: designRCT, SampleSize: 120, Abstract: "Background: a double-blind trial in 120 adults.",
 				Tally:    &model.CitationTally{Total: 40, Supporting: 12, Contradicting: 3},
 				FullText: "Methods and results...", ContradictingDOIs: []string{criticDOI},
 			},
 			{
-				DOI: doiCohort, Title: longTitle, Year: 2018, StudyDesign: "cohort", CitedByCount: 7,
+				DOI: doiCohort, Title: longTitle, Year: 2018, StudyDesign: designCohort, CitedByCount: 7,
 				Flags: model.RedFlags{Retracted: true, Reason: "Crossref/retraction-watch: retraction notice 10.1/n"},
 			},
 			{DOI: doiElderly, Title: "Creatine in the elderly", Year: 2023},
@@ -75,7 +75,11 @@ func reportState() *State {
 				Concerns: []string{"short follow-up", "single center | one site"},
 			},
 			{DOI: doiCohort, DesignQuality: qualityLow, Relevance: relevanceIndirect, ResultDirection: directionNull},
-			{DOI: doiElderly, DesignQuality: qualityModerate, Relevance: relevanceDirect, ResultDirection: directionMixed},
+			{
+				// no discovery tag: the digest shows the critic's design
+				DOI: doiElderly, DesignQuality: qualityModerate, Relevance: relevanceDirect,
+				ResultDirection: directionMixed, StudyDesign: model.DesignCrossoverRCT,
+			},
 		},
 		Report: &model.Report{
 			Question:         reportQuestion,
@@ -97,12 +101,12 @@ func reportState() *State {
 			},
 			Matrix: []model.MatrixRow{
 				{
-					DOI: doiTrial, Title: "Creatine and memory: a randomized trial", Year: 2021, Design: designRCT,
+					DOI: doiTrial, Title: titleTrial, Year: 2021, Design: designRCT,
 					SampleSize: 118, Supporting: 12, Contradicting: 3, TotalCitations: 40, Direction: directionPositive,
 					DesignQuality: qualityHigh, Relevance: relevanceDirect, Note: "the pivotal trial, short follow-up",
 				},
 				{
-					DOI: doiCohort, Title: longTitle, Year: 2018, Design: "cohort", TotalCitations: 7,
+					DOI: doiCohort, Title: longTitle, Year: 2018, Design: designCohort, TotalCitations: 7,
 					Direction: directionNull, DesignQuality: qualityLow, Relevance: relevanceIndirect, Note: "retracted",
 				},
 				{

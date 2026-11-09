@@ -89,7 +89,8 @@ func joinOutcomes(items []pooledStudy) string {
 var errNoNumbers = errors.New("no usable numbers")
 
 // poolEffects pools the effects the critics extracted from the direct,
-// non-retracted studies. It returns nil when no study has usable numbers.
+// non-retracted primary studies; reviews and meta-analyses are left out. It
+// returns nil when no study has usable numbers.
 // Numbers that cannot be an effect are ignored with a warning.
 func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate {
 	crits := critiquesFor(st)
@@ -99,6 +100,15 @@ func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate {
 	for i := range st.Enriched {
 		e, c := &st.Enriched[i], crits[i]
 		if c.Effect == nil || c.Relevance != relevanceDirect || e.Flags.Retracted {
+			continue
+		}
+
+		// A review's estimate repeats the data of the trials it includes, and
+		// pooling both counts that data twice (a falsely narrow interval). A
+		// study of unknown design stays in the pool: dropping it on a guess
+		// would lose a real trial.
+		if d := resolveDesign(e, c); d.IsSecondary() {
+			p.log.Info("effect not pooled: secondary research", "doi", cmp.Or(e.DOI, e.Title), "design", d)
 			continue
 		}
 

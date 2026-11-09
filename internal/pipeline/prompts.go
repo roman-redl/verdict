@@ -119,7 +119,10 @@ Hard rules:
 	`When imprecision is present, it replaces the imprecision reading above: its target is the conclusion the ` +
 	`pooled estimate supports (read against the change the claim states; little_or_no_difference = no_effect; ` +
 	`"undetermined" = you judge the direction), and its levels are the imprecision rating; do not state a ` +
-	`different direction (unless the target is "undetermined") or rate imprecision again.`
+	`different direction (unless the target is "undetermined") or rate imprecision again.
+9. Systematic reviews and meta-analyses (see design and critique.study_design) are a cross-check of the ` +
+	`primary studies, not independent evidence: do not count a review in the direct tally together with the ` +
+	`trials it includes. The pooled_estimate never includes them.`
 
 // synthesisResult is the judge LLM's output. The evidence matrix is NOT part
 // of it: rows are assembled deterministically in Go from the stage data, so
@@ -155,7 +158,7 @@ func buildMatrix(st *State, notes map[string]string) []model.MatrixRow {
 			DOI:           e.DOI,
 			Title:         e.Title,
 			Year:          e.Year,
-			Design:        e.StudyDesign,
+			Design:        displayDesign(e, c),
 			Direction:     cmp.Or(c.ResultDirection, valueUnclear),
 			DesignQuality: cmp.Or(c.DesignQuality, valueUnknown),
 			Relevance:     cmp.Or(c.Relevance, valueUnknown),
@@ -234,7 +237,7 @@ func synthesisUserPrompt(st *State) (string, error) {
 			Title:                e.Title,
 			Year:                 e.Year,
 			Authors:              cappedAuthors(e.Authors, 15),
-			Design:               e.StudyDesign,
+			Design:               displayDesign(e, crits[i]),
 			SampleSize:           e.SampleSize,
 			CitedBy:              e.CitedByCount,
 			TLDR:                 e.TLDR,

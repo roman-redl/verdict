@@ -14,8 +14,9 @@ import (
 
 // Values shared by the tests of this package.
 const (
-	designRCT = "rct"
-	criticDOI = "10.9/critic"
+	designRCT    = "rct"
+	designCohort = "cohort"
+	criticDOI    = "10.9/critic"
 )
 
 // counter counts calls by key; safe for the parallel stage workers.

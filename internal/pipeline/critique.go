@@ -15,6 +15,7 @@ import (
 	"crypto/sha1" //nolint:gosec // not cryptography: a fingerprint of the input for the critique cache key
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -30,6 +31,15 @@ const (
 	// pass still gives these studies a full text when direct ones leave slots free.
 	relevanceIndirect = "indirect"
 )
+
+// critiqueDesignField documents the study_design field in the field list of
+// both critique prompts. The pipeline keeps reviews out of the pooled estimate
+// by it (pool.go), so the critic must tell a review from the trials it covers.
+const critiqueDesignField = `study_design: "rct" | "cluster_rct" | "crossover_rct" | "nonrandomized_trial" | ` +
+	`"cohort" | "case_control" | "cross_sectional" | "case_series" | "systematic_review" | "meta_analysis" | ` +
+	`"narrative_review" | "guideline" | "other" | "unclear" — the design of THIS paper as stated in its ` +
+	`text (a meta-analysis of RCTs is "meta_analysis", not "rct"; a pooled analysis of several trials is ` +
+	`"meta_analysis"; an animal, in-vitro or modelling study is "other"; "unclear" when the text does not say),`
 
 // critiqueEffectField documents the optional effect object in the field list
 // of both critique prompts. The numbers are only extracted here: the pipeline
@@ -94,6 +104,7 @@ design_quality: "high" | "moderate" | "low" | "unknown",
 sample_adequacy: "adequate" | "small" | "very_small" | "unclear" | "na",
 sample_size_reported (integer, 0 if not stated),
 relevance: "direct" | "indirect" | "tangential" | "unknown",
+` + critiqueDesignField + `
 result_direction: "positive" | "null" | "negative" | "mixed" | "unclear" — ` +
 	`the direction of THIS study's own findings relative to the research question ` +
 	`(positive = supports the claim, null = no effect found, negative = opposite effect, mixed = inconsistent outcomes, ` +
@@ -142,6 +153,7 @@ design_quality: "high" | "moderate" | "low" | "unknown",
 sample_adequacy: "adequate" | "small" | "very_small" | "unclear" | "na",
 sample_size_reported (integer, 0 if not stated),
 relevance: "direct" | "indirect" | "tangential" | "unknown",
+` + critiqueDesignField + `
 result_direction: "positive" | "null" | "negative" | "mixed" | "unclear" — ` +
 	`the direction of THIS study's own findings relative to the research question ` +
 	`(positive = supports the claim, null = no effect found, negative = opposite effect, mixed = inconsistent outcomes, ` +
@@ -192,9 +204,11 @@ func critiqueInput(e model.EnrichedPaper) map[string]any {
 }
 
 // normalizeCritique fills the guaranteed fields from the study when the LLM
-// omitted or garbled them.
-func normalizeCritique(c model.Critique, e model.EnrichedPaper) model.Critique {
+// omitted or garbled them; an unknown study design becomes "unclear" with a
+// warning in the log.
+func normalizeCritique(c model.Critique, e model.EnrichedPaper, log *slog.Logger) model.Critique {
 	c.DOI = cmp.Or(c.DOI, e.DOI)
+	c.StudyDesign = normalizeDesign(c.StudyDesign, c.DOI, log)
 	c.Title = cmp.Or(c.Title, e.Title)
 	c.DesignQuality = cmp.Or(c.DesignQuality, valueUnknown)
 	c.SampleAdequacy = cmp.Or(c.SampleAdequacy, valueUnclear)
@@ -209,7 +223,7 @@ func normalizeCritique(c model.Critique, e model.EnrichedPaper) model.Critique {
 // third value for the caller to log. The second return is the call's token
 // usage (zeroed when the backend reports none).
 func critiquePaper(
-	ctx context.Context, client Completer, e model.EnrichedPaper, question string,
+	ctx context.Context, client Completer, e model.EnrichedPaper, question string, log *slog.Logger,
 ) (model.Critique, Usage, error) {
 	c := blankCritique(e)
 
@@ -232,7 +246,7 @@ func critiquePaper(
 		return c, usage, err
 	}
 
-	return normalizeCritique(out, e), usage, nil
+	return normalizeCritique(out, e, log), usage, nil
 }
 
 // critiqueBatch assesses several studies in one call. Critiques are matched
@@ -241,7 +255,7 @@ func critiquePaper(
 // caller falls back to single calls for them. A total call failure returns a
 // nil map and the error — every study of the chunk then falls back.
 func critiqueBatch(
-	ctx context.Context, client Completer, papers []model.EnrichedPaper, question string,
+	ctx context.Context, client Completer, papers []model.EnrichedPaper, question string, log *slog.Logger,
 ) (map[string]model.Critique, Usage, error) {
 	type payload struct {
 		Question string           `json:"question"`
@@ -270,14 +284,16 @@ func critiqueBatch(
 		return nil, usage, err
 	}
 
-	return matchCritiques(papers, out.Critiques), usage, nil
+	return matchCritiques(papers, out.Critiques, log), usage, nil
 }
 
 // matchCritiques pairs the critiques of a batch answer with the studies:
 // by DOI first, by position when the counts line up (the model garbled the
 // DOIs). The result is keyed by normalized DOI; a study without a match is
 // absent.
-func matchCritiques(papers []model.EnrichedPaper, critiques []model.Critique) map[string]model.Critique {
+func matchCritiques(
+	papers []model.EnrichedPaper, critiques []model.Critique, log *slog.Logger,
+) map[string]model.Critique {
 	slots := make([]*model.Critique, len(papers)) // matched critique per study
 	byDOI := map[string]int{}
 
@@ -307,7 +323,7 @@ func matchCritiques(papers []model.EnrichedPaper, critiques []model.Critique) ma
 	for i := range papers {
 		d := model.NormalizeDOI(papers[i].DOI)
 		if slots[i] != nil && d != "" {
-			res[d] = normalizeCritique(*slots[i], papers[i])
+			res[d] = normalizeCritique(*slots[i], papers[i], log)
 		}
 	}
 

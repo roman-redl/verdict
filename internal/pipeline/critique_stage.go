@@ -152,7 +152,7 @@ func (p *Pipeline) assessChunk(ctx context.Context, r *critiqueRun, chunk []int)
 		papers[i] = r.st.Enriched[idx]
 	}
 
-	got, usage, err := critiqueBatch(ctx, r.client, papers, question)
+	got, usage, err := critiqueBatch(ctx, r.client, papers, question, p.log)
 	if errors.Is(err, ErrLLMStop) {
 		return p.stopChunk(r, chunk, chunk, usage, err)
 	}
@@ -168,7 +168,7 @@ func (p *Pipeline) assessChunk(ctx context.Context, r *critiqueRun, chunk []int)
 		}
 
 		// the batch dropped this study
-		c, u, err := critiquePaper(ctx, r.client, papers[i], question)
+		c, u, err := critiquePaper(ctx, r.client, papers[i], question, p.log)
 		usage = usage.Add(u)
 		r.critiques[idx] = c
 

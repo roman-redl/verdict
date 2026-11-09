@@ -303,7 +303,12 @@ two jobs:
   abstract + design tags + citation tallies → a structured assessment:
   design quality, sample adequacy, N (only if actually stated in the
   abstract — inventing is forbidden), strengths, concerns, relevance to the
-  question (direct / indirect / tangential).
+  question (direct / indirect / tangential), and `study_design` — the design
+  of this paper as its text states it (`rct`, `cluster_rct`, `crossover_rct`,
+  `nonrandomized_trial`, `cohort`, `case_control`, `cross_sectional`,
+  `case_series`, `systematic_review`, `meta_analysis`, `narrative_review`,
+  `guideline`, `other`, `unclear`; a meta-analysis of RCTs is `meta_analysis`,
+  not `rct`). An unknown word becomes `unclear` with a warning.
 - **Judge** — a single final call: all the data + the GRADE rubric → the
   evidence matrix, the verdict, the rationale with concrete paper
   references, the consensus with its status, the contradictions and gaps.
@@ -341,7 +346,7 @@ becomes `1/value` with the interval `1/ci_high … 1/ci_low`, a difference
 becomes `−value` with `−ci_high … −ci_low`.
 A `ci_level` outside (50, 99.9], a percent outside 0–100 or a percentage
 without a total is ignored with a warning, like any other bad number. The
-direct, non-retracted studies of one measure (ratio measures are never
+direct, non-retracted primary studies of one measure (ratio measures are never
 mixed; the largest group is pooled) are combined with the DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
 number of studies, participants when known, I². A single study is shown with
 its own interval and marked "not pooled". The **judge reads** the result
@@ -350,6 +355,23 @@ prints the numbers from Go. The method is checked against the BCG vaccine
 example of the metafor package. A pooled mean difference also carries `sd`,
 the participant-weighted mean of the studies' pooled SDs, when every study
 gave its arms' SDs and sizes (a reported estimate has no SD).
+
+**Reviews are not pooled.** A systematic review or meta-analysis repeats the
+data of the trials it includes, so pooling both would count that data twice
+and make the interval falsely narrow (and the imprecision rating, computed
+from it, falsely good). Studies whose design is `systematic_review`,
+`meta_analysis`, `narrative_review` or `guideline` are skipped, each with an
+info line in the log; the judge is told to treat them as a cross-check, not
+as independent evidence. The design is resolved from, in order: the critic's
+`study_design`; the discovery tag (Consensus `study_type`: `rct`,
+`meta-analysis`, `systematic review`, `literature review`, `cohort study`
+and so on, mapped onto the same set; its catch-all `other` says nothing); the
+title ("systematic review", "meta-analysis", "pooled analysis", "umbrella
+review", "Cochrane review"). A study whose design stays unknown remains in the
+pool, as before. The same resolved design fills the Design column when the
+paper has no discovery tag (`--dois`, OpenAlex discovery). Critiques saved
+before the field existed load as they are and fall back to the tag and the
+title.
 
 **Imprecision and effect direction.** A model's judgments of imprecision and
 of the direction of the effect vary between runs and mix up "no effect" with
@@ -417,7 +439,7 @@ excluded from the supporting side.
 
 ```json
 {"doi": "10.1136/…", "design_quality": "high", "sample_adequacy": "adequate",
- "sample_size_reported": 11321, "relevance": "direct",
+ "sample_size_reported": 11321, "relevance": "direct", "study_design": "meta_analysis",
  "strengths": ["aggregates 25 RCTs"],
  "concerns": ["included trials vary in dosage"]}
 ```
