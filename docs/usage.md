@@ -372,18 +372,20 @@ bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
   questions by deliberate choice only. The default `hybrid` adds one
   deepening pass at the end of the critique stage (OA full-text fetch — Europe
   PMC XML, PubMed Central XML, the PDF from every known location, then the
-  Jina Reader — for up to `HYBRID_PIVOTAL_MAX`, default 5, pivotal
-  studies, direct ones first and indirect ones in the free slots, + ~1 deep
-  re-critique call over lean); the synthesis still runs once, on the final
-  critiques.
+  Jina Reader — for up to `HYBRID_PIVOTAL_MAX`, default 7, pivotal
+  studies, direct ones first (then by design quality and sample size) and
+  indirect ones in the free slots; a study whose text cannot be obtained
+  passes its slot to the next candidate, within three fetch attempts per
+  slot; + ~1 deep re-critique call over up to 7 full texts on top of lean);
+  the synthesis still runs once, on the final critiques.
   The Jina Reader is a third-party service that sees the addresses of the
   papers it reads (no personal data); `JINA_API_KEY` in `.env` (optional, a
   free key) lifts its anonymous limit of 20 requests a minute to 500. The log
   has one line per study ("full text obtained" / "full text not obtained") with
   the reason each source was skipped.
   A full text is stored up to 60,000 characters and the critic reads the
-  first 30,000 of them (tables first), so a batch of five deepened studies
-  carries up to ~150,000 characters (~37,500 tokens) of full text.
+  first 30,000 of them (tables first), so a batch of seven deepened studies
+  carries up to ~210,000 characters (~52,500 tokens) of full text.
   `--resume` of a run whose critique artifact predates the pass deepens
   before the synthesis; once `4-synthesis.json` exists the pass is not
   repeated.

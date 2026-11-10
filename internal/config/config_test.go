@@ -28,7 +28,7 @@ func valid() Config {
 		LLMTimeout:     10 * time.Minute,
 		LLMConcurrency: 4, LLMChunk: 5,
 		MaxPapers: 40, Concurrency: 4,
-		HybridPivotalMax: 5, ConsensusPages: 3, ConsensusPageSize: 100,
+		HybridPivotalMax: 7, ConsensusPages: 3, ConsensusPageSize: 100,
 		EnrichCacheTTLDays: 30, CritiqueCacheTTLDays: 30,
 	}
 }
@@ -170,8 +170,8 @@ func TestValidateReportsAllProblems(t *testing.T) {
 	require.ErrorContains(t, err, "MAX_PAPERS")
 }
 
-// The corpus cap defaults to what the measured discovery pools need: 12-44
-// on-topic papers per question.
+// The corpus and deepening caps default to what the measured discovery pools
+// need: 12-44 on-topic papers per question, up to 7 studies with a full text.
 func TestCapDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -179,6 +179,7 @@ func TestCapDefaults(t *testing.T) {
 
 	require.NoError(t, env.ParseWithOptions(&c, env.Options{Environment: map[string]string{}}))
 	require.Equal(t, 40, c.MaxPapers)
+	require.Equal(t, 7, c.HybridPivotalMax)
 }
 
 // The discovery switches come from the environment: the default is all three

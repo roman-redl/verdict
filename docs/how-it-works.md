@@ -156,9 +156,17 @@ matching this text".
   critique pass reads abstracts; then the studies the verdict will rest on —
   *pivotal* — get their full texts and a deep re-critique, before the single
   synthesis. Pivotal means direct studies first (best design quality, then
-  most Scite support/contradiction activity), up to `HYBRID_PIVOTAL_MAX`;
-  slots the direct studies leave free go to *indirect* ones (same ranking),
-  never to tangential or unknown ones. An indirect study is often one whose
+  largest sample size — a larger trial weighs more in the pooled estimate,
+  while citation counts measure popularity; an unknown size sorts last in its
+  tier), up to `HYBRID_PIVOTAL_MAX` (default 7); slots the direct studies
+  leave free go to *indirect* ones (same ranking), never to tangential or
+  unknown ones. The cap counts studies that *have* a full text: a candidate
+  whose text cannot be obtained (paywalled, no open-access copy) passes its
+  slot to the next one in this order, and a study that already has its text
+  (a PDF the user placed, an earlier pass) counts without a fetch. The walk
+  is bounded at three fetch attempts per slot, so a run of paywalled papers
+  cannot fetch the whole corpus; the log line `hybrid: pivotal full texts`
+  gives the cap and the tried and obtained counts. An indirect study is often one whose
   abstract just does not report the asked outcome (a secondary outcome lives
   in the full text only), and without its full text it could never be
   re-judged; the deep critique replaces the abstract one — relevance and

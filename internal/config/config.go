@@ -94,7 +94,7 @@ type Config struct {
 	TextMode pipeline.TextMode `env:"TEXT_MODE" envDefault:"hybrid"`
 	// HybridPivotalMax caps how many pivotal studies the hybrid mode deepens
 	// with full texts (the tail of the critique stage, before the synthesis).
-	HybridPivotalMax int `env:"HYBRID_PIVOTAL_MAX" envDefault:"5"`
+	HybridPivotalMax int `env:"HYBRID_PIVOTAL_MAX" envDefault:"7"`
 	// ConsensusPages caps the Consensus search pages fetched per discovery
 	// query: with the default page size, 2 pages are up to 200 candidates and
 	// 2 API calls per query.
