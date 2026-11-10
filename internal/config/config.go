@@ -35,6 +35,9 @@ type Config struct {
 	S2APIKey        string `env:"S2_API_KEY"`        // optional: raises Semantic Scholar's free anonymous limits
 	PubPeerDevKey   string `env:"PUBPEER_DEVKEY"`    // optional: enables the PubPeer commentary check
 	ConsensusAPIKey string `env:"CONSENSUS_API_KEY"` // optional: mode B — semantic discovery via the Consensus API
+	// JinaAPIKey is optional: the Jina Reader (the last full-text source)
+	// works without it at 20 requests a minute, a free key raises that to 500.
+	JinaAPIKey string `env:"JINA_API_KEY"`
 	// NCBIAPIKey is optional: PubMed's E-utilities allow 3 requests a second
 	// without it and 10 with it. A secret: it goes into requests and nowhere else.
 	NCBIAPIKey string `env:"NCBI_API_KEY"`

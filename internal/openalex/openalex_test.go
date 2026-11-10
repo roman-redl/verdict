@@ -2,6 +2,7 @@ package openalex
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/roman-redl/verdict/internal/model"
 )
 
 // Search must map results into Paper, filter out retractions, and strip
@@ -93,6 +96,53 @@ func TestToModelAndPaper(t *testing.T) {
 
 	w.OAURL = ""
 	assert.Equal(t, "https://pdf.test/x.pdf", w.ToPaper("").OALink, "the PDF URL is the fallback")
+}
+
+// Every location is kept with its host type, so the full-text fetch can try
+// the repository copies the primary (publisher) location hides; a location
+// without any URL, a null source and an unfamiliar host type are handled.
+func TestLocationsAreKept(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"https://openalex.org/W1","doi":"https://doi.org/10.1/x","display_name":"A study",
+			"open_access":{"is_oa":true,"oa_url":"https://www.ncbi.nlm.nih.gov/pmc/articles/7745181"},
+			"primary_location":{"source":{"display_name":"NEJM","type":"journal"},
+				"landing_page_url":"https://doi.org/10.1/x","pdf_url":null},
+			"locations":[
+				{"is_oa":false,"landing_page_url":"https://doi.org/10.1/x","pdf_url":null,
+				 "source":{"type":"journal"}},
+				{"is_oa":true,"landing_page_url":"https://www.ncbi.nlm.nih.gov/pmc/articles/7745181",
+				 "pdf_url":"https://repo.test/x.pdf","source":{"type":"repository"}},
+				{"is_oa":true,"landing_page_url":null,"pdf_url":null,"source":{"type":"repository"}},
+				{"is_oa":true,"landing_page_url":"https://nosource.test/x","pdf_url":null,"source":null},
+				{"is_oa":false,"landing_page_url":"https://meta.test/x","source":{"type":"metadata"}}
+			]}`))
+	}))
+	defer srv.Close()
+
+	w, err := NewWithBase(srv.URL, "").ByDOI(context.Background(), "10.1/x")
+	require.NoError(t, err)
+	require.NotNil(t, w)
+
+	assert.Equal(t, []model.Location{
+		{LandingURL: "https://doi.org/10.1/x", Host: model.HostPublisher},
+		{
+			LandingURL: "https://www.ncbi.nlm.nih.gov/pmc/articles/7745181", PDFURL: "https://repo.test/x.pdf",
+			Host: model.HostRepository, OA: true,
+		},
+		{LandingURL: "https://nosource.test/x", Host: model.HostUnknown, OA: true},
+		{LandingURL: "https://meta.test/x", Host: model.HostUnknown},
+	}, w.Locations, "the empty location is dropped, the rest keep their order")
+	assert.Equal(t, w.Locations, w.ToPaper("").OALocations, "the paper carries them on")
+}
+
+// An artifact written before locations existed still loads: the field is
+// optional on the paper.
+func TestPaperWithoutLocationsLoads(t *testing.T) {
+	var p model.Paper
+
+	require.NoError(t, json.Unmarshal([]byte(`{"doi":"10.1/x","title":"Old","oa_link":"https://oa.test/x"}`), &p))
+	assert.Empty(t, p.OALocations)
+	assert.Equal(t, "https://oa.test/x", p.OALink)
 }
 
 // 404 means "OpenAlex does not know the DOI": no work, no error.

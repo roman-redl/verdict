@@ -31,6 +31,10 @@ type State struct {
 	// nil when there is no pooled estimate and in artifacts written before it.
 	Imprecision *model.Imprecision `json:"imprecision,omitempty"`
 	Report      *model.Report      `json:"report,omitempty"`
+	// TextMode is the text mode of the run that produced the report; the
+	// report lists the full texts not obtained only where full texts were
+	// asked for. Empty in artifacts written before the field existed.
+	TextMode TextMode `json:"text_mode,omitempty"`
 	// HybridDone records that the hybrid deepening pass (the tail of the
 	// critique stage) has already run for this state, even if it found no full
 	// text to deepen; resume must not repeat it. False in a critique artifact

@@ -11,11 +11,14 @@ import (
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/consensus"
 	"github.com/roman-redl/verdict/internal/crossref"
+	"github.com/roman-redl/verdict/internal/doi"
 	"github.com/roman-redl/verdict/internal/europepmc"
+	"github.com/roman-redl/verdict/internal/jina"
 	"github.com/roman-redl/verdict/internal/llm"
 	"github.com/roman-redl/verdict/internal/openalex"
 	"github.com/roman-redl/verdict/internal/pdf"
 	"github.com/roman-redl/verdict/internal/pipeline"
+	"github.com/roman-redl/verdict/internal/pmc"
 	"github.com/roman-redl/verdict/internal/pubmed"
 	"github.com/roman-redl/verdict/internal/pubpeer"
 	"github.com/roman-redl/verdict/internal/s2"
@@ -101,6 +104,9 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 		PDFs:         pdf.NewDownloader(),
 		PDFText:      pdf.NewExtractor(log),
 		PubMed:       pubmed.New(cfg.NCBIAPIKey, cfg.OpenAlexEmail),
+		PMC:          pmc.New(cfg.OpenAlexEmail), // NCBI asks for a contact e-mail; no key
+		Landings:     doi.New(),                  // DOI → the publisher page, for the reader
+		Reader:       jina.New(cfg.JinaAPIKey),   // third-party reader; the key only raises its limit
 		LLMPlan:      plan,
 		LLM:          crit,
 		LLMDeep:      deep,

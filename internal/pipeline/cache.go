@@ -54,6 +54,9 @@ type CacheEntry struct {
 	Retracted      bool     `json:"retracted,omitempty"`
 	Reason         string   `json:"reason,omitempty"`
 	Notes          []string `json:"notes,omitempty"`
+	// OALocations are the work's open-access locations (an entry written
+	// before they were kept has none; the full-text fetch then has OALink).
+	OALocations []model.Location `json:"oa_locations,omitempty"`
 }
 
 // LoadEnrichCache reads the cache and drops entries older than ttl as of now.
@@ -70,9 +73,9 @@ func LoadEnrichCache(path string, ttl time.Duration, now time.Time, log *slog.Lo
 	}
 
 	cutoff := now.Add(-ttl)
-	for doi, e := range c {
-		if e.CheckedAt.After(cutoff) {
-			out[doi] = e
+	for doi := range c {
+		if c[doi].CheckedAt.After(cutoff) {
+			out[doi] = c[doi]
 		}
 	}
 

@@ -10,7 +10,7 @@ import (
 // The ports. Everything with a side effect that the pipeline needs from
 // outside — HTTP APIs, PDF download and parsing, the LLM — is an interface
 // declared here, on the consumer's side; the adapters (internal/scite,
-// openalex, crossref, s2, europepmc, pubmed, pubpeer, consensus, pdf, llm) implement it and are
+// openalex, crossref, s2, europepmc, pmc, pubmed, jina, doi, pubpeer, consensus, pdf, llm) implement it and are
 // wired in cmd/internal/app. The pipeline tests run on handwritten fakes.
 //
 // Where a method returns (nil, nil), it means "the source knows nothing about
@@ -70,9 +70,42 @@ type Abstracts interface {
 type FullTexts interface {
 	// FullText returns the plain text of the paper's open-access full text,
 	// at most maxChars characters (results and tables come first, so the cut
-	// falls on the least informative part). ("", nil) means the source has no
-	// open-access full text for the DOI.
-	FullText(ctx context.Context, doi string, maxChars int) (string, error)
+	// falls on the least informative part). An empty Text means the source has
+	// no open-access full text for the DOI; Reason says why, and PMCID passes
+	// on the paper's PubMed Central ID when the source knows it.
+	FullText(ctx context.Context, doi string, maxChars int) (model.FullTextLookup, error)
+}
+
+// PMCArchive is PubMed Central itself (NCBI): the ID converter and the
+// efetch XML, which also serves some author manuscripts outside the
+// open-access subset that Europe PMC does not.
+type PMCArchive interface {
+	// PMCID returns the PubMed Central ID of the DOI; "" means PMC does not
+	// hold the paper.
+	PMCID(ctx context.Context, doi string) (string, error)
+	// FullText returns the plain text of the article with that PMCID, at most
+	// maxChars characters. "" means PMC serves no body text for it (the
+	// publisher does not allow downloading, or only the front matter is held).
+	FullText(ctx context.Context, pmcid string, maxChars int) (string, error)
+}
+
+// PageReader turns a web page or a PDF address into the plain text of the
+// article it shows, through a third-party reader service (Jina Reader): the
+// service sees the URL, never personal data.
+type PageReader interface {
+	// PageText returns the text of the page at url. It fails when what comes
+	// back is not a usable article: a challenge or captcha page, too short a
+	// text, or one with no results (an abstract page); the error says which.
+	PageText(ctx context.Context, url string) (string, error)
+}
+
+// Landings resolves a DOI to the page its publisher registered for it. A
+// reader service refuses doi.org addresses, so the registered URL is read
+// instead.
+type Landings interface {
+	// LandingURL returns the registered URL of the DOI; "" means the DOI is
+	// not registered.
+	LandingURL(ctx context.Context, doi string) (string, error)
 }
 
 // Commentary is the post-publication commentary source (PubPeer).

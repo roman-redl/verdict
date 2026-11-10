@@ -7,6 +7,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/roman-redl/verdict/internal/model"
@@ -190,21 +191,91 @@ func (f *fakeAbstracts) Abstracts(_ context.Context, dois []string) (map[string]
 }
 
 // fakeFullTexts serves the Europe PMC full texts: a canned text per DOI
-// (a DOI absent from the map has none), or one error for every call.
+// (a DOI absent from the map has none), or one error for every call. The
+// PMCIDs it passes on and the reason it gives for an empty answer are canned
+// too.
 type fakeFullTexts struct {
-	calls counter
-	texts map[string]string
-	err   error
-	maxes []int // the cap each call carried
+	calls  counter
+	texts  map[string]string
+	pmcids map[string]string // the PMCID passed on per DOI
+	reason string            // the Reason of an answer with no text
+	err    error
+	maxes  []int // the cap each call carried
 }
 
 var _ FullTexts = (*fakeFullTexts)(nil)
 
-func (f *fakeFullTexts) FullText(_ context.Context, doi string, maxChars int) (string, error) {
+func (f *fakeFullTexts) FullText(_ context.Context, doi string, maxChars int) (model.FullTextLookup, error) {
 	f.calls.add("FullText:" + doi)
 	f.maxes = append(f.maxes, maxChars)
 
-	return f.texts[doi], f.err
+	res := model.FullTextLookup{Text: f.texts[doi], PMCID: f.pmcids[doi]}
+	if res.Text == "" {
+		res.Reason = f.reason
+	}
+
+	return res, f.err
+}
+
+// fakePMC is PubMed Central: PMCIDs per DOI (an absent DOI has none) and
+// texts per PMCID (an absent PMCID has no body), or one error for every call.
+type fakePMC struct {
+	calls   counter
+	ids     map[string]string // DOI → PMCID
+	texts   map[string]string // PMCID → text
+	idErr   error
+	textErr error
+}
+
+var _ PMCArchive = (*fakePMC)(nil)
+
+func (f *fakePMC) PMCID(_ context.Context, doi string) (string, error) {
+	f.calls.add("PMCID:" + doi)
+
+	return f.ids[doi], f.idErr
+}
+
+func (f *fakePMC) FullText(_ context.Context, pmcid string, _ int) (string, error) {
+	f.calls.add("PMC:" + pmcid)
+
+	return f.texts[pmcid], f.textErr
+}
+
+// fakeReader is the page reader: a canned text per page address (an absent
+// address is rejected the way the real reader rejects a challenge page).
+type fakeReader struct {
+	calls counter
+	pages map[string]string
+	asked []string // the addresses, in the order they were asked
+}
+
+var _ PageReader = (*fakeReader)(nil)
+
+func (f *fakeReader) PageText(_ context.Context, url string) (string, error) {
+	f.calls.add("Page:" + url)
+	f.asked = append(f.asked, url)
+
+	if text, ok := f.pages[url]; ok {
+		return text, nil
+	}
+
+	return "", errors.New("the page is not a full text: a challenge or error page")
+}
+
+// fakeLandings resolves DOIs to canned publisher pages (an absent DOI is not
+// registered), or fails.
+type fakeLandings struct {
+	calls counter
+	pages map[string]string
+	err   error
+}
+
+var _ Landings = (*fakeLandings)(nil)
+
+func (f *fakeLandings) LandingURL(_ context.Context, doi string) (string, error) {
+	f.calls.add("Landing:" + doi)
+
+	return f.pages[doi], f.err
 }
 
 type fakeCommentary struct {
@@ -293,12 +364,14 @@ func (f *fakePubMed) Summaries(_ context.Context, pmids []string) ([]model.PubMe
 type fakePDFs struct {
 	calls counter
 	fetch func(url string) ([]byte, error)
+	asked []string // the addresses, in the order they were fetched
 }
 
 var _ PDFSource = (*fakePDFs)(nil)
 
 func (f *fakePDFs) Fetch(_ context.Context, url string, _ int64) ([]byte, error) {
 	f.calls.add("Fetch:" + url)
+	f.asked = append(f.asked, url)
 
 	return f.fetch(url)
 }

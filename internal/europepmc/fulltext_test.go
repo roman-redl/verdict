@@ -31,8 +31,9 @@ func oaHit(source string) rec { return fullHit(doiOA, source, pmcid, "Y") }
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 
-	//nolint:gosec // a fixed file name inside testdata
-	b, err := os.ReadFile("testdata/" + name)
+	// the article fixture lives with the converter that reads it
+	//nolint:gosec // a fixed file name inside the jats package's testdata
+	b, err := os.ReadFile("../jats/testdata/" + name)
 	require.NoError(t, err)
 
 	return b
@@ -59,108 +60,6 @@ func fullTextServer(t *testing.T, hits []rec, status int, body []byte, xmlCalls 
 	}))
 }
 
-// The converter puts the tables first, then the results, then the methods,
-// then the rest; the front matter, the references, the formulas and the
-// citation markers are gone, the table keeps its rows and footnotes.
-func TestFullTextFromXMLGolden(t *testing.T) {
-	got, err := fullTextFromXML(readFixture(t, "article.xml"))
-
-	require.NoError(t, err)
-
-	want := strings.TrimSuffix(string(readFixture(t, "article.golden")), "\n")
-	assert.Equal(t, want, got)
-
-	for _, noise := range []string{"FRONT-MATTER", "REFERENCE ENTRY", "We thank", "mml", "RR RR"} {
-		assert.NotContains(t, got, noise)
-	}
-}
-
-func TestFullTextFromXMLShapes(t *testing.T) {
-	tests := []struct {
-		name string
-		xml  string
-		want string
-	}{
-		{
-			name: "no body: nothing to read",
-			xml:  `<article><front><article-meta/></front></article>`,
-			want: "",
-		},
-		{
-			name: "findings and outcomes sections count as results",
-			xml: `<article><body><sec><title>Background</title><p>Why.</p></sec>` +
-				`<sec><title>Findings</title><p>What.</p></sec></body></article>`,
-			want: "## Findings\nWhat.\n\n## Background\nWhy.",
-		},
-		{
-			name: "the sec-type decides when the title is a generic one",
-			xml: `<article><body><sec><title>Background</title><p>Why.</p></sec>` +
-				`<sec sec-type="results"><title>Study</title><p>What.</p></sec></body></article>`,
-			want: "## Study\nWhat.\n\n## Background\nWhy.",
-		},
-		{
-			name: "text in the body without sections",
-			xml:  `<article><body><p>A letter.</p><p>Second paragraph.</p></body></article>`,
-			want: "A letter.\nSecond paragraph.",
-		},
-		{
-			name: "a table without a caption, a spanning cell, an empty row",
-			xml: `<article><body><sec><title>Results</title><table-wrap><table><tbody>` +
-				`<tr><th colspan="2">Group</th><th>N</th></tr><tr><td/><td/></tr><tr><td>A</td><td>B</td><td>3</td></tr>` +
-				`</tbody></table></table-wrap></sec></body></article>`,
-			want: "## Tables\nGroup |  | N\nA | B | 3\n\n## Results",
-		},
-		{
-			name: "table wrappers in a group, the label without a full stop",
-			xml: `<article><body><sec><title>Methods</title><table-wrap-group>` +
-				`<table-wrap><label>Table 2</label><caption><title>Doses</title></caption>` +
-				`<table><tr><td>x</td></tr></table></table-wrap></table-wrap-group></sec></body></article>`,
-			want: "## Tables\nTable 2. Doses\nx\n\n## Methods",
-		},
-		{
-			name: "a table wrapper inside a paragraph is lifted out of the prose",
-			xml: `<article><body><sec><title>Results</title><p>Before.<table-wrap><label>Table 1</label>` +
-				`<caption><p>Cap</p></caption><table><tr><td>x</td><td>y</td></tr></table></table-wrap> After.</p>` +
-				`</sec></body></article>`,
-			want: "## Tables\nTable 1. Cap\nx | y\n\n## Results\nBefore. After.",
-		},
-		{
-			name: "tables kept in a floats group outside the body",
-			xml: `<article><body><sec><title>Results</title><p>See Table 4.</p></sec></body>` +
-				`<floats-group><table-wrap><label>Table 4</label><caption><p>Effects</p></caption>` +
-				`<table><tr><td>OR</td><td>1.06</td></tr></table></table-wrap></floats-group></article>`,
-			want: "## Tables\nTable 4. Effects\nOR | 1.06\n\n## Results\nSee Table 4.",
-		},
-		{
-			name: "numbers and decimals keep their spacing",
-			xml:  `<article><body><sec><title>Results</title><p>P &lt; .001 and from .5 to 1.</p></sec></body></article>`,
-			want: "## Results\nP < .001 and from .5 to 1.",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := fullTextFromXML([]byte(tt.xml))
-
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestFullTextFromXMLRejectsNonJATS(t *testing.T) {
-	for name, in := range map[string]string{
-		"an HTML error page": `<html><body>Not found</body></html>`,
-		"not XML at all":     `{"status": 500}`,
-		"a broken document":  `<article><body><sec>`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := fullTextFromXML([]byte(in))
-			require.Error(t, err)
-		})
-	}
-}
-
 func TestFullText(t *testing.T) {
 	var calls atomic.Int32
 
@@ -171,8 +70,10 @@ func TestFullText(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), calls.Load())
-	assert.True(t, strings.HasPrefix(got, "## Tables\n"), "tables come first: %q", got[:40])
-	assert.Contains(t, got, "Major bleeding | 3 (2.5) | 11 (9.2)a | 0.27 (0.08–0.95)")
+	assert.Equal(t, pmcid, got.PMCID)
+	assert.Empty(t, got.Reason)
+	assert.True(t, strings.HasPrefix(got.Text, "## Tables\n"), "tables come first: %q", got.Text[:40])
+	assert.Contains(t, got.Text, "Major bleeding | 3 (2.5) | 11 (9.2)a | 0.27 (0.08–0.95)")
 }
 
 // The cap counts characters, not bytes, and never splits one.
@@ -189,22 +90,24 @@ func TestFullTextCap(t *testing.T) {
 	got, err := c.FullText(t.Context(), doiOA, 120)
 
 	require.NoError(t, err)
-	assert.Len(t, []rune(got), 120)
-	assert.True(t, strings.HasPrefix(full, got))
-
-	assert.Equal(t, "ab–", clip("ab–cd", 3), "a multi-byte character is kept whole")
-	assert.Equal(t, "short", clip("short", 100))
+	assert.Len(t, []rune(got.Text), 120)
+	assert.True(t, strings.HasPrefix(full.Text, got.Text))
 }
 
 func TestFullTextUnavailable(t *testing.T) {
 	tests := []struct {
-		name string
-		hits []rec
+		name       string
+		hits       []rec
+		wantPMCID  string
+		wantReason string
 	}{
-		{"unknown DOI", nil},
-		{"no PMCID", []rec{fullHit(doiOA, sourceMED, "", "N")}},
-		{"a PMCID outside the open-access subset", []rec{fullHit(doiOA, sourceMED, pmcid, "N")}},
-		{"a record of another DOI", []rec{fullHit("10.1/other", sourceMED, pmcid, "Y")}},
+		{"unknown DOI", nil, "", "DOI not indexed"},
+		{"no PMCID", []rec{fullHit(doiOA, sourceMED, "", "N")}, "", "no PMCID"},
+		{
+			name: "a PMCID outside the open-access subset", hits: []rec{fullHit(doiOA, sourceMED, pmcid, "N")},
+			wantPMCID: pmcid, wantReason: pmcid + " is not in the open-access subset",
+		},
+		{"a record of another DOI", []rec{fullHit("10.1/other", sourceMED, pmcid, "Y")}, "", "DOI not indexed"},
 	}
 
 	for _, tt := range tests {
@@ -217,7 +120,9 @@ func TestFullTextUnavailable(t *testing.T) {
 			got, err := NewWithBase(srv.URL).FullText(t.Context(), doiOA, 1000)
 
 			require.NoError(t, err, "no full text is data, not an error")
-			assert.Empty(t, got)
+			assert.Empty(t, got.Text)
+			assert.Equal(t, tt.wantPMCID, got.PMCID, "the PMCID is passed on even without a text")
+			assert.Equal(t, tt.wantReason, got.Reason)
 			assert.Zero(t, calls.Load(), "the XML is not requested without an open-access PMCID")
 		})
 	}
@@ -235,7 +140,9 @@ func TestFullTextFailures(t *testing.T) {
 	srv.Close()
 
 	require.NoError(t, err)
-	assert.Empty(t, got)
+	assert.Empty(t, got.Text)
+	assert.Equal(t, pmcid, got.PMCID)
+	assert.Contains(t, got.Reason, "not served")
 
 	srv = fullTextServer(t, hits, http.StatusForbidden, []byte("denied"), &calls)
 	_, err = NewWithBase(srv.URL).FullText(t.Context(), doiOA, 1000)
@@ -257,6 +164,22 @@ func TestFullTextFailures(t *testing.T) {
 	_, err = NewWithBase(bad.URL).FullText(t.Context(), doiOA, 1000)
 
 	require.ErrorContains(t, err, "HTTP 400")
+}
+
+// A served article without a body is data: no text, and the reason says so.
+func TestFullTextWithoutBody(t *testing.T) {
+	var calls atomic.Int32
+
+	srv := fullTextServer(t, []rec{oaHit(sourceMED)}, http.StatusOK,
+		[]byte(`<article><front><article-meta/></front></article>`), &calls)
+	defer srv.Close()
+
+	got, err := NewWithBase(srv.URL).FullText(t.Context(), doiOA, 1000)
+
+	require.NoError(t, err)
+	assert.Empty(t, got.Text)
+	assert.Equal(t, pmcid, got.PMCID)
+	assert.Contains(t, got.Reason, "no body")
 }
 
 // A transient failure of the search or of the XML request (503, 429) is
@@ -291,7 +214,7 @@ func TestFullTextRetriesTransientFailures(t *testing.T) {
 	got, err := NewWithBase(srv.URL).FullText(t.Context(), doiOA, 0)
 
 	require.NoError(t, err)
-	assert.Contains(t, got, "Major bleeding | 3 (2.5)")
+	assert.Contains(t, got.Text, "Major bleeding | 3 (2.5)")
 	assert.Equal(t, int32(2), searchCalls.Load())
 	assert.Equal(t, int32(2), xmlCalls.Load())
 }
@@ -373,15 +296,4 @@ func TestOpenAccessPMCID(t *testing.T) {
 			assert.Equal(t, tt.want, openAccessPMCID(tt.records, "doi:"+doiOA))
 		})
 	}
-}
-
-// Fuzz: the converter takes whatever the network gives and must not panic.
-func FuzzFullTextFromXML(f *testing.F) {
-	f.Add([]byte(`<article><body><sec><title>Results</title><p>x</p></sec></body></article>`))
-	f.Add([]byte(`<article><body><table-wrap><table><tr><td colspan="99999999999">`))
-	f.Add([]byte(`<?xml version="1.0"?><!DOCTYPE a [<!ENTITY e "x">]><article>&e;&nbsp;</article>`))
-
-	f.Fuzz(func(_ *testing.T, data []byte) {
-		_, _ = fullTextFromXML(data) // only a panic is a failure here
-	})
 }

@@ -20,6 +20,11 @@ type Paper struct {
 	SampleSize   int      `json:"sample_size,omitempty"`  // filled at the critique stage (from the abstract)
 	OALink       string   `json:"oa_link,omitempty"`
 	CitedByCount int      `json:"cited_by_count,omitempty"`
+	// OALocations are all the places the metadata source lists for the work
+	// (PDF and landing URLs with the host type): the full-text fetch tries
+	// them in turn, where OALink is only the first one. Empty in artifacts
+	// written before the field existed; OALink then stands alone.
+	OALocations []Location `json:"oa_locations,omitempty"`
 	// SJRQuartile is the journal's best SCImago quartile at discovery
 	// ("Q1".."Q4", from Consensus) — context for the reader, not a quality
 	// verdict.
@@ -61,6 +66,7 @@ type Work struct {
 	Abstract     string
 	OAURL        string // open-access URL of the work
 	PDFURL       string // PDF URL of the primary location, when there is one
+	Locations    []Location
 	CitedByCount int
 	Retracted    bool
 	References   []string // IDs of the works this one cites
@@ -87,6 +93,7 @@ func (w *Work) ToPaper(fallbackDOI string) Paper {
 		Venue:        w.Venue,
 		Abstract:     w.Abstract,
 		OALink:       link,
+		OALocations:  w.Locations,
 		CitedByCount: w.CitedByCount,
 		Retracted:    w.Retracted,
 		Source:       SourceOpenAlex,
@@ -166,8 +173,9 @@ type EnrichedPaper struct {
 	// the abstract when present. A PDF itself sits in <run>/fulltext/<doi>.pdf
 	// for the vision stage.
 	FullText string `json:"full_text,omitempty"`
-	// FullTextSource names where FullText came from: "europepmc" (JATS XML)
-	// or "pdf". Empty in artifacts written before the field existed.
+	// FullTextSource names where FullText came from: "europepmc" (JATS XML),
+	// "pmc" (NCBI efetch XML), "pdf" or "jina:<host>" (a page read by the
+	// Jina Reader). Empty in artifacts written before the field existed.
 	FullTextSource string `json:"full_text_source,omitempty"`
 }
 

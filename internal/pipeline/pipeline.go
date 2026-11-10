@@ -82,6 +82,9 @@ type Clients struct {
 	Search     SemanticSearch // Consensus: semantic discovery (behind an API key)
 	PubMed     PubMed         // PubMed: the topic and review searches of mode B discovery
 	FullTexts  FullTexts      // Europe PMC: open-access full texts as XML, tried before the PDF download
+	PMC        PMCArchive     // PubMed Central: ID converter and efetch XML, after Europe PMC
+	Landings   Landings       // doi.org: the publisher page a DOI resolves to (for the page reader)
+	Reader     PageReader     // Jina Reader: the last resort, a page or a PDF read as text
 	PDFs       PDFSource      // open-access PDF download
 	PDFText    PDFText        // PDF text extraction
 	LLM        Completer      // the critic: the per-paper methodology review
@@ -202,6 +205,9 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 	if err := p.runStages(ctx, rp, st); err != nil {
 		return nil, dir, err
 	}
+	// set after the stages: a resumed artifact carries the mode of the run
+	// that wrote it, and the report states what this run was asked to read
+	st.TextMode = mode
 
 	if err := writeReports(dir, st); err != nil {
 		return nil, dir, err

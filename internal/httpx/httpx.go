@@ -81,17 +81,26 @@ func New(name string, qps int, opts ...Option) *Client {
 		qps = 1
 	}
 
+	return newClient(name, rate.NewLimiter(rate.Limit(qps), qps), opts)
+}
+
+// NewPerMinute returns a client with a limit of perMinute requests per
+// minute (at least 1), spread evenly with no burst: a service that publishes
+// its limit per minute counts the requests in a sliding window, and a burst
+// at the start of the minute would break it.
+func NewPerMinute(name string, perMinute int, opts ...Option) *Client {
+	perMinute = max(perMinute, 1)
+
+	return newClient(name, rate.NewLimiter(rate.Limit(float64(perMinute)/time.Minute.Seconds()), 1), opts)
+}
+
+func newClient(name string, rl *rate.Limiter, opts []Option) *Client {
 	hc := &http.Client{Timeout: defaultTimeout}
 	for _, o := range opts {
 		o(hc)
 	}
 
-	return &Client{
-		name:    name,
-		hc:      hc,
-		rl:      rate.NewLimiter(rate.Limit(qps), qps),
-		backoff: defaultBackoff,
-	}
+	return &Client{name: name, hc: hc, rl: rl, backoff: defaultBackoff}
 }
 
 // DoJSON performs a request; body and out may be nil.

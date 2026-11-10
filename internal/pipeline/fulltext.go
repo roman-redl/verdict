@@ -29,10 +29,13 @@ const (
 	pdfDOIChars = 20000
 )
 
-// The values of EnrichedPaper.FullTextSource.
+// The values of EnrichedPaper.FullTextSource; a page read by the Jina Reader
+// is "jina:<host of the page>".
 const (
-	fullTextSourceEuropePMC = "europepmc"
-	fullTextSourcePDF       = "pdf"
+	fullTextSourceEuropePMC  = "europepmc"
+	fullTextSourcePMC        = "pmc"
+	fullTextSourcePDF        = "pdf"
+	fullTextSourceJinaPrefix = "jina:"
 )
 
 // pdfMagic starts every PDF file; an open-access link that answers with a
@@ -43,19 +46,34 @@ var pdfMagic = []byte("%PDF")
 // <dir>/fulltext/<doi with '/' as '_'>.pdf. The user can drop a file there
 // for a paywalled paper; downloaded PDFs are kept there for the vision stage.
 func fullTextPath(dir, doi string) string {
-	name := strings.ReplaceAll(model.NormalizeDOI(doi), "/", "_") + ".pdf"
-	return filepath.Join(dir, "fulltext", name)
+	return filepath.Join(dir, "fulltext", fullTextFileName(doi))
+}
+
+// fullTextFileName is the name a paper's PDF must have inside fulltext/:
+// the normalized DOI with '/' as '_'.
+func fullTextFileName(doi string) string {
+	return strings.ReplaceAll(model.NormalizeDOI(doi), "/", "_") + ".pdf"
 }
 
 // fetchFullText supplies the paper's full text and names its source
-// ("europepmc" or "pdf"; both empty when there is none). A PDF already
-// sitting in the run directory ALWAYS wins, regardless of flags. Otherwise,
-// only where the caller allows downloads (full text mode at enrichment, the
-// hybrid deepening pass for pivotal studies): the Europe PMC XML first — no
-// landing pages, tables kept as text — then the OA link as a PDF. When the XML
-// text is used, the OA PDF is still saved (best effort, for the chart check)
-// but its text is not extracted. It does not touch e.FullText: the caller
-// assigns the field.
+// ("europepmc", "pmc", "pdf" or "jina:<host>"; both empty when there is
+// none). A PDF already sitting in the run directory ALWAYS wins, regardless
+// of flags. Otherwise, only where the caller allows downloads (full text mode
+// at enrichment, the hybrid deepening pass for pivotal studies), the sources
+// are tried in this order, stopping at the first usable text:
+//
+//  1. the Europe PMC JATS XML (open-access PMCID needed; tables kept as text);
+//  2. the PubMed Central XML through NCBI (some author manuscripts that
+//     Europe PMC does not serve);
+//  3. the PDF, from the candidate locations: repository copies, then the
+//     publisher's PDF, then the open-access link, each tried once;
+//  4. the Jina Reader on the PMC page, then the landing pages, then the PDF
+//     addresses (the text must pass its content check).
+//
+// When the XML text is used, the OA PDF is still saved (best effort, for the
+// chart check) but its text is not extracted. One Info line records the
+// outcome and why each skipped source was skipped. It does not touch
+// e.FullText: the caller assigns the field.
 func (p *Pipeline) fetchFullText(
 	ctx context.Context, dir string, e *model.EnrichedPaper, download bool,
 ) (text, source string) {
@@ -79,102 +97,45 @@ func (p *Pipeline) fetchFullText(
 		return "", ""
 	}
 
-	if txt := p.europePMCText(ctx, e); txt != "" {
-		// the XML is the text the critic reads; the PDF is only kept for the
-		// chart check, so its text is never extracted and its failure is not
-		// a paper error
-		p.keepOAPDF(ctx, path, e)
-
-		return txt, fullTextSourceEuropePMC
-	}
-
-	if e.OALink == "" || p.clients.PDFs == nil {
-		return "", ""
-	}
-
-	body, err = p.clients.PDFs.Fetch(ctx, e.OALink, pdfMaxBytes)
-	if err != nil {
-		p.sourceFailed(e, "fulltext", err)
-		return "", ""
-	}
-
-	return p.textOfPDF(path, body, e)
+	return p.downloadFullText(ctx, path, e)
 }
 
-// europePMCText asks Europe PMC for the open-access full text; "" when there
-// is none or the request failed — the failure is not fatal, the caller falls
-// back to the PDF.
-func (p *Pipeline) europePMCText(ctx context.Context, e *model.EnrichedPaper) string {
-	if p.clients.FullTexts == nil || model.NormalizeDOI(e.DOI) == "" {
-		return ""
-	}
-
-	txt, err := p.clients.FullTexts.FullText(ctx, e.DOI, fullTextMaxChars)
-	if err != nil {
-		p.log.Warn("europe pmc full text unavailable: falling back to the PDF", "doi", e.DOI, "err", err)
-		return ""
-	}
-
-	return txt
-}
-
-// keepOAPDF downloads the open-access PDF next to a paper whose text came from
-// Europe PMC, so the chart check still finds it in fulltext/. The text is
-// already there, so every failure is only logged.
-func (p *Pipeline) keepOAPDF(ctx context.Context, path string, e *model.EnrichedPaper) {
-	if e.OALink == "" || p.clients.PDFs == nil {
-		return
-	}
-
-	body, err := p.clients.PDFs.Fetch(ctx, e.OALink, pdfMaxBytes)
-	if err != nil {
-		p.log.Warn("PDF not saved: download failed", "doi", e.DOI, "url", e.OALink, "err", err)
-		return
-	}
-
-	if !bytes.HasPrefix(body, pdfMagic) {
-		p.log.Warn("PDF not saved: the link is not a PDF (landing page?)", "doi", e.DOI, "url", e.OALink)
-		return
-	}
-
+// pdfText extracts the text of a downloaded or placed PDF, after keeping it
+// for the vision stage. An error says what went wrong; no text and no error
+// is not possible.
+func (p *Pipeline) pdfText(path string, body []byte) (string, error) {
 	if err := keepPDF(path, body); err != nil {
-		p.log.Warn("PDF not saved", "doi", e.DOI, "err", err)
-	}
-}
-
-// textOfPDF checks the document is a PDF, keeps it for the vision stage and
-// extracts its text. Every failure is recorded on the paper and yields no
-// text.
-func (p *Pipeline) textOfPDF(path string, body []byte, e *model.EnrichedPaper) (text, source string) {
-	if !bytes.HasPrefix(body, pdfMagic) {
-		src := path
-		if e.OALink != "" {
-			src = e.OALink
-		}
-
-		p.sourceFailed(e, "fulltext", fmt.Errorf("%s is not a PDF (landing page?)", src))
-
-		return "", ""
-	}
-
-	if err := keepPDF(path, body); err != nil {
-		p.sourceFailed(e, "fulltext", err)
-		return "", ""
+		return "", err
 	}
 
 	if p.clients.PDFText == nil {
-		p.sourceFailed(e, "fulltext", errors.New("no PDF text extractor is configured"))
-		return "", ""
+		return "", errors.New("no PDF text extractor is configured")
 	}
 
 	text, err := p.clients.PDFText.Text(body, fullTextMaxChars)
 
 	switch {
 	case err != nil:
-		p.sourceFailed(e, "fulltext", fmt.Errorf("PDF saved but text extraction failed: %w", err))
-		return "", ""
+		return "", fmt.Errorf("PDF saved but text extraction failed: %w", err)
 	case text == "":
-		p.sourceFailed(e, "fulltext", errors.New("PDF saved but holds no extractable text"))
+		return "", errors.New("PDF saved but holds no extractable text")
+	}
+
+	return text, nil
+}
+
+// textOfPDF reads a PDF the user placed in fulltext/ (or an earlier run
+// saved there): it must be a PDF, and its text is extracted. Every failure is
+// recorded on the paper and yields no text.
+func (p *Pipeline) textOfPDF(path string, body []byte, e *model.EnrichedPaper) (text, source string) {
+	if !bytes.HasPrefix(body, pdfMagic) {
+		p.sourceFailed(e, "fulltext", fmt.Errorf("%s is not a PDF (landing page?)", path))
+		return "", ""
+	}
+
+	text, err := p.pdfText(path, body)
+	if err != nil {
+		p.sourceFailed(e, "fulltext", err)
 		return "", ""
 	}
 

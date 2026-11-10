@@ -177,14 +177,62 @@ matching this text".
   critique batch, and a changed window changes the critique cache key. Europe
   PMC requests are retried like every other adapter's (network errors, 429
   and 5xx, four attempts with exponential backoff and `Retry-After`; other
-  4xx are final). Papers outside PMC fall back to the OA PDF
-  link (a landing page or a bot-protected publisher page yields nothing);
+  4xx are final).
+
+  Where Europe PMC has nothing, the sources are tried in this order, and the
+  first usable text wins (a PDF already in `<run>/fulltext/` beats all of
+  them):
+
+  1. Europe PMC JATS XML (an open-access PMCID is needed);
+  2. PubMed Central through NCBI: the PMCID is the one Europe PMC or an
+     OpenAlex PMC location gave, else the NCBI ID converter's answer for the
+     DOI; `efetch` returns the XML, which counts only when it has a body of
+     real text (for an article the publisher does not allow to download it
+     carries the front matter alone);
+  3. the PDF, from every location OpenAlex lists (the enrichment keeps all
+     of them in `oa_locations`: PDF and landing URLs with the host type):
+     repository PDFs first, then the publisher's, then the open-access link,
+     each tried once; a response that is not a PDF (a landing page) fails
+     that address only;
+  4. the [Jina Reader](https://jina.ai/reader) on the PMC page (the current
+     `pmc.ncbi.nlm.nih.gov` form: the old address meets a reCAPTCHA), then the
+     landing pages, then the PDF addresses, at most four pages per paper.
+     A doi.org address is resolved to the publisher's page through the
+     doi.org handle API first: the reader refuses doi.org.
+
+  Every plain `http://` address is fetched as `https://`: publishers redirect
+  anyway, and in the working environment the session's local proxy answers
+  plain http with 503. The reader's text must pass a content check: the page
+  is rejected when its first 4,000 characters carry a challenge, error or
+  paywall marker ("Just a moment", "Performing security verification",
+  captcha, Anubis, "HTTP 403", "Access this article", "Buy this article",
+  "Skip to main navigation", "Your privacy, your choice", Ovid's logo, ...; the
+  reader answers a challenge with HTTP 200, so the status says nothing), when
+  it is shorter than 10,000 characters, or when it has no Discussion heading
+  or none of Introduction / Background / Methods. The Discussion requirement
+  is what separates an article from a publisher's record page: a structured
+  abstract (Background / Methods / Results / Conclusion) never has one. Links
+  and images are stripped from the markdown; pipe tables stay. The reader is a third-party service: it sees the addresses of
+  the papers it reads, never personal data. It is limited to 20 requests a
+  minute without a key (the adapter spreads them evenly); `JINA_API_KEY`
+  (a free key, `.env` only, never logged) raises that to 500.
+
   `full_text_source` in `2-enrichment.json` / `3-critique.json` records
-  `europepmc` or `pdf`. When the XML is used the critic still reads the XML
-  text, and the OA PDF (if the paper has a link) is downloaded as well and
-  saved in `fulltext/` for the chart check; its text is not extracted. A
-  failed PDF download then is only logged, not recorded on the paper — drop
-  one in with `verdict addpdf` if the charts matter.
+  `europepmc`, `pmc`, `pdf` or `jina:<host>`. When an XML source is used the
+  critic still reads the XML text, and the first candidate PDF is downloaded
+  as well and saved in `fulltext/` for the chart check; its text is not
+  extracted, and a failed download then is only noted in the log — drop one
+  in with `verdict addpdf` if the charts matter.
+
+  One Info line per study ("full text obtained" / "full text not obtained")
+  names the source and lists, compactly, why every source that did not
+  deliver was skipped or failed, so a later audit of a run needs only its
+  log; when nothing delivered, the failures are also recorded on the paper.
+  The report ends with a "Full texts not obtained" section (hybrid and full
+  modes): the direct studies read from the abstract only, each with its DOI,
+  the best page to open and the file name to save the PDF under
+  (`<run>/fulltext/<doi with / as _>.pdf`, or `verdict addpdf` to have the DOI
+  read from the PDF); a rerun with `--resume` picks the files up.
 
 **Limits.** Its search is "by words" (occurrences in titles/abstracts), not
 "by meaning" — it misses on convoluted questions; hence modes B and C.

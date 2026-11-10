@@ -1,7 +1,9 @@
-package europepmc
+// Package jats converts a JATS article (the NLM journal archiving format)
+// into plain text. Europe PMC and the NCBI efetch service serve the full text
+// of an open-access article in it; both adapters share this converter.
+package jats
 
-// JATS XML → plain text. Europe PMC serves the full text of an open-access
-// article as JATS (the NLM journal archiving format). The critic reads a
+// JATS XML → plain text. The critic reads a
 // capped head of the text, and the outcomes a systematic review needs are
 // often secondary ones, reported only in the tables and the results text — so
 // the output is not in document order: every table first (a long Results
@@ -22,6 +24,7 @@ import (
 // The JATS element names the converter reads or skips.
 const (
 	tagArticle    = "article"
+	tagArticleSet = "pmc-articleset"
 	tagBody       = "body"
 	tagBack       = "back"
 	tagFloats     = "floats-group"
@@ -152,6 +155,10 @@ func parseJATS(data []byte) (*node, error) {
 	}
 
 	article := root.child(tagArticle)
+	if set := root.child(tagArticleSet); article == nil && set != nil {
+		article = set.child(tagArticle) // the NCBI efetch envelope
+	}
+
 	if article == nil {
 		return nil, errors.New("no <article> element: not a JATS document")
 	}
@@ -177,10 +184,27 @@ func pickAttrs(attrs []xml.Attr) map[string]string {
 	return out
 }
 
-// fullTextFromXML converts a JATS article to plain text in the order
-// described above; "" when the article has no body (a record without the
-// full text).
-func fullTextFromXML(data []byte) (string, error) {
+// Clip cuts the text at maxChars characters (runes, so a multi-byte character
+// is never split); no cap when maxChars is not positive. The converter puts
+// the tables and results first, so the cut falls on the least informative
+// part.
+func Clip(s string, maxChars int) string {
+	if maxChars <= 0 {
+		return s
+	}
+
+	runes := []rune(s)
+	if len(runes) <= maxChars {
+		return s
+	}
+
+	return string(runes[:maxChars])
+}
+
+// Text converts a JATS article to plain text in the order described above;
+// "" when the article has no body (a record without the full text, or one
+// the publisher does not allow to download).
+func Text(data []byte) (string, error) {
 	article, err := parseJATS(data)
 	if err != nil {
 		return "", err

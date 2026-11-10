@@ -233,7 +233,7 @@ Keep only correct runs: when a run is superseded or broken, delete it
 | `4-synthesis.json` | the final report JSON |
 | `report.md` / `matrix.csv` | human-readable report / matrix as a table (numbers assembled deterministically, never LLM-copied) |
 | `context.md` | digest for `ask` and interactive agents |
-| `fulltext/*.pdf` | paper PDFs: ones you drop in yourself (`<doi>.pdf`, always read in every mode — `verdict addpdf`) plus OA PDF downloads in `full` mode or for the pivotal studies the hybrid pass deepens (also where Europe PMC supplies the XML full text: that text is what the critic reads, the PDF is saved besides it and not read; a failed download there is only logged) — kept for full-text critique + chart checks |
+| `fulltext/*.pdf` | paper PDFs: ones you drop in yourself (`<doi with / as _>.pdf`, always read in every mode — `verdict addpdf` reads the DOI from the PDF) plus OA PDF downloads in `full` mode or for the pivotal studies the hybrid pass deepens (also where an XML source supplies the full text: that text is what the critic reads, the PDF is saved besides it and not read; a failed download there is only logged) — kept for full-text critique + chart checks. The "Full texts not obtained" section of `report.md` lists the direct studies read from the abstract, each with the file name to save its PDF under; rerun with `--resume` |
 | `3b-vision.json` | optional agent-written chart critique (via the vision tool, or the agent's own eyes in a Claude session); the synthesis stage weighs it |
 
 Every `N-*.json` is a full state snapshot: `--resume` continues a failed
@@ -371,9 +371,16 @@ bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
   `--text-mode full` multiplies prompt size 5–10× and is for deep single
   questions by deliberate choice only. The default `hybrid` adds one
   deepening pass at the end of the critique stage (OA full-text fetch — Europe
-  PMC XML, else the PDF — for up to `HYBRID_PIVOTAL_MAX`, default 5, pivotal
+  PMC XML, PubMed Central XML, the PDF from every known location, then the
+  Jina Reader — for up to `HYBRID_PIVOTAL_MAX`, default 5, pivotal
   studies, direct ones first and indirect ones in the free slots, + ~1 deep
-  re-critique call over lean); the synthesis still runs once, on the final critiques.
+  re-critique call over lean); the synthesis still runs once, on the final
+  critiques.
+  The Jina Reader is a third-party service that sees the addresses of the
+  papers it reads (no personal data); `JINA_API_KEY` in `.env` (optional, a
+  free key) lifts its anonymous limit of 20 requests a minute to 500. The log
+  has one line per study ("full text obtained" / "full text not obtained") with
+  the reason each source was skipped.
   A full text is stored up to 60,000 characters and the critic reads the
   first 30,000 of them (tables first), so a batch of five deepened studies
   carries up to ~150,000 characters (~37,500 tokens) of full text.

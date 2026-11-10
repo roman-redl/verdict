@@ -315,6 +315,30 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// A per-minute limit spreads the requests evenly with no burst: three
+// requests at 600 a minute (one every 100 ms) take at least ~200 ms, where a
+// burst would let them all through at once. A non-positive limit is one a
+// minute, not unlimited.
+func TestNewPerMinuteSpreadsRequests(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok")) // a test server: a failed write fails the client's assertions
+	}))
+	defer srv.Close()
+
+	c := NewPerMinute("test", 600)
+	start := time.Now()
+
+	for range 3 {
+		_, err := c.Get(t.Context(), srv.URL, 1024)
+		require.NoError(t, err)
+	}
+
+	assert.GreaterOrEqual(t, time.Since(start), 180*time.Millisecond)
+
+	assert.InDelta(t, 1.0/60, float64(NewPerMinute("test", 0).rl.Limit()), 1e-9)
+	assert.Equal(t, 1, NewPerMinute("test", 600).rl.Burst())
+}
+
 func TestNewOptions(t *testing.T) {
 	assert.Equal(t, defaultTimeout, New("t", 1).hc.Timeout, "the default timeout applies without options")
 	assert.Nil(t, New("t", 1).hc.Transport)

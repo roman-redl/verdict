@@ -230,8 +230,9 @@ cmd/verdict, cmd/verdictd   flags, wiring, startup; one file per CLI command
 cmd/internal/app            config -> clients (the only reader of internal/config besides the mains)
 internal/pipeline           the domain: stages, state, artifacts, report rendering;
                             depends only on the ports it declares (ports.go)
-internal/openalex, crossref, scite, s2, europepmc, pubmed, pubpeer, consensus, pdf, llm
+internal/openalex, crossref, scite, s2, europepmc, pmc, jina, doi, pubpeer, consensus, pdf, llm
                             adapters: each implements a pipeline port over an external service
+internal/jats               JATS XML -> plain text (shared by the europepmc and pmc adapters)
 internal/httpx              the shared HTTP client: timeout, retries, Retry-After, size cap
 internal/db                 SQLite: numbered migrations, run index, daemon jobs
 internal/server             the verdictd HTTP API and its job worker

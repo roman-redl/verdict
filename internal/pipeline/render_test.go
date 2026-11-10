@@ -66,8 +66,16 @@ func reportState() *State {
 				DOI: doiCohort, Title: longTitle, Year: 2018, StudyDesign: designCohort, CitedByCount: 7,
 				Flags: model.RedFlags{Retracted: true, Reason: "Crossref/retraction-watch: retraction notice 10.1/n"},
 			},
-			{DOI: doiElderly, Title: "Creatine in the elderly", Year: 2023},
+			{
+				DOI: doiElderly, Title: "Creatine in the elderly", Year: 2023,
+				// a direct study with no full text: the report lists it, with the best page
+				OALocations: []model.Location{
+					{LandingURL: "http://doi.org/10.1000/c", Host: model.HostPublisher},
+					{LandingURL: "http://repo.test/creatine-elderly", Host: model.HostRepository, OA: true},
+				},
+			},
 		},
+		TextMode: TextHybrid,
 		Critiques: []model.Critique{
 			{
 				DOI: doiTrial, DesignQuality: qualityHigh, SampleAdequacy: "adequate", SampleSizeReported: 118,

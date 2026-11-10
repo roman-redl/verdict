@@ -69,6 +69,7 @@ func RenderMarkdown(st *State) string {
 	sectionList(&b, "Contradictions", r.Contradictions)
 	sectionList(&b, "Gaps and limitations", r.Gaps)
 	sectionList(&b, "Data warnings", r.Warnings)
+	writeFullTextGaps(&b, st)
 
 	if line := st.Cost.Markdown(); line != "" {
 		b.WriteString("\n_" + line + "_\n")

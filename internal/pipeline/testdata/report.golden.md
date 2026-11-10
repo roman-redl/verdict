@@ -45,4 +45,11 @@ _Generated: 2026-11-01 12:30 UTC_
 - Scite unavailable, citation analytics incomplete: HTTP 503
 
 
+### Full texts not obtained
+
+These direct studies were critiqued from the abstract: no open-access full text was obtained (in the hybrid mode only the pivotal studies are tried). To read one in full, download its PDF and save it in the run directory as `fulltext/<file>` (or run `verdict addpdf --run-dir <run> <file.pdf>`, which reads the DOI from the PDF itself), then rerun with `--resume`.
+
+- Creatine in the elderly — DOI 10.1000/c — https://repo.test/creatine-elderly — `10.1000_c.pdf`
+
+
 _LLM usage — critique: 2 calls, 9000 in / 700 out tokens; synthesis: 1 calls, 4000 in / 500 out tokens_

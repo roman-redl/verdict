@@ -69,10 +69,37 @@ type work struct {
 		} `json:"source"`
 		PDFURL string `json:"pdf_url"`
 	} `json:"primary_location"`
+	// Locations lists every place the work can be read (the publisher's page,
+	// repository copies), where open_access.oa_url names only one.
+	Locations []location `json:"locations"`
 	// ReferencedWorks is the work's reference list as OpenAlex work IDs
 	// (W...) — the backward half of citation chaining.
 	ReferencedWorks       []string         `json:"referenced_works"`
 	AbstractInvertedIndex map[string][]int `json:"abstract_inverted_index"`
+}
+
+// location is one entry of a work's locations. Any URL may be null.
+type location struct {
+	IsOA           bool   `json:"is_oa"`
+	LandingPageURL string `json:"landing_page_url"`
+	PDFURL         string `json:"pdf_url"`
+	Source         *struct {
+		Type string `json:"type"` // journal | repository | conference | ebook platform | ...
+	} `json:"source"`
+}
+
+// toModel converts a location; ok is false for one with no URL at all.
+func (l *location) toModel() (loc model.Location, ok bool) {
+	if l.LandingPageURL == "" && l.PDFURL == "" {
+		return model.Location{}, false
+	}
+
+	host := model.HostUnknown
+	if l.Source != nil {
+		host = model.ParseHostType(l.Source.Type)
+	}
+
+	return model.Location{PDFURL: l.PDFURL, LandingURL: l.LandingPageURL, Host: host, OA: l.IsOA}, true
 }
 
 // ByDOI returns (nil, nil) when OpenAlex does not know the DOI (404) —
@@ -281,6 +308,12 @@ func (w *work) toModel() model.Work {
 		CitedByCount: w.CitedByCount,
 		Retracted:    w.IsRetracted,
 		References:   w.ReferencedWorks,
+	}
+
+	for i := range w.Locations {
+		if loc, ok := w.Locations[i].toModel(); ok {
+			m.Locations = append(m.Locations, loc)
+		}
 	}
 
 	if loc := w.PrimaryLocation; loc != nil {

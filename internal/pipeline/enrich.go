@@ -136,6 +136,7 @@ func (p *Pipeline) enrichPaper(
 		Abstract:       e.Abstract,
 		AbstractSource: e.AbstractSource,
 		OALink:         e.OALink,
+		OALocations:    e.OALocations,
 		Retracted:      e.Flags.Retracted,
 		Reason:         e.Flags.Reason,
 		Notes:          e.Flags.Notes,
@@ -154,6 +155,11 @@ func applyCached(e *model.EnrichedPaper, c CacheEntry) {
 	}
 
 	e.OALink = cmp.Or(e.OALink, c.OALink)
+
+	if len(e.OALocations) == 0 {
+		e.OALocations = c.OALocations
+	}
+
 	e.Flags.Notes = append(e.Flags.Notes, c.Notes...)
 }
 
@@ -188,6 +194,10 @@ func (p *Pipeline) checkIntegrity(ctx context.Context, e *model.EnrichedPaper) {
 
 			e.OALink = cmp.Or(e.OALink, w.OAURL)
 			e.Abstract = cmp.Or(e.Abstract, w.Abstract)
+
+			if len(e.OALocations) == 0 {
+				e.OALocations = w.Locations
+			}
 		}
 	}
 	// Crossref is the second, independent integrity source: the Retraction
@@ -230,9 +240,9 @@ func applyScholar(e *model.EnrichedPaper, r model.ScholarRecord) {
 }
 
 // attachFullText supplies the paper's full text: a PDF pre-placed in the run
-// directory is always used; in full mode the OA full text is fetched (Europe
-// PMC XML, else the PDF). The critic then reads the whole paper; a downloaded
-// PDF stays for the vision stage.
+// directory is always used; in full mode the OA full text is fetched (the
+// sources and their order: fetchFullText). The critic then reads the whole
+// paper; a downloaded PDF stays for the vision stage.
 func (p *Pipeline) attachFullText(ctx context.Context, b *enrichBatch, e *model.EnrichedPaper) {
 	if txt, src := p.fetchFullText(ctx, b.dir, e, b.download); txt != "" {
 		e.FullText, e.FullTextSource = txt, src
