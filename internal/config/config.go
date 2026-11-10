@@ -65,9 +65,11 @@ type Config struct {
 	// LLMTimeout caps one claude-cli attempt.
 	LLMTimeout time.Duration `env:"LLM_TIMEOUT" envDefault:"10m"`
 	// LLMConcurrency is the LLM stage parallelism; LLMChunk is the number of
-	// studies per critique call (1 = one call per study).
+	// studies per critique call (1 = one call per study). 15 agrees with 5 as
+	// closely as two runs at 5 agree with each other, with half the calls; the
+	// output budget of a batch call grows with its size.
 	LLMConcurrency int `env:"LLM_CONCURRENCY" envDefault:"4"`
-	LLMChunk       int `env:"LLM_CHUNK" envDefault:"5"`
+	LLMChunk       int `env:"LLM_CHUNK" envDefault:"15"`
 
 	// Anthropic Messages API (LLM_BACKEND=anthropic only). The personal key
 	// goes through an HTTPS proxy, never directly; the model is an exact API
@@ -96,17 +98,23 @@ type Config struct {
 	// with full texts (the tail of the critique stage, before the synthesis).
 	HybridPivotalMax int `env:"HYBRID_PIVOTAL_MAX" envDefault:"7"`
 	// ConsensusPages caps the Consensus search pages fetched per discovery
-	// query: with the default page size, 2 pages are up to 200 candidates and
-	// 2 API calls per query.
-	ConsensusPages int `env:"CONSENSUS_PAGES" envDefault:"2"`
+	// query: with the default page size, 1 page is up to 100 candidates and
+	// 1 API call per query (measured: a second page adds almost nothing).
+	ConsensusPages int `env:"CONSENSUS_PAGES" envDefault:"1"`
 	// ConsensusPageSize is the page_size of every Consensus search: one API
 	// call per 100 papers returned. The plan caps it (Free 20, Pro and Teams
 	// 300, Deep 750; the response says what was applied), so the default of
 	// 100 is one call per page on a paid plan.
 	ConsensusPageSize int `env:"CONSENSUS_PAGE_SIZE" envDefault:"100"`
 	// DiscoverySources are the mode B channels (consensus, pubmed, review_refs;
-	// any subset); the run's --discovery-sources overrides it.
-	DiscoverySources pipeline.DiscoverySources `env:"DISCOVERY_SOURCES" envDefault:"consensus,pubmed,review_refs"`
+	// any subset, taken literally); the run's --discovery-sources overrides it.
+	// Empty = consensus and review_refs, with PubMed by PubMed below.
+	DiscoverySources pipeline.DiscoverySources `env:"DISCOVERY_SOURCES"`
+	// PubMed is the PubMed channel's mode: auto (the default) runs it when the
+	// Consensus pool holds fewer than 2 systematic reviews, on always, off
+	// never; the run's --pubmed overrides it. Empty = auto, or the channel
+	// list when DISCOVERY_SOURCES is set.
+	PubMed pipeline.PubMedMode `env:"PUBMED_DISCOVERY"`
 	// NoScreen skips the LLM screening of the discovery pool: every candidate
 	// counts as included (an audit switch, off by default).
 	NoScreen bool `env:"NO_SCREEN"`

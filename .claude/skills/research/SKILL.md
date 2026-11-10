@@ -42,12 +42,14 @@ modes A/B/C are a different thing — see docs/usage.md.)
      recon taught you. Recall comes from 2-3 reformulations of the question —
      different populations or angles. Then
      `bin/verdict run --topic <topic> -q "<full question>" --queries "<q1>"
-     --queries "<q2>" --stop-after 1` — discovery only (2 pages of 100
+     --queries "<q2>" --stop-after 1` — discovery only (1 page of 100
      papers per query by default); tell the user the run spends Consensus
      quota (state the `discovery.api_calls` it used; calls are not the
-     constraint — do not trim queries or pages to save them). Discovery
-     searches Consensus and PubMed (a model-written MeSH query with the
-     Cochrane trial filter), keeps the whole candidate pool, mines the
+     constraint — do not trim queries to save them). Discovery
+     searches Consensus, then PubMed (a model-written MeSH query with the
+     Cochrane trial filter) only when the Consensus pool holds fewer than 2
+     systematic reviews (`discovery.pubmed_decision`; `--pubmed on|off`
+     overrides), keeps the whole candidate pool, mines the
      reference lists of its systematic reviews, screens the pool with a cheap
      model and keeps the best `MAX_PAPERS` (40): read the run's
      `1-discovery.json` — `papers` is the corpus (DOIs, abstracts, design
@@ -168,7 +170,7 @@ that discovery was keyword-based, not semantic.
    run directory (only correct runs stay, no archive pile) — delete only
    after the user confirms.
 
-A `--text-mode lean` run costs ~3 batched critique calls (5 studies per
+A `--text-mode lean` run costs ~3 batched critique calls (15 studies per
 call) plus one synthesis call; the default hybrid adds the full-text fetch
 and ~1 deep re-critique call for the pivotal studies, still one synthesis. The
 real token spend is recorded in the run's artifacts and at the bottom of

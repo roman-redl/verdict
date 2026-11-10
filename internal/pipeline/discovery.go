@@ -46,7 +46,7 @@ func (p *Pipeline) discover(ctx context.Context, rp runParams, st *State) error 
 		// a run that asks for channels other than Consensus is mode B as well,
 		// key or not
 		hasKey := p.clients.Search != nil && p.clients.Search.HasKey()
-		if hasKey || !p.discoverySources(opts).Has(model.SourceConsensus) {
+		if hasKey || !p.channelPlan(opts).sources.Has(model.SourceConsensus) {
 			engine = EngineConsensus
 		}
 	}

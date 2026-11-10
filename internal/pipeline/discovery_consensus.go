@@ -40,9 +40,10 @@ func apiCalls(papers int) int { return (papers + papersPerAPICall - 1) / papersP
 // (docs/how-it-works.md §2.2). A PubMed failure only costs that channel (see
 // pubmedChannel): the Consensus quota is already spent.
 func (p *Pipeline) discoverPooled(ctx context.Context, opts Options, st *State, queries []string) error {
-	sources := p.discoverySources(opts)
+	plan := p.channelPlan(opts)
+	withConsensus := plan.sources.Has(model.SourceConsensus)
 
-	if sources.Has(model.SourceConsensus) && p.clients.Search == nil {
+	if withConsensus && p.clients.Search == nil {
 		return &UserError{Msg: "semantic discovery is not configured (CONSENSUS_API_KEY); " +
 			"without it use --discovery-sources pubmed,review_refs"}
 	}
@@ -52,9 +53,9 @@ func (p *Pipeline) discoverPooled(ctx context.Context, opts Options, st *State, 
 	excl := newDOIExclusion(opts.ExcludeDOIs)
 	w := newConsensusWalk(queries, excl)
 	info := w.info
-	info.Sources, info.NoScreen = sources, noScreen
+	info.NoScreen = noScreen
 
-	if sources.Has(model.SourceConsensus) {
+	if withConsensus {
 		maxPages := min(orDefault(opts.ConsensusPages, p.set.ConsensusPages), maxConsensusPages)
 		if err := p.walkConsensus(ctx, w, maxPages); err != nil {
 			return err
@@ -66,8 +67,13 @@ func (p *Pipeline) discoverPooled(ctx context.Context, opts Options, st *State, 
 		info.Queries = nil
 	}
 
-	if sources.Has(model.SourcePubMed) {
-		if err := p.pubmedChannel(ctx, opts, st, info, w.pool, !sources.Has(model.SourceConsensus)); err != nil {
+	// the Consensus pool is walked first: its review count decides PubMed in auto mode
+	withPubMed := p.decidePubMed(info, plan.pubmed, w.pool.list)
+	sources := channelsRun(plan.sources, withPubMed)
+	info.Sources = sources
+
+	if withPubMed {
+		if err := p.pubmedChannel(ctx, opts, st, info, w.pool, !withConsensus); err != nil {
 			return err
 		}
 	}
@@ -75,7 +81,8 @@ func (p *Pipeline) discoverPooled(ctx context.Context, opts Options, st *State, 
 	info.Pool = w.pool.list
 
 	// the exclusion is final before the mining: the pool holds no excluded
-	// review whose reference list could be read
+	// review whose reference list could be read; it reads the reviews of every
+	// channel
 	if sources.Has(model.SourceReviewRefs) {
 		p.mineReviewRefs(ctx, info, noScreen, excl)
 	}

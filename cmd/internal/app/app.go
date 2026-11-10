@@ -48,6 +48,7 @@ func PipelineSettings(cfg *config.Config) pipeline.Settings {
 		LLMChunk:         cfg.LLMChunk,
 		ConsensusPages:   cfg.ConsensusPages,
 		DiscoverySources: cfg.DiscoverySources,
+		PubMed:           cfg.PubMed,
 		NoScreen:         cfg.NoScreen,
 		TextMode:         cfg.TextMode,
 		HybridPivotalMax: cfg.HybridPivotalMax,

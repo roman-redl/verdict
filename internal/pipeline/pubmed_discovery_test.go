@@ -418,7 +418,7 @@ func TestDiscoverySourcesSwitch(t *testing.T) {
 			wantSources: []model.Source{model.SourcePubMed, model.SourceReviewRefs},
 		},
 		{
-			name: "all by default", sources: nil, wantSearch: 1, wantPubMed: true,
+			name: "defaults: PubMed auto-on over a pool without reviews", sources: nil, wantSearch: 1, wantPubMed: true,
 			wantPapers:  []string{pmConsDOI, pmTrialDOI},
 			wantSources: []model.Source{model.SourceConsensus, model.SourcePubMed, model.SourceReviewRefs},
 		},

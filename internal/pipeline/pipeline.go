@@ -33,12 +33,15 @@ type Options struct {
 	// Discovery controls.
 	Queries        []string // semantic queries for mode B (repeatable --queries); defaults to -q
 	Engine         Engine   // "" (auto: consensus when the key is present, else openalex) | consensus | openalex
-	ConsensusPages int      // max Consensus pages per query (defaults to CONSENSUS_PAGES, 2)
+	ConsensusPages int      // max Consensus pages per query (defaults to CONSENSUS_PAGES, 1)
 	// Sources limits the discovery channels of mode B (nil = DISCOVERY_SOURCES,
-	// default all three); NoScreen skips the LLM screening (every candidate
+	// default consensus and review_refs plus PubMed on auto); PubMed overrides
+	// whether the PubMed channel runs ("" = PUBMED_DISCOVERY, then the channel
+	// list, then auto); NoScreen skips the LLM screening (every candidate
 	// counts as included); PubMedQuery is a ready PubMed topic query that
 	// replaces the model-written one.
 	Sources     DiscoverySources
+	PubMed      PubMedMode
 	NoScreen    bool
 	PubMedQuery string
 	// ExcludeDOIs are papers the run must not see: dropped from the pool as
@@ -107,9 +110,12 @@ type Settings struct {
 	LLMConcurrency int // LLM stage parallelism
 	LLMChunk       int // studies per critique call
 	ConsensusPages int // Consensus pages per discovery query
-	// DiscoverySources is the default set of mode B channels (empty = all);
-	// NoScreen turns the discovery screening off for every run.
+	// DiscoverySources is the default set of mode B channels (empty = consensus
+	// and review_refs, PubMed by its mode); PubMed is the default PubMed mode
+	// (empty = the channel list, else auto); NoScreen turns the discovery
+	// screening off for every run.
 	DiscoverySources DiscoverySources
+	PubMed           PubMedMode
 	NoScreen         bool
 	// TextMode is the default text mode ("" = hybrid).
 	TextMode TextMode

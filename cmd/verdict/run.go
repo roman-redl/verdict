@@ -17,6 +17,7 @@ type runFlags struct {
 	opts                 pipeline.Options
 	engineFlag, modeFlag string
 	sourcesFlag          string
+	pubmedFlag           string
 }
 
 // runCmd is the full pipeline for a research question or a list of DOIs.
@@ -47,6 +48,10 @@ func (c *cli) execute(ctx context.Context, f *runFlags) error {
 	}
 
 	if f.opts.Sources, err = pipeline.ParseDiscoverySources(f.sourcesFlag); err != nil {
+		return err
+	}
+
+	if f.opts.PubMed, err = pipeline.ParsePubMedMode(f.pubmedFlag); err != nil {
 		return err
 	}
 
@@ -121,10 +126,14 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	fl.StringVar(&f.engineFlag, "engine", "",
 		"discovery engine: consensus | openalex (default: consensus when CONSENSUS_API_KEY is set, else openalex)")
 	fl.IntVar(&opts.ConsensusPages, "consensus-pages", 0,
-		"max Consensus pages per query; a page of 100 papers is one API call (defaults to CONSENSUS_PAGES, 2)")
+		"max Consensus pages per query; a page of 100 papers is one API call (defaults to CONSENSUS_PAGES, 1)")
 	fl.StringVar(&f.sourcesFlag, "discovery-sources", "",
-		"mode B channels, comma-separated, any subset: consensus | pubmed | review_refs "+
-			"(defaults to DISCOVERY_SOURCES, all three) — for auditing one channel at a time")
+		"mode B channels, comma-separated, any subset: consensus | pubmed | review_refs, taken literally "+
+			"(defaults to DISCOVERY_SOURCES; unset: consensus and review_refs, PubMed by --pubmed) — "+
+			"for auditing one channel at a time")
+	fl.StringVar(&f.pubmedFlag, "pubmed", "",
+		"the PubMed channel: auto (when the Consensus pool holds fewer than 2 systematic reviews) | on | off "+
+			"(defaults to PUBMED_DISCOVERY; unset: auto, or the --discovery-sources list)")
 	fl.BoolVar(&opts.NoScreen, "no-screen", false,
 		"skip the LLM screening of the discovery pool: every candidate counts as included, the selection still runs "+
 			"(or NO_SCREEN=true)")
@@ -149,7 +158,7 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 		"LLM stage parallelism (defaults to LLM_CONCURRENCY from env)")
 	fl.IntVar(&opts.LLMChunk, "llm-chunk", 0,
 		"studies per critique call — the call count, not the payload, dominates the cost "+
-			"(0 = LLM_CHUNK from env, 5; 1 = one call per study)")
+			"(0 = LLM_CHUNK from env, 15; 1 = one call per study)")
 	addLLMFlags(cmd, opts)
 	fl.StringVar(&opts.ChallengeNote, "challenge-note", "",
 		"counterargument to weigh and answer in the verdict rationale (not data)")

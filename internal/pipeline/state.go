@@ -207,6 +207,9 @@ type DiscoveryInfo struct {
 	// NoScreen records that the LLM screening was off: every candidate counts
 	// as included.
 	NoScreen bool `json:"no_screen,omitempty"`
+	// PubMedDecision records how the PubMed channel was settled (the mode and,
+	// for auto, the review count of the Consensus pool); nil before it existed.
+	PubMedDecision *PubMedDecision `json:"pubmed_decision,omitempty"`
 	// PubMed records the PubMed channel's queries and counts; nil when the
 	// channel did not run.
 	PubMed *PubMedInfo `json:"pubmed,omitempty"`

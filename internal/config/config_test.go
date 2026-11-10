@@ -199,9 +199,10 @@ func TestDiscoveryEnv(t *testing.T) {
 
 	c, err := parse(map[string]string{})
 	require.NoError(t, err)
-	require.Equal(t, pipeline.DiscoverySources{
-		model.SourceConsensus, model.SourcePubMed, model.SourceReviewRefs,
-	}, c.DiscoverySources)
+	require.Empty(t, c.DiscoverySources, "unset: the pipeline defaults to consensus and review_refs")
+	require.Empty(t, c.PubMed, "unset: the pipeline defaults to auto")
+	require.Equal(t, 1, c.ConsensusPages)
+	require.Equal(t, 15, c.LLMChunk)
 	require.False(t, c.NoScreen)
 	require.Empty(t, c.NCBIAPIKey)
 
@@ -215,6 +216,13 @@ func TestDiscoveryEnv(t *testing.T) {
 
 	_, err = parse(map[string]string{"DISCOVERY_SOURCES": "consensus,google"})
 	require.ErrorContains(t, err, "unknown discovery source")
+
+	c, err = parse(map[string]string{"PUBMED_DISCOVERY": "off"})
+	require.NoError(t, err)
+	require.Equal(t, pipeline.PubMedOff, c.PubMed)
+
+	_, err = parse(map[string]string{"PUBMED_DISCOVERY": "sometimes"})
+	require.ErrorContains(t, err, "unknown PubMed mode")
 }
 
 // The proxy URL carries credentials: an invalid one is never echoed.

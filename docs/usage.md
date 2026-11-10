@@ -106,8 +106,9 @@ bin/verdict run --topic keratosis-uvb -q "<full question>" \
 Quota math: a request carries `page_size` (`CONSENSUS_PAGE_SIZE`, default
 100) and the API charges one call per 100 papers a page returns, rounded up
 (500 calls/mo on the Pro $12/mo tier). The walk stops at `CONSENSUS_PAGES`
-(default 2) pages per query or at the ranking's end — whichever first — so
-two queries at the defaults are up to 400 candidates for 4 calls. Tune per
+(default 1) pages per query or at the ranking's end — whichever first — so
+two queries at the defaults are up to 200 candidates for 2 calls (measured:
+a second page of 100 adds almost nothing the review references miss). Tune per
 run with `--consensus-pages`, globally with `CONSENSUS_PAGES` and
 `CONSENSUS_PAGE_SIZE`. The plan caps the page size (Free 20, Pro and Teams
 300, Deep 750); the log names the applied size when it is smaller than the
@@ -120,7 +121,14 @@ the run loudly with the mode C escape hatch in the error — never a silent
 keyword fallback.
 
 Three channels feed one pool: Consensus, PubMed and the reference lists of
-reviews. The walk does not cut the pool by rank. The saved `discovery.pool`
+reviews. By default Consensus runs first and its pool is checked: PubMed
+(the third channel) switches on only when that pool holds fewer than 2
+systematic reviews or meta-analyses (by Consensus's tag, else by title) —
+then the reference mining has little to work with and PubMed is the fallback;
+with 2 or more it stays off and saves the screening of its ~350 extra
+candidates. The decision and the review count are logged and saved in
+`discovery.pubmed_decision`. `--pubmed on` forces PubMed, `--pubmed off`
+disables it. The walk does not cut the pool by rank. The saved `discovery.pool`
 holds every candidate with `sources`: every channel that found it, each with
 its own rank (`{"source": "consensus", "query": 1, "rank": 12}`,
 `{"source": "pubmed", "search": "rct_filter", "rank": 3}`,
@@ -150,8 +158,13 @@ respected as given. Design: docs/how-it-works.md §2.2.
 Audit switches (`run` flags; the env equivalents set the default):
 
 - `--discovery-sources consensus,pubmed,review_refs` (`DISCOVERY_SOURCES`) —
-  any subset; measure one channel at a time. Without `consensus` the key is not
-  needed.
+  any subset, taken literally (PubMed runs only when listed); measure one
+  channel at a time. Unset: `consensus` and `review_refs`, PubMed by
+  `--pubmed`. Without `consensus` the key is not needed.
+- `--pubmed auto|on|off` (`PUBMED_DISCOVERY`) — the PubMed channel. `auto`
+  (the default without a channel list) runs it when the Consensus pool holds
+  fewer than 2 systematic reviews; `on` and `off` override that and a listed
+  or unlisted `pubmed` in `--discovery-sources`.
 - `--no-screen` (`NO_SCREEN=true`) — skip the LLM screening: every candidate
   with a DOI counts as included, the selection still runs. With
   `--stop-after 1-discovery` a run then spends no LLM call except the PubMed
@@ -253,10 +266,13 @@ run from the last completed stage without paying twice.
 --engine consensus       # force the engine: consensus | openalex
                          #   (default: consensus when CONSENSUS_API_KEY is set)
 --consensus-pages 2      # max Consensus pages per query — a page of 100
-                         #   papers is one API call (defaults to CONSENSUS_PAGES, 2)
+                         #   papers is one API call (defaults to CONSENSUS_PAGES, 1)
 --discovery-sources pubmed,review_refs
                          # mode B channels, any subset of consensus | pubmed |
-                         #   review_refs (defaults to DISCOVERY_SOURCES, all three)
+                         #   review_refs, taken literally (defaults to
+                         #   DISCOVERY_SOURCES; unset: consensus + review_refs)
+--pubmed auto            # the PubMed channel: auto (when the Consensus pool has
+                         #   fewer than 2 reviews) | on | off (PUBMED_DISCOVERY)
 --no-screen              # skip the LLM screening: every candidate counts as
                          #   included, the selection still runs (or NO_SCREEN=true)
 --pubmed-query "<q>"     # a ready PubMed topic query: skips the query-writing call
@@ -282,7 +298,7 @@ run from the last completed stage without paying twice.
 --model-deep <alias>     # the hybrid re-critique of the pivotal studies
 --model-synthesis <alias>
 --deep                   # the final verdict on fable instead of opus
---llm-chunk 5            # studies per critique call (LLM_CHUNK in .env; 1 =
+--llm-chunk 15           # studies per critique call (LLM_CHUNK in .env; 1 =
                          #   one call per study). The per-call session
                          #   overhead dominates the cost — see Costs below.
 --challenge-note "..."   # a counterargument the judge must weigh and answer
@@ -295,7 +311,7 @@ run from the last completed stage without paying twice.
 
 | Component | Default | Paid option |
 |---|---|---|
-| Discovery | no key: mode C web paste / mode A keyword — $0 | mode B: Consensus API, 1 call per page of 100 papers — 2 queries × 2 pages = 4 calls per run (Pro $12/mo, 500 calls/mo); plus the LLM screening, ~1 cheap call per 50 candidates |
+| Discovery | no key: mode C web paste / mode A keyword — $0 | mode B: Consensus API, 1 call per page of 100 papers — 2 queries × 1 page = 2 calls per run (Pro $12/mo, 500 calls/mo); plus the LLM screening, ~1 cheap call per 50 candidates |
 | Scite | free (tallies without a key, 1 batched request per run) | Pro $50/mo — not needed at this volume |
 | LLM | the Claude Code tariff | direct API ≈ $0.3–0.5/run (estimate) |
 
@@ -328,9 +344,12 @@ this on three fronts:
   plugins, CLAUDE.md, skills and MCP servers; the OAuth login stays). The
   payload becomes (almost) the whole prompt. The saving from `--tools ""` and
   `--safe-mode` is not measured live yet.
-- **Batched critique**: one call assesses `LLM_CHUNK` (default 5) studies,
+- **Batched critique**: one call assesses `LLM_CHUNK` (default 15) studies,
   each in its own JSON object, independently; studies a batch drops fall
-  back to single-study calls. 15 papers = 3 calls instead of 15.
+  back to single-study calls. 40 papers = 3 calls instead of 40. Measured on
+  77 abstracts (4 topics): batches of 15 agree with batches of 5 as closely as
+  two runs at 5 agree with each other, with half the calls and 15-20% fewer
+  input tokens.
 - **Per-role models** inside one wrapper: `opus` at low effort for the
   abstract critique, `opus` at high effort for the judge call and for the
   hybrid re-critique of pivotal studies (`--deep`: `fable` for the judge). Defaults per role are in the README (LLM backends); override with
@@ -362,9 +381,9 @@ bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
 ```
 
 - Consensus calls are not the constraint (the Pro plan has 500 calls/month):
-  do not trim queries or pages to save them. The LLM calls are the cost —
-  the screening (~1 call per 50 candidates), the critique (~1 call per 5
-  papers: up to ~8 calls at 40 papers) and the synthesis.
+  do not trim queries to save them. The LLM calls are the cost —
+  the screening (~1 call per 50 candidates), the critique (~1 call per 15
+  papers: ~3 calls at 40 papers) and the synthesis.
 - The two cost multipliers remain **corpus size** and **full text**:
   `MAX_PAPERS` (default 40) truncates the corpus sent to the critic hard (it
   used to be a warning-only soft cap — the 113-paper run slipped through it);

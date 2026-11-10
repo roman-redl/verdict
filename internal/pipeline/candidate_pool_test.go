@@ -53,31 +53,6 @@ func TestDiscoverySourcesHas(t *testing.T) {
 	assert.False(t, d.Has(model.SourceConsensus))
 }
 
-func TestDiscoverySourcesResolution(t *testing.T) {
-	tests := []struct {
-		name string
-		set  DiscoverySources
-		opts DiscoverySources
-		want DiscoverySources
-	}{
-		{"all by default", nil, nil, channelOrder},
-		{"the settings", DiscoverySources{model.SourcePubMed}, nil, DiscoverySources{model.SourcePubMed}},
-		{
-			"the run beats the settings",
-			DiscoverySources{model.SourcePubMed},
-			DiscoverySources{model.SourceConsensus},
-			DiscoverySources{model.SourceConsensus},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := newTest(t, Settings{DiscoverySources: tt.set}, Clients{}, quietLog())
-			assert.Equal(t, tt.want, p.discoverySources(Options{Sources: tt.opts}))
-		})
-	}
-}
-
 func TestCandidatePoolMergesSources(t *testing.T) {
 	cp := newCandidatePool(nil)
 

@@ -278,8 +278,11 @@ that query's walk with a warning, not a failed run. The quota unit is the API
 call, one per 100 papers a page returns (rounded up); `1-discovery.json`
 records the engine, queries, pages, `api_calls`, the applied `page_size` and
 truncation. The walker takes up to `CONSENSUS_PAGES` pages per query
-(default 2) and does not stop when the pool is large: the pool is screened
-and cut afterwards. Mode C (the free web UI: you run the queries, scroll to
+(default 1) and does not stop when the pool is large: the pool is screened
+and cut afterwards. One page of 100 per query is enough: on 38 MedEvidence
+questions (81 studies, the source review excluded) page 1 found 63 of the 81,
+and page 2 found 2 more of the 18 misses, both already found by the review
+references. Mode C (the free web UI: you run the queries, scroll to
 the end, paste back) remains the semantic path when no key is set; an MCP
 server exists too (the same search over a remote connection) but the API is
 what the pipeline uses. Consensus does nothing else in the pipeline — its
@@ -318,7 +321,22 @@ Discovery keeps a *pool* and chooses the corpus in four steps:
    measured per channel. Artifacts written before `sources` existed still
    load (their `source`, `query`, `rank` and `cited_by_reviews` fields are
    read into it). `--discovery-sources` (or `DISCOVERY_SOURCES`) runs any
-   subset of `consensus,pubmed,review_refs`.
+   subset of `consensus,pubmed,review_refs`, taken literally.
+
+   **Which channels run by default.** Consensus and the review references
+   always; PubMed only when needed. Measured on the same 81 studies: Consensus
+   page 1 found 63, the review references 62, PubMed's trial filter 43, all
+   three together 72 — and PubMed found nothing the other two missed (nor on
+   four GERD topics), while adding about 350 candidates to screen (about 7
+   `plan` calls). So the order is: walk Consensus, count the systematic
+   reviews and meta-analyses in its pool (the design resolved from the tag,
+   else the title, as for the mining), and run PubMed only when there are
+   fewer than 2 of them — then the reference mining has little to read and
+   PubMed is the fallback channel; then the reference lists of the reviews of
+   every channel are mined. `--pubmed on` forces the channel, `--pubmed off`
+   disables it (`PUBMED_DISCOVERY`); a channel list names PubMed literally.
+   The decision (`mode`, `consensus_reviews`, `enabled`) is in
+   `discovery.pubmed_decision` and the log.
 
    **The PubMed channel** (free, NCBI E-utilities, `internal/pubmed`). The
    `plan` model writes the topic query once per run: from the question it

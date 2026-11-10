@@ -66,11 +66,7 @@ func pickReviews(pool []Candidate, limit int) []int {
 	var idx []int
 
 	for i := range pool {
-		if pool[i].DOI == "" {
-			continue
-		}
-
-		if d := pool[i].design(); d == model.DesignSystematicReview || d == model.DesignMetaAnalysis {
+		if pool[i].isReview() {
 			idx = append(idx, i)
 		}
 	}
@@ -78,6 +74,31 @@ func pickReviews(pool []Candidate, limit int) []int {
 	slices.SortStableFunc(idx, func(a, b int) int { return betterRanked(&pool[a], &pool[b]) })
 
 	return idx[:min(len(idx), limit)]
+}
+
+// isReview reports whether the candidate is a systematic review or
+// meta-analysis with a DOI, by the same pre-critique design as the mining.
+func (c *Candidate) isReview() bool {
+	if c.DOI == "" {
+		return false
+	}
+
+	d := c.design()
+
+	return d == model.DesignSystematicReview || d == model.DesignMetaAnalysis
+}
+
+// countReviews is the number of reviews in the pool that the mining could read.
+func countReviews(pool []Candidate) int {
+	n := 0
+
+	for i := range pool {
+		if pool[i].isReview() {
+			n++
+		}
+	}
+
+	return n
 }
 
 // reviewRefs is the outcome of reading one review's reference list.

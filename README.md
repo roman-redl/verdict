@@ -168,11 +168,12 @@ verdict run -q "..." --queries "<reformulation 1>" --queries "<reformulation 2>"
 Semantic discovery through the Consensus API, straight into the pipeline:
 DOIs, abstracts and study-design tags arrive ready (no title→DOI resolving).
 A page is `CONSENSUS_PAGE_SIZE` papers (default 100) and costs one API call
-per 100 papers; the walk is capped at `CONSENSUS_PAGES` (default 2) per
-query — 4 calls for two queries (the Pro tier, $12/mo, includes 500/mo).
+per 100 papers; the walk is capped at `CONSENSUS_PAGES` (default 1) per
+query — 2 calls for two queries (the Pro tier, $12/mo, includes 500/mo).
 Reformulations still matter: 2-3 `--queries` (from `verdict pico`) recover
-the recall. PubMed (free) is searched too, with a model-written MeSH query
-and the Cochrane trial filter. The whole candidate pool is kept, each paper
+the recall. PubMed (free) is searched when the Consensus pool holds fewer than
+2 systematic reviews (`--pubmed on|off` overrides), with a model-written MeSH
+query and the Cochrane trial filter. The whole candidate pool is kept, each paper
 with every channel that found it; the reference lists of its systematic
 reviews are mined for more trials, a cheap model screens the pool, and the
 best `MAX_PAPERS` (default 40) go to the critic. Provenance — engine, queries,
