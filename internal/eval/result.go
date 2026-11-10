@@ -64,6 +64,9 @@ type Result struct {
 	Usage   *Usage
 	// Report is the path of report.md relative to the eval's output directory.
 	Report string
+	// Recall is the search recall of the run; set only in the search mode and
+	// only for a scored run.
+	Recall *Recall
 
 	Err string
 }
@@ -103,6 +106,7 @@ func (r *Result) score(q *Question, st *pipeline.State) error {
 type Summary struct {
 	SetFile   string
 	Date      time.Time
+	Mode      Mode // empty means ModeDOIs
 	TextMode  pipeline.TextMode
 	Models    string
 	Repeat    int

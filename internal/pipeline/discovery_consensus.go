@@ -166,7 +166,7 @@ func countEligible(pool []Candidate) int {
 	n := 0
 
 	for i := range pool {
-		if pool[i].eligible() {
+		if pool[i].Eligible() {
 			n++
 		}
 	}

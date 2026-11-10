@@ -80,7 +80,7 @@ type screenOutcome struct {
 // screenPool screens the whole pool in batches and records the decisions in
 // it. Without the screening model it does nothing. A failed batch is a
 // warning: its candidates stay unscreened (a Consensus hit stays eligible, a
-// mined reference does not — see Candidate.eligible), never a failed run.
+// mined reference does not — see Candidate.Eligible), never a failed run.
 // That includes a usage limit: the critique stage, which stops on it, runs
 // next, and the saved discovery artifact spares a repeat of the paid search.
 func (p *Pipeline) screenPool(ctx context.Context, st *State, info *DiscoveryInfo) error {
@@ -169,7 +169,7 @@ func (p *Pipeline) applyScreening(st *State, info *DiscoveryInfo, outcomes []scr
 
 		unscreened++
 
-		if !info.Pool[i].eligible() {
+		if !info.Pool[i].Eligible() {
 			leftOut++
 		}
 	}

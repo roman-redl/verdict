@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -39,11 +40,16 @@ type Totals struct {
 	Calls        int
 	InputTokens  int
 	OutputTokens int
+
+	// Search is true for the search mode; Recall then sums the per-run recall
+	// of the scored runs (sum found / sum total at each stage).
+	Search bool
+	Recall Recall
 }
 
 // Totals aggregates the results.
 func (s *Summary) Totals() Totals {
-	t := Totals{Runs: len(s.Results), Confusion: map[Outcome]map[Outcome]int{}}
+	t := Totals{Runs: len(s.Results), Confusion: map[Outcome]map[Outcome]int{}, Search: s.Mode == ModeSearch}
 
 	for _, o := range outcomes {
 		t.Confusion[o] = map[Outcome]int{}
@@ -64,6 +70,10 @@ func (s *Summary) Totals() Totals {
 
 		t.Scored++
 		t.Confusion[r.Expected][r.Got]++
+
+		if r.Recall != nil {
+			t.Recall.add(*r.Recall)
+		}
 
 		if r.Match() {
 			t.Matches++
@@ -141,6 +151,12 @@ func (t Totals) Line() string {
 	line := fmt.Sprintf("outcome match %s; strength exact %d/%d, within one level %d/%d",
 		ratio(t.Matches, t.Scored), t.StrengthExact, t.StrengthScored, t.StrengthWithin1, t.StrengthScored)
 
+	if t.Search {
+		line += fmt.Sprintf("; search recall: pool %s, screened %s, corpus %s",
+			ratio(t.Recall.Pool, t.Recall.Total), ratio(t.Recall.Screened, t.Recall.Total),
+			ratio(t.Recall.Corpus, t.Recall.Total))
+	}
+
 	if t.Failed > 0 {
 		line += fmt.Sprintf("; %d failed run(s) not counted", t.Failed)
 	}
@@ -177,6 +193,12 @@ func RenderMarkdown(s *Summary) string {
 	fmt.Fprintf(&b, "- Set: `%s`, %d question(s), %d repeat(s) each\n", s.SetFile, s.Questions, s.Repeat)
 	fmt.Fprintf(&b, "- Date: %s\n", s.Date.Format("2006-01-02 15:04"))
 	fmt.Fprintf(&b, "- Text mode: %s\n", orDash(string(s.TextMode)))
+
+	if t.Search {
+		b.WriteString("- Studies: found by the search (the question and the claim as Consensus queries, " +
+			"the source review excluded), not given\n")
+	}
+
 	fmt.Fprintf(&b, "- Models: %s\n\n", s.Models)
 
 	b.WriteString("## Totals\n\n")
@@ -184,6 +206,11 @@ func RenderMarkdown(s *Summary) string {
 	fmt.Fprintf(&b, "- Strength exact (runs with an expert certainty): %s\n", ratio(t.StrengthExact, t.StrengthScored))
 	fmt.Fprintf(&b, "- Strength within one level (runs with an expert certainty): %s\n",
 		ratio(t.StrengthWithin1, t.StrengthScored))
+
+	if t.Search {
+		writeRecallTotals(&b, &t.Recall)
+	}
+
 	fmt.Fprintf(&b, "- Failed runs (no verdict, outside the figures above): %d of %d\n", t.Failed, t.Runs)
 
 	if s.Repeat > 1 {
@@ -227,17 +254,37 @@ func writeConfusion(b *strings.Builder, t *Totals) {
 
 var runColumns = []string{
 	"ID", "Repeat", "Specialty", "Claim", "Expert answer", "Expected", "Verdict outcome", "Match", "Direct tally",
-	"Effect direction", "Consensus status", "Certainty", "Verdict level", "Strength exact", "Strength ±1", "Studies given",
+	"Effect direction", "Consensus status", "Certainty", "Verdict level", "Strength exact", "Strength ±1", givenColumn,
 	"Studies in report", "LLM calls", "Input tokens", "Output tokens", "Report", "Error",
 }
 
+// recallColumns replace "Studies given" in the search mode: no study is given
+// there, the search finds them.
+var recallColumns = []string{"Recall pool", "Recall screened", "Recall corpus"}
+
+const givenColumn = "Studies given"
+
+// columns are the run columns of the summary files for the mode.
+func columns(search bool) []string {
+	if !search {
+		return runColumns
+	}
+
+	at := slices.Index(runColumns, givenColumn)
+
+	return slices.Replace(slices.Clone(runColumns), at, at+1, recallColumns...)
+}
+
 func writeRuns(b *strings.Builder, s *Summary) {
+	search := s.Mode == ModeSearch
+	cols := columns(search)
+
 	b.WriteString("## Runs\n\n")
-	b.WriteString("| " + strings.Join(runColumns, " | ") + " |\n")
-	b.WriteString("|" + strings.Repeat("---|", len(runColumns)) + "\n")
+	b.WriteString("| " + strings.Join(cols, " | ") + " |\n")
+	b.WriteString("|" + strings.Repeat("---|", len(cols)) + "\n")
 
 	for i := range s.Results {
-		row := resultRow(&s.Results[i], dash)
+		row := resultRow(&s.Results[i], dash, search)
 		row[3] = shorten(row[3], claimCells)
 
 		for j := range row {
@@ -253,13 +300,15 @@ func writeRuns(b *strings.Builder, s *Summary) {
 func RenderCSV(s *Summary) (string, error) {
 	var b strings.Builder
 
+	search := s.Mode == ModeSearch
+
 	w := csv.NewWriter(&b)
-	if err := w.Write(runColumns); err != nil {
+	if err := w.Write(columns(search)); err != nil {
 		return "", fmt.Errorf("writing the CSV header: %w", err)
 	}
 
 	for i := range s.Results {
-		if err := w.Write(resultRow(&s.Results[i], "")); err != nil {
+		if err := w.Write(resultRow(&s.Results[i], "", search)); err != nil {
 			return "", fmt.Errorf("writing a CSV row: %w", err)
 		}
 	}
@@ -273,9 +322,34 @@ func RenderCSV(s *Summary) (string, error) {
 	return b.String(), nil
 }
 
-// resultRow lists the cells of a run in the order of runColumns; none is the
-// text of an unknown value.
-func resultRow(r *Result, none string) []string {
+// resultRow lists the cells of a run in the order of columns(search); none is
+// the text of an unknown value.
+func resultRow(r *Result, none string, search bool) []string {
+	row := baseRow(r, none)
+	if !search {
+		return row
+	}
+
+	recall := []string{none, none, none}
+	if r.Recall != nil {
+		recall = r.Recall.cells()
+	}
+
+	at := slices.Index(runColumns, givenColumn)
+
+	return slices.Replace(row, at, at+1, recall...)
+}
+
+// writeRecallTotals lists the pooled recall of the search mode: the sum of the
+// found studies over the sum of the review's studies, per stage.
+func writeRecallTotals(b *strings.Builder, r *Recall) {
+	fmt.Fprintf(b, "- Search recall, in the discovery pool: %s\n", ratio(r.Pool, r.Total))
+	fmt.Fprintf(b, "- Search recall, kept by the screening: %s\n", ratio(r.Screened, r.Total))
+	fmt.Fprintf(b, "- Search recall, in the corpus of the critic: %s\n", ratio(r.Corpus, r.Total))
+}
+
+// baseRow is the row of the DOI-list mode.
+func baseRow(r *Result, none string) []string {
 	or := func(s string) string {
 		if s == "" {
 			return none

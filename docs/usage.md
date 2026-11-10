@@ -465,12 +465,54 @@ certainty.
 bin/verdict eval                              # all questions, hybrid text mode
 bin/verdict eval --ids 10,30 --repeat 3       # chosen questions, three runs each
 bin/verdict eval --text-mode lean --llm-model sonnet --out runs/eval-lean
+bin/verdict eval --search --ids 10,30         # discovery finds the studies, recall is measured
 ```
 
 Flags: `--set` (default `evals/medevidence.yaml`), `--ids`, `--repeat`,
 `--out` (default `runs/eval-<YYYYMMDD-HHMMSS>`), `--text-mode` (default
-`hybrid`) and the model flags of `run` (`--llm-command`, `--llm-model`,
-`--model-critique`, `--model-deep`, `--model-synthesis`, `--deep`).
+`hybrid`), `--search` (below) and the model flags of `run` (`--llm-command`,
+`--llm-model`, `--model-critique`, `--model-deep`, `--model-synthesis`,
+`--deep`).
+
+### Search mode (`--search`)
+
+By default the studies are given. With `--search` every question instead goes
+through the normal semantic discovery (mode B), as a user's run would:
+
+- The two Consensus queries are the question's `question` text and its `claim`
+  text; `verdict pico` is not called.
+- The source review is excluded automatically: the question's `review_doi` is
+  passed as the run's exclude DOIs (the same mechanism as
+  `verdict run --exclude-dois`; a Cochrane DOI excludes every version of its CD
+  number). Without it, mining the review's own reference list would hand the
+  answer back. Every question of the set needs a `review_doi`.
+- Everything else is as in a default `verdict run`: Consensus, the mining of
+  review reference lists, PubMed on `auto`, the screening, the `MAX_PAPERS`
+  selection, the text mode of the eval flag. The scoring of outcome and
+  certainty is unchanged.
+
+It needs `CONSENSUS_API_KEY` and spends the Consensus quota: 2 queries × 1 page
+(`CONSENSUS_PAGES`, default 1) per question, per run, so about two calls with
+the default page size. The LLM spend grows too: the screening calls of the
+discovery (one cheap call per 50 pool candidates) come on top of the critique
+and synthesis calls; the figures in the summary include them.
+
+The summary adds the search recall per run: of the review's studies that have a
+DOI (the DOIs are compared normalized: case and a `https://doi.org/` prefix do
+not matter), how many are found anywhere in the discovery candidate pool, how
+many the screening kept (an unscreened Consensus hit stays in the selection, so
+it counts as kept) and how many are in the corpus given to the critic. They are
+the columns `Recall pool`, `Recall screened` and `Recall corpus` (`found/total`),
+which take the place of `Studies given`, and the totals add the pooled recall
+over all scored runs: the sum of found studies over the sum of the review's
+studies, with percentages. The figures are computed from the run's artifacts
+(`1-discovery.json`: `discovery.pool` and the corpus `papers`) after the run, so
+they cost no extra call. In the default mode the summary is unchanged.
+
+The mode is recorded in `<out>/<id>-<n>/mode` (a directory made before the
+marker existed counts as the DOI-list mode when it holds `dois.txt`). Reusing an
+`--out` in the other mode stops at once with an error and leaves the earlier
+summary alone: a run of one mode must not be scored as the other.
 
 Every run lives in `<out>/<id>-<n>/run/` with its own caches, so repeats never
 reuse each other's critiques; `<out>/summary.md` and `<out>/summary.csv` list

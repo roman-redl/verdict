@@ -105,12 +105,13 @@ func (c *Candidate) design() model.StudyDesign {
 	return resolveDesign(&e, model.Critique{})
 }
 
-// eligible reports whether the candidate may enter the corpus. A paper with
-// no DOI never does. An unscreened Consensus hit is on-topic by construction
-// and stays in; an unscreened PubMed hit (a loose study-design filter over an
-// LLM-written topic query) or reference (one of hundreds picked by citation
-// alone) stays out.
-func (c *Candidate) eligible() bool {
+// Eligible reports whether the candidate may enter the corpus: what the
+// screening stage lets through (the eval reads it as "kept by screening"). A
+// paper with no DOI never does. An unscreened Consensus hit is on-topic by
+// construction and stays in; an unscreened PubMed hit (a loose study-design
+// filter over an LLM-written topic query) or reference (one of hundreds picked
+// by citation alone) stays out.
+func (c *Candidate) Eligible() bool {
 	if c.DOI == "" {
 		return false
 	}
@@ -195,7 +196,7 @@ func selectCandidates(pool []Candidate, limit int) []model.Paper {
 	var groups [groupReview + 1][]int
 
 	for i := range pool {
-		if pool[i].eligible() {
+		if pool[i].Eligible() {
 			g := pool[i].group()
 			groups[g] = append(groups[g], i)
 		}

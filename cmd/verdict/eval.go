@@ -23,6 +23,7 @@ type evalFlags struct {
 	repeat   int
 	out      string
 	modeFlag string
+	search   bool
 	opts     pipeline.Options
 }
 
@@ -34,9 +35,19 @@ func (c *cli) evalCmd() *cobra.Command {
 		Use:   "eval",
 		Short: "Score verdict's outcomes against the expert conclusions of the MedEvidence benchmark",
 		Long: "Runs every selected benchmark question through the normal pipeline on exactly the studies the " +
-			"Cochrane review used (a DOI list, no search) and compares the outcome with the expert answer.\n" +
+			"Cochrane review used (a DOI list, no search; see --search for the other mode) and compares the " +
+			"outcome with the expert answer.\n" +
 			"Every question costs a full run of LLM calls. After a usage limit, rerun the same command with " +
-			"the same --out: finished runs are loaded, the rest resume.",
+			"the same --out: finished runs are loaded, the rest resume.\n\n" +
+			"With --search the studies are not given: every question goes through the normal semantic " +
+			"discovery (mode B) as a user's run would. The two queries are the benchmark question and the " +
+			"claim; the source Cochrane review (review_doi) is excluded automatically, so mining its " +
+			"reference list cannot hand the answer back. Consensus, review reference mining, PubMed (auto), " +
+			"screening and the MAX_PAPERS selection run as in `verdict run`. The summary then adds the search " +
+			"recall of the review's studies: found in the pool, kept by the screening, in the corpus of the " +
+			"critic. It needs CONSENSUS_API_KEY and spends Consensus calls (2 queries x 1 page per question) " +
+			"on top of the screening, critique and synthesis LLM calls. A --out directory made in one mode " +
+			"cannot be reused in the other.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return c.evaluate(cmd.Context(), &f)
 		},
@@ -49,6 +60,9 @@ func (c *cli) evalCmd() *cobra.Command {
 	fl.StringVar(&f.out, "out", "", "output directory (default: runs/eval-<YYYYMMDD-HHMMSS>); reuse it to resume")
 	fl.StringVar(&f.modeFlag, "text-mode", string(pipeline.TextHybrid),
 		"what the critic reads: lean (abstracts only) | hybrid | full")
+	fl.BoolVar(&f.search, "search", false,
+		"find the studies by the normal semantic discovery instead of giving the review's DOI list; "+
+			"the source review is excluded, the summary adds the search recall (spends Consensus calls)")
 	addLLMFlags(cmd, &f.opts)
 
 	return cmd
@@ -58,6 +72,16 @@ func (c *cli) evaluate(ctx context.Context, f *evalFlags) error {
 	mode, err := pipeline.ParseTextMode(f.modeFlag)
 	if err != nil {
 		return err
+	}
+
+	evalMode := eval.ModeDOIs
+
+	if f.search {
+		evalMode = eval.ModeSearch
+
+		if c.cfg.ConsensusAPIKey == "" {
+			return &pipeline.UserError{Msg: "--search needs semantic discovery: set CONSENSUS_API_KEY"}
+		}
 	}
 
 	f.opts.TextMode = cmp.Or(mode, pipeline.TextHybrid)
@@ -84,7 +108,9 @@ func (c *cli) evaluate(ctx context.Context, f *evalFlags) error {
 
 	out := cmp.Or(f.out, filepath.Join("runs", "eval-"+c.now().Format("20060102-150405")))
 
-	sum, err := ev.Run(ctx, qs, eval.Params{SetFile: f.set, Out: out, Repeat: f.repeat, Options: f.opts})
+	sum, err := ev.Run(ctx, qs, eval.Params{
+		SetFile: f.set, Out: out, Repeat: f.repeat, Mode: evalMode, Options: f.opts,
+	})
 	if sum != nil {
 		fmt.Printf("Summary: %s\n%s\n", filepath.Join(out, "summary.md"), sum.Totals().Line())
 	}

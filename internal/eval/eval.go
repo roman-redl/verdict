@@ -28,6 +28,8 @@ type Params struct {
 	Out string
 	// Repeat is how many times every question runs (>= 1).
 	Repeat int
+	// Mode is how the studies reach the pipeline; empty means ModeDOIs.
+	Mode Mode
 	// Options carries the pass-through settings of the pipeline (text mode,
 	// models, wrapper); the per-run fields are overwritten.
 	Options pipeline.Options
@@ -71,7 +73,9 @@ const (
 // A usage limit (or a canceled context) ends the eval: the summary still covers
 // the finished runs, and the returned error says to rerun the same command.
 // Any other error of a run is recorded in its result and the eval goes on.
-// The summary is returned even together with an error.
+// The summary is returned even together with an error — except for a failed
+// preflight (a run directory made in the other mode, a question the mode
+// cannot use): nothing ran and the files of the earlier eval stay as they are.
 func (e *Evaluator) Run(ctx context.Context, qs []Question, p Params) (*Summary, error) {
 	if p.Repeat < 1 {
 		return nil, fmt.Errorf("repeat must be at least 1, got %d", p.Repeat)
@@ -81,13 +85,17 @@ func (e *Evaluator) Run(ctx context.Context, qs []Question, p Params) (*Summary,
 		return nil, errors.New("the output directory is not set")
 	}
 
+	if err := preflight(qs, p); err != nil {
+		return nil, err
+	}
+
 	if err := os.MkdirAll(p.Out, 0o750); err != nil {
 		return nil, fmt.Errorf("creating the output directory: %w", err)
 	}
 
 	sum := &Summary{
-		SetFile: p.SetFile, Date: e.now(), TextMode: p.Options.TextMode, Models: modelFlags(&p.Options),
-		Repeat: p.Repeat, Questions: len(qs),
+		SetFile: p.SetFile, Date: e.now(), Mode: p.mode(), TextMode: p.Options.TextMode,
+		Models: modelFlags(&p.Options), Repeat: p.Repeat, Questions: len(qs),
 	}
 	stopErr := e.runAll(ctx, qs, p, sum)
 
@@ -144,6 +152,11 @@ func (e *Evaluator) runOne(ctx context.Context, q *Question, n int, p Params) (R
 		return res, nil
 	}
 
+	if p.mode() == ModeSearch {
+		rec := recallOf(q, st)
+		res.Recall = &rec
+	}
+
 	res.Report = path.Join(runName(q.ID, n), "run", "report.md")
 	e.log.Info("eval run scored", "id", q.ID, "repeat", n, "expected", res.Expected, "got", res.Got)
 
@@ -174,19 +187,13 @@ func (e *Evaluator) obtain(ctx context.Context, q *Question, n int, p Params) (*
 		return nil, fmt.Errorf("creating the run directory: %w", err)
 	}
 
-	doiFile := filepath.Join(base, "dois.txt")
-	if err := os.WriteFile(doiFile, []byte(strings.Join(q.DOIs(), "\n")+"\n"), 0o600); err != nil {
-		return nil, fmt.Errorf("writing the DOI list: %w", err)
+	opts, err := buildOptions(q, n, p)
+	if err != nil {
+		return nil, err
 	}
 
-	opts := p.Options
-	opts.Question = q.Claim
-	opts.DOIFile = doiFile
-	opts.RunDir = runDir
-	opts.Topic = fmt.Sprintf("eval-%d-%d", q.ID, n)
-	opts.Resume = fileExists(runDir)
-
-	e.log.Info("eval run starting", "id", q.ID, "repeat", n, "studies", len(q.DOIs()), "resume", opts.Resume)
+	e.log.Info("eval run starting", "id", q.ID, "repeat", n, "mode", p.mode(), "studies", len(q.DOIs()),
+		"resume", opts.Resume)
 
 	st, _, err := e.runner.Run(ctx, opts)
 	if err != nil {
@@ -194,6 +201,42 @@ func (e *Evaluator) obtain(ctx context.Context, q *Question, n int, p Params) (*
 	}
 
 	return st, nil
+}
+
+// buildOptions makes the pipeline options of one run and records the mode in
+// the run directory. Both modes research the claim; the DOI-list mode hands
+// the pipeline the review's studies, the search mode the two queries and the
+// source review to exclude, and leaves the rest to the defaults of `verdict
+// run`. The Consensus engine is explicit: without a key the automatic choice
+// would fall back to keyword search, which is not the mode being measured.
+func buildOptions(q *Question, n int, p Params) (pipeline.Options, error) {
+	base := filepath.Join(p.Out, runName(q.ID, n))
+	runDir := filepath.Join(base, "run")
+
+	opts := p.Options
+	opts.Question = q.Claim
+	opts.RunDir = runDir
+	opts.Topic = fmt.Sprintf("eval-%d-%d", q.ID, n)
+	opts.Resume = fileExists(runDir)
+
+	if err := writeMode(base, p.mode()); err != nil {
+		return pipeline.Options{}, err
+	}
+
+	if p.mode() == ModeSearch {
+		opts.Engine = pipeline.EngineConsensus
+		opts.Queries = searchQueries(q)
+		opts.ExcludeDOIs = []string{q.ReviewDOI}
+
+		return opts, nil
+	}
+
+	opts.DOIFile = filepath.Join(base, doiListFile)
+	if err := os.WriteFile(opts.DOIFile, []byte(strings.Join(q.DOIs(), "\n")+"\n"), 0o600); err != nil {
+		return pipeline.Options{}, fmt.Errorf("writing the DOI list: %w", err)
+	}
+
+	return opts, nil
 }
 
 func fileExists(p string) bool {
