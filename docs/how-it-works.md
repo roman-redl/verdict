@@ -131,6 +131,10 @@ matching this text".
 **Where it fits.**
 - mode A (free discovery): the question → OpenAlex returns top papers;
 - mode C: you bring a DOI list → it fills in the metadata;
+- mode B, review reference mining: for the systematic reviews and
+  meta-analyses among the Consensus hits, the reference list (`referenced_works`)
+  is read and resolved to titles and DOIs — the trials a review cites join the
+  discovery pool (§2.2);
 - enrichment (always): for every DOI — the retraction flag, the free PDF,
   the abstract if nobody provided it yet. Retractions are checked in two
   places: OpenAlex's `is_retracted` and Crossref's update notices (where
@@ -209,16 +213,126 @@ reformulations of the question and pairs the paste with the citation
 snowball (rank-free recall).
 
 **Where it fits.** Mode B (the default with an API key): the Go client
-(`internal/consensus`) walks `GET /v1/search` pages with `x-api-key`; every
-request plausibly costs one plan use (500/mo on the Pro $12 tier), so the
-walker caps pages (`CONSENSUS_PAGES`, 3 per query) and records the spend —
-engine, queries, pages, truncation — in `1-discovery.json`. The page cap
-mirrors the UI's ~50-row ranked cut, so recall still comes from query
-reformulations (`--queries`, drafted by `verdict pico`). Mode C (the free
-web UI: you run the queries, scroll to the end, paste back) remains the
-semantic path when no key is set; an MCP server exists too (the same
-search over a remote connection) but the API is what the pipeline uses.
-Consensus does nothing else in the pipeline — its niche is discovery.
+(`internal/consensus`) walks `GET /v1/search` pages with `x-api-key`. The
+request carries `page_size` (`CONSENSUS_PAGE_SIZE`, default 100); the plan
+caps it (Free 20, Pro and Teams 300, Deep 750) and the response says which
+size was applied — a smaller one than requested is logged at once. Pages
+after the first are a paid feature: a Free key gets 403 on them, which ends
+that query's walk with a warning, not a failed run. The quota unit is the API
+call, one per 100 papers a page returns (rounded up); `1-discovery.json`
+records the engine, queries, pages, `api_calls`, the applied `page_size` and
+truncation. The walker takes up to `CONSENSUS_PAGES` pages per query
+(default 2) and does not stop when the pool is large: the pool is screened
+and cut afterwards. Mode C (the free web UI: you run the queries, scroll to
+the end, paste back) remains the semantic path when no key is set; an MCP
+server exists too (the same search over a remote connection) but the API is
+what the pipeline uses. Consensus does nothing else in the pipeline — its
+niche is discovery.
+
+**From the ranking to the corpus (mode B).** A search ranking is the wrong
+place to cut a corpus: it puts reviews and case series next to trials, and a
+trial that one review cites may rank low for every query. And one source is
+not enough: measured, Consensus alone finds under half of the trials of the
+reference reviews on real topics. The Cochrane Handbook (ch. 4) and the
+Cochrane Rapid Reviews guidance (2023) ask for at least two sources for a
+trial search, so mode B has three channels — Consensus, PubMed and the
+reference lists of reviews — and the recall of each is measured separately.
+Discovery keeps a *pool* and chooses the corpus in four steps:
+
+1. **Pool.** Every hit of every channel, deduplicated by normalized DOI. A
+   paper keeps *every* channel that found it, each with its own rank, in
+   `sources` (`1-discovery.json`, `discovery.pool`):
+
+   ```json
+   "sources": [
+     {"source": "consensus", "query": 1, "rank": 12},
+     {"source": "pubmed", "search": "rct_filter", "rank": 3},
+     {"source": "review_refs", "citing_reviews": 2}
+   ]
+   ```
+
+   A rank is the position in that channel's ranking across pages, from 1;
+   Consensus gives one entry per query (its 1-based number in `query`), PubMed
+   one per search (`rct_filter` | `reviews`), the review references one entry
+   with the number of reviews that list the paper and no rank. The candidate
+   also carries the design tag (Consensus's, or derived from PubMed's
+   publication types), a short snippet (the takeaway, else the abstract
+   start) and, for PubMed hits, the PMID. The whole pool, dropped candidates
+   included, is saved, so the depth at which a known trial appears can be
+   measured per channel. Artifacts written before `sources` existed still
+   load (their `source`, `query`, `rank` and `cited_by_reviews` fields are
+   read into it). `--discovery-sources` (or `DISCOVERY_SOURCES`) runs any
+   subset of `consensus,pubmed,review_refs`.
+
+   **The PubMed channel** (free, NCBI E-utilities, `internal/pubmed`). The
+   `plan` model writes the topic query once per run: from the question it
+   names the concepts — the population or condition, the intervention, and
+   the comparator only when it is a specific drug or procedure, never the
+   outcome — and for each concept the PubMed terms: MeSH headings
+   (`"Heading"[Mesh]`), free-text synonyms (`[tiab]`) with generic and brand
+   names, abbreviations, spelling variants and safe truncation
+   (`fundoplicat*[tiab]`). Go validates the terms (balanced parentheses and
+   quotes, non-empty) and joins them itself: OR inside a concept, AND between
+   concepts; the model's own join of the query is kept in the artifact for the
+   log only. Two searches follow, both composed in Go: (a) the topic AND the
+   Cochrane Highly Sensitive Search Strategy for randomized trials (the
+   sensitivity-maximizing version, 2008 revision, PubMed format — about 0.96
+   sensitivity for trials with a good topic query), at most 300 hits in
+   relevance order; (b) the topic AND `systematic[sb] OR meta-analysis[pt]`,
+   at most 50. If (a) finds nothing it is repeated once without the
+   comparator concept, and (b) then uses the broader topic. `esummary` gives
+   each PMID's title, year, publication types, DOI and PMCID. Publication types
+   become the design tag: "Randomized Controlled Trial" and "Clinical Trial"
+   (any phase) → `rct`; "Systematic Review" and "Meta-Analysis" → a review.
+   A record with no DOI stays in the pool for the audit (with its PMID) but
+   cannot be selected — the pipeline is keyed by DOI; the count is logged and
+   warned. A PubMed failure is a warning, not a failed run (the Consensus
+   quota is already spent), unless PubMed is the only search channel. The
+   query-writing call is accounted in the `cost` record as `query_writing`;
+   `--pubmed-query "<query>"` supplies a ready topic query and skips it.
+   `NCBI_API_KEY` is optional: 3 requests a second without it, 10 with it.
+2. **Review reference mining** (free, OpenAlex). For the systematic reviews and
+   meta-analyses of the pool — those Consensus and PubMed found, recognized by
+   the tag or the title (there is no critique yet) — at most 8 in all, best
+   ranked first, the reference list is read (at most 150 references per
+   review) and the referenced works with a DOI join the pool as `review_refs`
+   candidates, with the number of reviews citing each (at most 300 new
+   candidates, the most cited first); a work already in the pool gains the
+   `review_refs` source. A failing lookup is a warning. Without OpenAlex or the
+   screening model this step is skipped (with `--no-screen` the model is not
+   needed). The manual `verdict snowball` stays as an optional check:
+   it finds works tied to several seeds, mining takes what even one review cites.
+3. **Screening** (an LLM, the cheap `plan` role). The model reads title, year,
+   design tag and snippet — batches of 50 candidates with a DOI — and says per
+   candidate: include or not, a design guess (`rct`, `other_primary`,
+   `review`, `other`) and a short reason. It includes studies that test the
+   question's intervention against its comparator in the question's
+   population, any design, and reviews of the question; it excludes the
+   off-topic, animal and in-vitro work, editorials and protocols; when the
+   title does not let it tell, it includes. A failed call leaves its batch
+   unscreened: Consensus hits of it stay eligible, candidates found only by
+   PubMed or by review references do not (hundreds of papers chosen by a loose
+   filter or by citation alone must not enter unjudged). The calls are
+   accounted in the `cost` record as the `screening` stage. `--no-screen`
+   (or `NO_SCREEN=true`) skips the model: every candidate with a DOI counts as
+   included, the selection still runs — an audit switch, with
+   `--stop-after 1-discovery` a run spends no LLM call (give `--pubmed-query`
+   to skip the query writer too).
+4. **Selection.** Eligible candidates in three groups — trials (design `rct`
+   by the tag or the screening guess), other primary studies, reviews (at most
+   3) — each ordered by the *best rank across the channels* (a position in a
+   ranked list means the same in Consensus and in PubMed); ties go to the
+   paper more channels found, then to the lower Consensus query number, then to
+   the one more reviews cite. Papers no ranking placed (found only by review
+   references) follow the ranked ones of their group, more citing reviews
+   first. The corpus is the first `MAX_PAPERS` (default 40) papers in that
+   order: it caps what goes to the critic, not what discovery looks at. After
+   the screening 12-44 on-topic papers per question remain (measured), so a
+   lower cap cuts off studies.
+
+Runs on a DOI list (mode C, `--dois`) skip all of this: the user's list is the
+corpus as given. Keyword discovery (mode A) takes the top of the OpenAlex
+ranking as before.
 
 **Why this engine — the 2026-09-08 bake-off (the one place the retired
 engine is named).** Elicit was the original discovery engine here (mode B

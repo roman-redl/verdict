@@ -103,15 +103,66 @@ bin/verdict run --topic keratosis-uvb -q "<full question>" \
     --queries "<reformulation 1>" --queries "<reformulation 2>"
 ```
 
-Quota math: each results page is one API use; the walk stops at
-`CONSENSUS_PAGES` (default 3) pages per query or at the ranking's end —
-whichever first — so a run costs ≤3 uses per query (500/mo on the Pro
-$12/mo tier). Tune per run with `--consensus-pages`, globally with
-`CONSENSUS_PAGES`. Provenance (engine, queries, pages spent, truncation) is
-recorded in `1-discovery.json` under `discovery`, and the run log prints
-the per-query and total page counts. A Consensus failure (bad key, quota)
-fails the run loudly with the mode C escape hatch in the error — never a
-silent keyword fallback.
+Quota math: a request carries `page_size` (`CONSENSUS_PAGE_SIZE`, default
+100) and the API charges one call per 100 papers a page returns, rounded up
+(500 calls/mo on the Pro $12/mo tier). The walk stops at `CONSENSUS_PAGES`
+(default 2) pages per query or at the ranking's end — whichever first — so
+two queries at the defaults are up to 400 candidates for 4 calls. Tune per
+run with `--consensus-pages`, globally with `CONSENSUS_PAGES` and
+`CONSENSUS_PAGE_SIZE`. The plan caps the page size (Free 20, Pro and Teams
+300, Deep 750); the log names the applied size when it is smaller than the
+requested one, and a Free key gets 403 on pages after the first — that ends
+the query's walk with a warning, not a failed run. Provenance (engine,
+queries, pages, `api_calls`, applied `page_size`, truncation) is recorded in
+`1-discovery.json` under `discovery`, and the run log prints the per-page and
+total counts. A Consensus failure on the first page (bad key, quota) fails
+the run loudly with the mode C escape hatch in the error — never a silent
+keyword fallback.
+
+Three channels feed one pool: Consensus, PubMed and the reference lists of
+reviews. The walk does not cut the pool by rank. The saved `discovery.pool`
+holds every candidate with `sources`: every channel that found it, each with
+its own rank (`{"source": "consensus", "query": 1, "rank": 12}`,
+`{"source": "pubmed", "search": "rct_filter", "rank": 3}`,
+`{"source": "review_refs", "citing_reviews": 2}`), so the recall of each
+channel can be measured from the artifact. PubMed (free, E-utilities) costs one
+`plan`-role call per run — the model writes the topic query of the question's
+population and intervention (a specific named comparator too, never the
+outcome): MeSH headings plus free-text synonyms, brand names, abbreviations
+and truncation — and Go joins it and adds the Cochrane Highly Sensitive Search
+Strategy for trials (300 hits) and a review filter (50 hits); the query, the
+hit counts and the records without a DOI (kept in the pool for the audit, not
+selectable) are in `discovery.pubmed`. The reference lists of up to 8
+systematic reviews and meta-analyses of the pool (Consensus's and PubMed's)
+are mined through OpenAlex (free) for further candidates, a cheap model (the
+`plan` role, sonnet by default) screens the pool in batches of 50 — title,
+year, tag and a short snippet — and the corpus for the critic is selected from
+what passed: trials first, then other primary studies, then at most 3 reviews,
+each group by the best rank over the channels (ties: the paper more channels
+found), cut to `MAX_PAPERS` (default 40; `--max-papers` overrides). The
+query-writing and screening calls appear in the `cost` record and the report
+footer (`pubmed query`, `screening`); a failed batch is a warning and stays
+unscreened (Consensus hits in, PubMed-only hits and mined references out). A
+PubMed failure is a warning too: the other channels still deliver.
+`--dois` and mode C runs skip the mining and the screening — the list is
+respected as given. Design: docs/how-it-works.md §2.2.
+
+Audit switches (`run` flags; the env equivalents set the default):
+
+- `--discovery-sources consensus,pubmed,review_refs` (`DISCOVERY_SOURCES`) —
+  any subset; measure one channel at a time. Without `consensus` the key is not
+  needed.
+- `--no-screen` (`NO_SCREEN=true`) — skip the LLM screening: every candidate
+  with a DOI counts as included, the selection still runs. With
+  `--stop-after 1-discovery` a run then spends no LLM call except the PubMed
+  query writer.
+- `--pubmed-query "<query>"` — a ready PubMed topic query (Boolean, with field
+  tags, e.g. `("Gastroesophageal Reflux"[Mesh] OR GERD[tiab]) AND
+  (fundoplicat*[tiab])`) instead of the model-written one: no writer call. The
+  trial filter and the review filter are added to it as usual.
+
+`NCBI_API_KEY` (optional, in `.env`) raises the PubMed rate limit from 3 to 10
+requests a second; it is sent as `api_key` and never logged.
 
 ## Discovery: mode C (semantic, free) — the path without a key
 
@@ -201,9 +252,19 @@ run from the last completed stage without paying twice.
                          #   (defaults to -q; feed from `verdict pico`)
 --engine consensus       # force the engine: consensus | openalex
                          #   (default: consensus when CONSENSUS_API_KEY is set)
---consensus-pages 3      # max Consensus pages per query — each page is one
-                         #   API use (defaults to CONSENSUS_PAGES, 3)
---max-papers 25          # discovery limit / DOI-list cap
+--consensus-pages 2      # max Consensus pages per query — a page of 100
+                         #   papers is one API call (defaults to CONSENSUS_PAGES, 2)
+--discovery-sources pubmed,review_refs
+                         # mode B channels, any subset of consensus | pubmed |
+                         #   review_refs (defaults to DISCOVERY_SOURCES, all three)
+--no-screen              # skip the LLM screening: every candidate counts as
+                         #   included, the selection still runs (or NO_SCREEN=true)
+--pubmed-query "<q>"     # a ready PubMed topic query: skips the query-writing call
+--exclude-dois <d1>,<d2> # DOIs the run must not see (repeatable, comma-separated): dropped from
+                         #   every channel before the review mining, and from --dois; a Cochrane
+                         #   DOI excludes all .pubN versions — for recall against a review
+--max-papers 40          # papers sent to the critic after discovery's screening
+                         #   and selection / DOI-list cap (defaults to MAX_PAPERS, 40)
 --text-mode lean         # what the critic reads: lean | hybrid | full
                          #   (defaults to TEXT_MODE from env, hybrid).
                          #   lean — abstracts only; hybrid — abstracts, then
@@ -234,7 +295,7 @@ run from the last completed stage without paying twice.
 
 | Component | Default | Paid option |
 |---|---|---|
-| Discovery | no key: mode C web paste / mode A keyword — $0 | mode B: Consensus API, ≤3 uses × ≤3 queries per run (Pro $12/mo, 500 uses/mo) |
+| Discovery | no key: mode C web paste / mode A keyword — $0 | mode B: Consensus API, 1 call per page of 100 papers — 2 queries × 2 pages = 4 calls per run (Pro $12/mo, 500 calls/mo); plus the LLM screening, ~1 cheap call per 50 candidates |
 | Scite | free (tallies without a key, 1 batched request per run) | Pro $50/mo — not needed at this volume |
 | LLM | the Claude Code tariff | direct API ≈ $0.3–0.5/run (estimate) |
 
@@ -297,12 +358,16 @@ runs** unless the user explicitly asks for depth:
 
 ```bash
 bin/verdict run --topic <t> -q "<question>" --queries "<q1>" --queries "<q2>" \
-    --max-papers 15 --text-mode lean --consensus-pages 2
+    --max-papers 40 --text-mode lean
 ```
 
+- Consensus calls are not the constraint (the Pro plan has 500 calls/month):
+  do not trim queries or pages to save them. The LLM calls are the cost —
+  the screening (~1 call per 50 candidates), the critique (~1 call per 5
+  papers: up to ~8 calls at 40 papers) and the synthesis.
 - The two cost multipliers remain **corpus size** and **full text**:
-  `MAX_PAPERS` truncates the discovered corpus hard (it used to be a
-  warning-only soft cap — the 113-paper run slipped through it);
+  `MAX_PAPERS` (default 40) truncates the corpus sent to the critic hard (it
+  used to be a warning-only soft cap — the 113-paper run slipped through it);
   `--text-mode full` multiplies prompt size 5–10× and is for deep single
   questions by deliberate choice only. The default `hybrid` adds one
   deepening pass at the end of the critique stage (OA full-text fetch — Europe

@@ -16,6 +16,7 @@ import (
 type runFlags struct {
 	opts                 pipeline.Options
 	engineFlag, modeFlag string
+	sourcesFlag          string
 }
 
 // runCmd is the full pipeline for a research question or a list of DOIs.
@@ -42,6 +43,10 @@ func (c *cli) execute(ctx context.Context, f *runFlags) error {
 	}
 
 	if f.opts.TextMode, err = pipeline.ParseTextMode(f.modeFlag); err != nil {
+		return err
+	}
+
+	if f.opts.Sources, err = pipeline.ParseDiscoverySources(f.sourcesFlag); err != nil {
 		return err
 	}
 
@@ -116,7 +121,18 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	fl.StringVar(&f.engineFlag, "engine", "",
 		"discovery engine: consensus | openalex (default: consensus when CONSENSUS_API_KEY is set, else openalex)")
 	fl.IntVar(&opts.ConsensusPages, "consensus-pages", 0,
-		"max Consensus pages per query; each page is one API use (defaults to CONSENSUS_PAGES, 3)")
+		"max Consensus pages per query; a page of 100 papers is one API call (defaults to CONSENSUS_PAGES, 2)")
+	fl.StringVar(&f.sourcesFlag, "discovery-sources", "",
+		"mode B channels, comma-separated, any subset: consensus | pubmed | review_refs "+
+			"(defaults to DISCOVERY_SOURCES, all three) — for auditing one channel at a time")
+	fl.BoolVar(&opts.NoScreen, "no-screen", false,
+		"skip the LLM screening of the discovery pool: every candidate counts as included, the selection still runs "+
+			"(or NO_SCREEN=true)")
+	fl.StringVar(&opts.PubMedQuery, "pubmed-query", "",
+		"a ready PubMed topic query (Boolean, with field tags) instead of the model-written one: no query-writing call")
+	fl.StringSliceVar(&opts.ExcludeDOIs, "exclude-dois", nil,
+		"DOIs the run must not see, repeatable and/or comma-separated (a Cochrane DOI excludes every version "+
+			"of its CD number): dropped from every discovery channel before mining, and from --dois")
 	fl.StringVar(&opts.Topic, "topic", "",
 		"group the run under runs/<topic>/ (one topic per research problem)")
 	fl.StringVar(&opts.RunDir, "run-dir", "",
@@ -126,7 +142,7 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	fl.StringVar(&opts.StopAfter, "stop-after", "",
 		"stop after a stage: 1..4 or the full name (e.g. 2-enrichment)")
 	fl.IntVar(&opts.MaxPapers, "max-papers", 0,
-		"how many papers to take from discovery (defaults to MAX_PAPERS from env)")
+		"how many papers go to the critic after discovery's screening and selection (defaults to MAX_PAPERS, 40)")
 	fl.IntVar(&opts.Concurrency, "concurrency", 0,
 		"enrichment parallelism (defaults to CONCURRENCY from env)")
 	fl.IntVar(&opts.LLMConcurrency, "llm-concurrency", 0,

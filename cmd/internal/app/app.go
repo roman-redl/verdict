@@ -16,6 +16,7 @@ import (
 	"github.com/roman-redl/verdict/internal/openalex"
 	"github.com/roman-redl/verdict/internal/pdf"
 	"github.com/roman-redl/verdict/internal/pipeline"
+	"github.com/roman-redl/verdict/internal/pubmed"
 	"github.com/roman-redl/verdict/internal/pubpeer"
 	"github.com/roman-redl/verdict/internal/s2"
 	"github.com/roman-redl/verdict/internal/scite"
@@ -43,6 +44,8 @@ func PipelineSettings(cfg *config.Config) pipeline.Settings {
 		LLMConcurrency:   cfg.LLMConcurrency,
 		LLMChunk:         cfg.LLMChunk,
 		ConsensusPages:   cfg.ConsensusPages,
+		DiscoverySources: cfg.DiscoverySources,
+		NoScreen:         cfg.NoScreen,
 		TextMode:         cfg.TextMode,
 		HybridPivotalMax: cfg.HybridPivotalMax,
 		EnrichCacheTTL:   time.Duration(cfg.EnrichCacheTTLDays) * day,
@@ -51,13 +54,20 @@ func PipelineSettings(cfg *config.Config) pipeline.Settings {
 }
 
 // BuildClients assembles the pipeline's clients from the config and the
-// run options (per-run LLM command/model overrides included). The three
-// pipeline roles get their own backends — a cheap critic reads the abstracts,
-// a strong deep critic re-reads the pivotal studies in full, a strong judge
-// writes the verdict — each with the model and effort of its role.
+// run options (per-run LLM command/model overrides included). The pipeline
+// roles get their own backends — a cheap planner screens the discovery pool,
+// the critic reads the abstracts, a strong deep critic re-reads the pivotal
+// studies in full, a strong judge writes the verdict — each with the model and
+// effort of its role.
 func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (pipeline.Clients, error) {
 	spec := func(role llm.Role, roleModel string) CompleterSpec {
 		return CompleterSpec{Role: role, Command: opts.LLMCommand, Model: roleModel, RunModel: opts.LLMModel, Deep: opts.Deep}
+	}
+
+	// the plan role screens the discovery pool: a cheap model, no run flag of its own
+	plan, err := BuildCompleter(cfg, log, spec(llm.RolePlan, ""))
+	if err != nil {
+		return pipeline.Clients{}, err
 	}
 
 	crit, err := BuildCompleter(cfg, log, spec(llm.RoleCritique, opts.ModelCritique))
@@ -76,18 +86,22 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 	}
 
 	epmc := europepmc.New() // no key needed; abstracts and full texts
+	// the page size is the plan's to cap: the response says which one applied
+	search := consensus.New(cfg.ConsensusAPIKey, cfg.ConsensusPageSize)
 
 	clients := pipeline.Clients{
-		Citations:    scite.New(cfg.SciteAPIKey),         // key is optional
-		Works:        openalex.New(cfg.OpenAlexEmail),    // no key needed
-		Notices:      crossref.New(cfg.OpenAlexEmail),    // no key needed
-		Scholar:      s2.New(cfg.S2APIKey),               // key optional
-		Abstracts:    epmc,                               // abstracts OpenAlex lacks
-		FullTexts:    epmc,                               // OA full texts as XML, before the PDF
-		Commentary:   pubpeer.New(cfg.PubPeerDevKey),     // behind a devkey; HasKey gates the check
-		Search:       consensus.New(cfg.ConsensusAPIKey), // mode B; key optional, HasKey gates discovery
+		Citations:    scite.New(cfg.SciteAPIKey),      // key is optional
+		Works:        openalex.New(cfg.OpenAlexEmail), // no key needed
+		Notices:      crossref.New(cfg.OpenAlexEmail), // no key needed
+		Scholar:      s2.New(cfg.S2APIKey),            // key optional
+		Abstracts:    epmc,                            // abstracts OpenAlex lacks
+		FullTexts:    epmc,                            // OA full texts as XML, before the PDF
+		Commentary:   pubpeer.New(cfg.PubPeerDevKey),  // behind a devkey; HasKey gates the check
+		Search:       search,                          // mode B; key optional, HasKey gates discovery
 		PDFs:         pdf.NewDownloader(),
 		PDFText:      pdf.NewExtractor(log),
+		PubMed:       pubmed.New(cfg.NCBIAPIKey, cfg.OpenAlexEmail),
+		LLMPlan:      plan,
 		LLM:          crit,
 		LLMDeep:      deep,
 		LLMSynthesis: synth,

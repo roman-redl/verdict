@@ -33,7 +33,19 @@ type Options struct {
 	// Discovery controls.
 	Queries        []string // semantic queries for mode B (repeatable --queries); defaults to -q
 	Engine         Engine   // "" (auto: consensus when the key is present, else openalex) | consensus | openalex
-	ConsensusPages int      // max Consensus pages per query (defaults to CONSENSUS_PAGES, 3)
+	ConsensusPages int      // max Consensus pages per query (defaults to CONSENSUS_PAGES, 2)
+	// Sources limits the discovery channels of mode B (nil = DISCOVERY_SOURCES,
+	// default all three); NoScreen skips the LLM screening (every candidate
+	// counts as included); PubMedQuery is a ready PubMed topic query that
+	// replaces the model-written one.
+	Sources     DiscoverySources
+	NoScreen    bool
+	PubMedQuery string
+	// ExcludeDOIs are papers the run must not see: dropped from the pool as
+	// they arrive from every channel (so an excluded review is never mined),
+	// and from a --dois list. Each value is a DOI or a comma-separated list;
+	// a Cochrane review DOI excludes all versions of its CD number.
+	ExcludeDOIs []string
 
 	LLMCommand     string // claude-cli wrapper override for this run
 	LLMModel       string // model for every LLM stage (a name or an alias like sonnet | opus)
@@ -68,10 +80,14 @@ type Clients struct {
 	Abstracts  Abstracts      // Europe PMC: abstracts the primary sources lack
 	Commentary Commentary     // PubPeer: post-publication commentary (behind a developer key)
 	Search     SemanticSearch // Consensus: semantic discovery (behind an API key)
+	PubMed     PubMed         // PubMed: the topic and review searches of mode B discovery
 	FullTexts  FullTexts      // Europe PMC: open-access full texts as XML, tried before the PDF download
 	PDFs       PDFSource      // open-access PDF download
 	PDFText    PDFText        // PDF text extraction
 	LLM        Completer      // the critic: the per-paper methodology review
+	// LLMPlan screens the discovery pool (the cheap plan-role model); nil
+	// skips the screening and the review-reference mining that needs it.
+	LLMPlan Completer
 	// LLMDeep re-critiques the pivotal studies in the hybrid pass, once their
 	// full texts are in; nil = the same backend as LLM.
 	LLMDeep Completer
@@ -88,6 +104,10 @@ type Settings struct {
 	LLMConcurrency int // LLM stage parallelism
 	LLMChunk       int // studies per critique call
 	ConsensusPages int // Consensus pages per discovery query
+	// DiscoverySources is the default set of mode B channels (empty = all);
+	// NoScreen turns the discovery screening off for every run.
+	DiscoverySources DiscoverySources
+	NoScreen         bool
 	// TextMode is the default text mode ("" = hybrid).
 	TextMode TextMode
 	// HybridPivotalMax caps the pivotal studies the hybrid mode deepens.

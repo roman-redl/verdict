@@ -106,6 +106,19 @@ func TestCostFooter(t *testing.T) {
 		"the order is fixed")
 }
 
+// The screening line comes first: it is the earliest stage.
+func TestCostFooterIncludesScreening(t *testing.T) {
+	got := (&CostReport{
+		Critique:  &StageCost{Calls: 3, InputTokens: 30, OutputTokens: 6},
+		Screening: &StageCost{Calls: 2, InputTokens: 8, OutputTokens: 4},
+	}).Markdown()
+	assert.Equal(t, "LLM usage — screening: 2 calls, 8 in / 4 out tokens; critique: 3 calls, 30 in / 6 out tokens", got)
+
+	assert.Equal(t, "LLM usage — screening: 1 calls, 1 in / 1 out tokens",
+		(&CostReport{Screening: &StageCost{Calls: 1, InputTokens: 1, OutputTokens: 1}}).Markdown(),
+		"a run that only screened still reports it")
+}
+
 // A backend that reports no usage still made the call.
 func TestStageCostCountsAnUnreportedCall(t *testing.T) {
 	var c StageCost

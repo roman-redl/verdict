@@ -32,7 +32,7 @@ func TestSearchPageSendsKeyAndParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewWithBase(srv.URL+"/v1", "test-key")
+	c := NewWithBase(srv.URL+"/v1", "test-key", 0)
 
 	_, err := c.SearchPage(context.Background(), SearchParams{
 		Query: "does creatine improve cognition?", Page: 2, PageSize: 50,
@@ -81,7 +81,7 @@ func TestSearchPageDecodesEnvelope(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewWithBase(srv.URL, "test-key")
+	c := NewWithBase(srv.URL, "test-key", 0)
 
 	pg, err := c.SearchPage(context.Background(), SearchParams{Query: "q"})
 	require.NoError(t, err, "SearchPage")
@@ -145,7 +145,7 @@ func TestSearchPageErrorStatus(t *testing.T) {
 			w.WriteHeader(status)
 			_, _ = w.Write([]byte(`{"detail":[{"msg":"nope"}]}`))
 		}))
-		c := NewWithBase(srv.URL, "test-key")
+		c := NewWithBase(srv.URL, "test-key", 0)
 		_, err := c.SearchPage(context.Background(), SearchParams{Query: "q"})
 
 		srv.Close()

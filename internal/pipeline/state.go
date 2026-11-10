@@ -45,8 +45,12 @@ type State struct {
 
 // CostReport splits the run's LLM usage by stage.
 type CostReport struct {
-	Critique  *StageCost `json:"critique,omitempty"`
-	Synthesis *StageCost `json:"synthesis,omitempty"`
+	// QueryWriting is the discovery stage's one call that writes the PubMed
+	// topic query; Screening its LLM screening of the candidate pool.
+	QueryWriting *StageCost `json:"query_writing,omitempty"`
+	Screening    *StageCost `json:"screening,omitempty"`
+	Critique     *StageCost `json:"critique,omitempty"`
+	Synthesis    *StageCost `json:"synthesis,omitempty"`
 }
 
 // StageCost is the accumulated usage of one LLM stage.
@@ -69,7 +73,7 @@ func (s *StageCost) add(u Usage) {
 
 // Markdown renders the usage footer for report.md.
 func (c *CostReport) Markdown() string {
-	if c == nil || (c.Critique == nil && c.Synthesis == nil) {
+	if c == nil || (c.QueryWriting == nil && c.Screening == nil && c.Critique == nil && c.Synthesis == nil) {
 		return ""
 	}
 
@@ -79,7 +83,9 @@ func (c *CostReport) Markdown() string {
 	for _, stage := range []struct {
 		name string
 		cost *StageCost
-	}{{"critique", c.Critique}, {"synthesis", c.Synthesis}} {
+	}{
+		{"pubmed query", c.QueryWriting}, {"screening", c.Screening}, {"critique", c.Critique}, {"synthesis", c.Synthesis},
+	} {
 		if s := stage.cost; s != nil && (s.Calls > 0 || s.InputTokens > 0 || s.OutputTokens > 0) {
 			parts = append(parts, fmt.Sprintf("%s: %d calls, %d in / %d out tokens",
 				stage.name, s.Calls, s.InputTokens, s.OutputTokens))
@@ -117,6 +123,32 @@ func (s *State) critiqueCost() *StageCost {
 	}
 
 	return s.Cost.Critique
+}
+
+// queryWritingCost is the PubMed query writer's counterpart of critiqueCost.
+func (s *State) queryWritingCost() *StageCost {
+	if s.Cost == nil {
+		s.Cost = &CostReport{}
+	}
+
+	if s.Cost.QueryWriting == nil {
+		s.Cost.QueryWriting = &StageCost{}
+	}
+
+	return s.Cost.QueryWriting
+}
+
+// screeningCost is the discovery stage's counterpart of critiqueCost.
+func (s *State) screeningCost() *StageCost {
+	if s.Cost == nil {
+		s.Cost = &CostReport{}
+	}
+
+	if s.Cost.Screening == nil {
+		s.Cost.Screening = &StageCost{}
+	}
+
+	return s.Cost.Screening
 }
 
 func (s *State) synthesisCost() *StageCost {
@@ -164,13 +196,45 @@ func critiquesFor(st *State) []model.Critique {
 // "which engine, which queries, at what cost" (nil on pre-mode-B artifacts).
 type DiscoveryInfo struct {
 	Engine  Engine   `json:"engine"`            // consensus | openalex | dois
-	Queries []string `json:"queries,omitempty"` // the queries as actually run
-	// PagesFetched counts successful Consensus pages — each plausibly one
-	// API use spent (NOT "uses billed": retries and rejected pages differ).
-	PagesFetched int  `json:"pages_fetched,omitempty"`
-	PapersFound  int  `json:"papers_found,omitempty"` // after DOI-drop + dedup, before the --max-papers cut
+	Queries []string `json:"queries,omitempty"` // the Consensus queries as actually run
+	// Sources are the channels the run used (consensus | pubmed | review_refs);
+	// empty in artifacts written before the channels were selectable.
+	Sources []model.Source `json:"sources,omitempty"`
+	// NoScreen records that the LLM screening was off: every candidate counts
+	// as included.
+	NoScreen bool `json:"no_screen,omitempty"`
+	// PubMed records the PubMed channel's queries and counts; nil when the
+	// channel did not run.
+	PubMed *PubMedInfo `json:"pubmed,omitempty"`
+	// PagesFetched counts successful Consensus pages.
+	PagesFetched int `json:"pages_fetched,omitempty"`
+	// APICalls is the Consensus quota spent: one call per 100 papers a page
+	// returned, rounded up (NOT "uses billed": retries and rejected pages
+	// differ). It is the figure the cost note quotes, not PagesFetched.
+	APICalls int `json:"api_calls,omitempty"`
+	// PageSize is the page size the server applied (the plan may cap the
+	// requested one).
+	PageSize     int  `json:"page_size,omitempty"`
+	PapersFound  int  `json:"papers_found,omitempty"` // Consensus papers after DOI-drop + dedup, before screening
 	DroppedNoDOI int  `json:"dropped_no_doi,omitempty"`
-	Truncated    bool `json:"truncated,omitempty"` // page cap hit before the ranking ended
+	Truncated    bool `json:"truncated,omitempty"` // page cap (or the plan) stopped the walk before the ranking ended
+	// ReviewsMined is how many reviews of the pool had their reference list
+	// read; RefsAdded how many referenced works entered the pool as new
+	// candidates.
+	ReviewsMined int `json:"reviews_mined,omitempty"`
+	RefsAdded    int `json:"refs_added,omitempty"`
+	// ExcludeDOIs is the --exclude-dois list as the run used it (normalized);
+	// ExcludedDOIs are the DOIs of the candidates actually dropped by it (a
+	// Cochrane version other than the one listed shows up here), ExcludedCount
+	// their number.
+	ExcludeDOIs   []string `json:"exclude_dois,omitempty"`
+	ExcludedDOIs  []string `json:"excluded_dois,omitempty"`
+	ExcludedCount int      `json:"excluded_count,omitempty"`
+	// Pool is every candidate discovery considered, with the screening
+	// decisions and whether it entered the corpus (Papers is the corpus).
+	// Empty in artifacts written before the pool was kept and for DOI-list
+	// and keyword runs.
+	Pool []Candidate `json:"pool,omitempty"`
 }
 
 // RunState pairs a run directory name with its loaded state.

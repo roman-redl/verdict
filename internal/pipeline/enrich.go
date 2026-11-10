@@ -158,9 +158,10 @@ func applyCached(e *model.EnrichedPaper, c CacheEntry) {
 }
 
 // checkIntegrity runs the two retraction sources. Papers discovered through
-// OpenAlex already carry everything a ByDOI lookup returns (abstract, OA
-// link, retraction flag) — re-querying would be an exact duplicate. A manual
-// stub deserves one lookup in case the discovery one failed transiently.
+// OpenAlex (keyword discovery or the reference lists of reviews) already carry
+// everything a ByDOI lookup returns (abstract, OA link, retraction flag) —
+// re-querying would be an exact duplicate. A manual stub deserves one lookup
+// in case the discovery one failed transiently.
 func (p *Pipeline) checkIntegrity(ctx context.Context, e *model.EnrichedPaper) {
 	if e.Retracted {
 		e.Flags.Retracted = true
@@ -173,7 +174,7 @@ func (p *Pipeline) checkIntegrity(ctx context.Context, e *model.EnrichedPaper) {
 
 	doi := model.NormalizeDOI(e.DOI)
 
-	if p.clients.Works != nil && e.Source != model.SourceOpenAlex {
+	if p.clients.Works != nil && e.Source != model.SourceOpenAlex && e.Source != model.SourceReviewRefs {
 		w, err := p.clients.Works.ByDOI(ctx, doi)
 
 		switch {

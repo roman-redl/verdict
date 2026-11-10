@@ -411,12 +411,13 @@ func TestBuildCompleterLogsTheResolvedWrapper(t *testing.T) {
 	}
 }
 
-// The three pipeline roles get their own backends with their own models.
+// The pipeline roles get their own backends with their own models.
 func TestBuildClientsGivesEachRoleItsModel(t *testing.T) {
 	cfg := config.Config{LLMTimeout: time.Minute}
 
 	def, err := BuildClients(&cfg, quietLog(), pipeline.Options{})
 	require.NoError(t, err)
+	assert.Equal(t, maxName+llm.ModelSonnet, def.LLMPlan.Name(), "the discovery screening runs on the cheap plan role")
 	assert.Equal(t, maxName+llm.ModelOpus, def.LLM.Name())
 	assert.Equal(t, maxName+llm.ModelOpus, def.LLMDeep.Name())
 	assert.Equal(t, maxName+llm.ModelOpus, def.LLMSynthesis.Name())

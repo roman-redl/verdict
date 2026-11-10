@@ -42,6 +42,10 @@ const (
 	SourceOpenAlex  Source = "openalex"  // keyword discovery (mode A)
 	SourceConsensus Source = "consensus" // semantic discovery (mode B)
 	SourceManual    Source = "manual"    // a user-supplied DOI list (mode C)
+	SourcePubMed    Source = "pubmed"    // the PubMed search of mode B
+	// SourceReviewRefs marks a paper found in the reference list of a
+	// systematic review or meta-analysis of the discovery pool.
+	SourceReviewRefs Source = "review_refs"
 )
 
 // Work is a bibliographic record as a metadata source (OpenAlex) returns it:
@@ -113,6 +117,12 @@ type ScholarRecord struct {
 type SearchPage struct {
 	Papers []Paper
 	IsEnd  bool // the ranking is exhausted
+	// PageSize is the size the server applied: the plan may cap the size the
+	// request asked for. Zero when the source did not say.
+	PageSize int
+	// PageSizeAsked is the size the request carried; zero when the source's
+	// own default was used.
+	PageSizeAsked int
 }
 
 // CitationTally is a paper's Scite smart-citation breakdown.

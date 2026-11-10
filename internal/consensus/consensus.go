@@ -1,12 +1,14 @@
 // Package consensus is a client for the Consensus API
 // (api.consensus.app/v1): semantic ("by meaning") paper search — the mode B
 // discovery engine. Behind CONSENSUS_API_KEY (the Pro tier includes 500
-// uses/mo); every search request plausibly consumes one use, so callers walk
-// pages deliberately and record the count.
+// uses/mo); a search spends one use per 100 papers it returns, rounded up, so
+// callers walk pages deliberately and record the count.
 package consensus
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -25,13 +27,18 @@ type Client struct {
 	base string
 	http *httpx.Client
 	key  string
+	// pageSize is the page_size every search asks for; 0 leaves it to the
+	// server's default.
+	pageSize int
 }
 
-func New(key string) *Client { return NewWithBase(defaultBase, key) }
+// New builds a client; pageSize is the page_size of every search (the plan
+// may cap it: the size actually applied comes back in each page).
+func New(key string, pageSize int) *Client { return NewWithBase(defaultBase, key, pageSize) }
 
 // NewWithBase points the client at another base URL (for tests).
-func NewWithBase(base, key string) *Client {
-	return &Client{base: base, http: httpx.New("consensus", 1), key: key}
+func NewWithBase(base, key string, pageSize int) *Client {
+	return &Client{base: base, http: httpx.New("consensus", 1), key: key, pageSize: pageSize}
 }
 
 // HasKey reports whether the API key is configured (mode B available).
@@ -152,10 +159,17 @@ func (c *Client) SearchPage(ctx context.Context, p SearchParams) (*Page, error) 
 }
 
 // Page implements pipeline.SemanticSearch: one 0-indexed page of results for
-// the query, mapped to corpus papers.
+// the query, mapped to corpus papers. A 403 on a page after the first is the
+// Free plan refusing pagination: it comes back as pipeline.ErrPaginationDenied
+// (a 403 on the first page is a bad key or an exhausted quota and stays an
+// error as is).
 func (c *Client) Page(ctx context.Context, query string, page int) (model.SearchPage, error) {
-	pg, err := c.SearchPage(ctx, SearchParams{Query: query, Page: page})
+	pg, err := c.SearchPage(ctx, SearchParams{Query: query, Page: page, PageSize: c.pageSize})
 	if err != nil {
+		if se, ok := errors.AsType[*httpx.StatusError](err); ok && page > 0 && se.Status == http.StatusForbidden {
+			return model.SearchPage{}, fmt.Errorf("page %d: %w: %w", page, pipeline.ErrPaginationDenied, err)
+		}
+
 		return model.SearchPage{}, err
 	}
 
@@ -164,7 +178,9 @@ func (c *Client) Page(ctx context.Context, query string, page int) (model.Search
 		papers[i] = pg.Results[i].ToPaper()
 	}
 
-	return model.SearchPage{Papers: papers, IsEnd: pg.IsEnd}, nil
+	return model.SearchPage{
+		Papers: papers, IsEnd: pg.IsEnd, PageSize: pg.PageSize, PageSizeAsked: c.pageSize,
+	}, nil
 }
 
 // ToPaper converts a result into the domain model. OALink stays empty on

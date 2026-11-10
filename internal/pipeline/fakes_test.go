@@ -247,6 +247,49 @@ func (f *fakeSearch) Page(_ context.Context, query string, page int) (model.Sear
 	return f.page(query, page)
 }
 
+// fakePubMed is PubMed: hits per query (a query it has no entry for matches
+// nothing) and records per PMID (an absent PMID has none), or one error.
+type fakePubMed struct {
+	calls   counter
+	hits    func(query string) model.PubMedHits
+	records map[string]model.PubMedRecord
+	err     error
+	queries []string // the queries asked, in order
+	limits  []int    // the limit of each search
+}
+
+var _ PubMed = (*fakePubMed)(nil)
+
+func (f *fakePubMed) Search(_ context.Context, query string, limit int) (model.PubMedHits, error) {
+	f.calls.add("Search")
+	f.queries = append(f.queries, query)
+	f.limits = append(f.limits, limit)
+
+	if f.err != nil {
+		return model.PubMedHits{}, f.err
+	}
+
+	if f.hits == nil {
+		return model.PubMedHits{}, nil
+	}
+
+	return f.hits(query), nil
+}
+
+func (f *fakePubMed) Summaries(_ context.Context, pmids []string) ([]model.PubMedRecord, error) {
+	f.calls.add("Summaries")
+
+	var out []model.PubMedRecord
+
+	for _, id := range pmids {
+		if r, ok := f.records[id]; ok {
+			out = append(out, r)
+		}
+	}
+
+	return out, nil
+}
+
 type fakePDFs struct {
 	calls counter
 	fetch func(url string) ([]byte, error)

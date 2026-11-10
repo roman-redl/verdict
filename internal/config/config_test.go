@@ -1,12 +1,16 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/caarlos0/env/v11"
 	"github.com/stretchr/testify/require"
 
 	"github.com/roman-redl/verdict/internal/llm"
+	"github.com/roman-redl/verdict/internal/model"
+	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
 const (
@@ -23,8 +27,8 @@ func valid() Config {
 		LogFormat:      LogText,
 		LLMTimeout:     10 * time.Minute,
 		LLMConcurrency: 4, LLMChunk: 5,
-		MaxPapers: 15, Concurrency: 4,
-		HybridPivotalMax: 5, ConsensusPages: 3,
+		MaxPapers: 40, Concurrency: 4,
+		HybridPivotalMax: 5, ConsensusPages: 3, ConsensusPageSize: 100,
 		EnrichCacheTTLDays: 30, CritiqueCacheTTLDays: 30,
 	}
 }
@@ -119,6 +123,15 @@ func TestValidate(t *testing.T) {
 		{name: "zero papers", wantErr: "MAX_PAPERS", mutate: func(c *Config) {
 			c.MaxPapers = 0
 		}},
+		{name: "the largest page size", mutate: func(c *Config) {
+			c.ConsensusPageSize = 1000
+		}},
+		{name: "page size below 1", wantErr: "CONSENSUS_PAGE_SIZE", mutate: func(c *Config) {
+			c.ConsensusPageSize = 0
+		}},
+		{name: "page size above the API bound", wantErr: "CONSENSUS_PAGE_SIZE", mutate: func(c *Config) {
+			c.ConsensusPageSize = 1001
+		}},
 		{name: "negative TTL", wantErr: "ENRICH_CACHE_TTL_DAYS", mutate: func(c *Config) {
 			c.EnrichCacheTTLDays = -1
 		}},
@@ -155,6 +168,52 @@ func TestValidateReportsAllProblems(t *testing.T) {
 	require.ErrorContains(t, err, "ANTHROPIC_PROXY")
 	require.ErrorContains(t, err, "ANTHROPIC_MODEL")
 	require.ErrorContains(t, err, "MAX_PAPERS")
+}
+
+// The corpus cap defaults to what the measured discovery pools need: 12-44
+// on-topic papers per question.
+func TestCapDefaults(t *testing.T) {
+	t.Parallel()
+
+	var c Config
+
+	require.NoError(t, env.ParseWithOptions(&c, env.Options{Environment: map[string]string{}}))
+	require.Equal(t, 40, c.MaxPapers)
+}
+
+// The discovery switches come from the environment: the default is all three
+// channels, a bad channel is a startup error.
+func TestDiscoveryEnv(t *testing.T) {
+	t.Parallel()
+
+	parse := func(environment map[string]string) (Config, error) {
+		var c Config
+
+		if err := env.ParseWithOptions(&c, env.Options{Environment: environment}); err != nil {
+			return c, fmt.Errorf("parsing the environment: %w", err)
+		}
+
+		return c, nil
+	}
+
+	c, err := parse(map[string]string{})
+	require.NoError(t, err)
+	require.Equal(t, pipeline.DiscoverySources{
+		model.SourceConsensus, model.SourcePubMed, model.SourceReviewRefs,
+	}, c.DiscoverySources)
+	require.False(t, c.NoScreen)
+	require.Empty(t, c.NCBIAPIKey)
+
+	c, err = parse(map[string]string{
+		"DISCOVERY_SOURCES": "pubmed, review_refs", "NO_SCREEN": "true", "NCBI_API_KEY": "k",
+	})
+	require.NoError(t, err)
+	require.Equal(t, pipeline.DiscoverySources{model.SourcePubMed, model.SourceReviewRefs}, c.DiscoverySources)
+	require.True(t, c.NoScreen)
+	require.Equal(t, "k", c.NCBIAPIKey)
+
+	_, err = parse(map[string]string{"DISCOVERY_SOURCES": "consensus,google"})
+	require.ErrorContains(t, err, "unknown discovery source")
 }
 
 // The proxy URL carries credentials: an invalid one is never echoed.

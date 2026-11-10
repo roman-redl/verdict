@@ -14,16 +14,16 @@ type Usage struct {
 	OutputTokens int
 }
 
-// usageOf adds up the critique and synthesis stages; nil when the backend
-// reported no usage at all.
+// usageOf adds up the screening, critique and synthesis stages; nil when the
+// backend reported no usage at all.
 func usageOf(c *pipeline.CostReport) *Usage {
-	if c == nil || (c.Critique == nil && c.Synthesis == nil) {
+	if c == nil || (c.Screening == nil && c.Critique == nil && c.Synthesis == nil) {
 		return nil
 	}
 
 	var u Usage
 
-	for _, s := range []*pipeline.StageCost{c.Critique, c.Synthesis} {
+	for _, s := range []*pipeline.StageCost{c.Screening, c.Critique, c.Synthesis} {
 		if s == nil {
 			continue
 		}

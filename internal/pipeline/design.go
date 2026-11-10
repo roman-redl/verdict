@@ -47,6 +47,14 @@ func displayDesign(e *model.EnrichedPaper, c model.Critique) string {
 	return ""
 }
 
+// The discovery tags the pipeline itself produces besides Consensus's own
+// (PubMed's publication types become one of these).
+const (
+	discTagRCT        = "rct"
+	discTagMeta       = "meta-analysis"
+	discTagSystematic = "systematic review"
+)
+
 // consensusTags maps Consensus's study_type values (seen in real runs: rct,
 // meta-analysis, systematic review, non-randomized experimental study, cohort
 // study, cross-sectional study, literature review, case report, field study,
@@ -54,10 +62,10 @@ func displayDesign(e *model.EnrichedPaper, c model.Critique) string {
 // design set. "other" is Consensus's catch-all and says nothing, so it is
 // absent here: the title may still show a review.
 var consensusTags = map[string]model.StudyDesign{
-	"rct":                               model.DesignRCT,
+	discTagRCT:                          model.DesignRCT,
 	"randomized controlled trial":       model.DesignRCT,
-	"meta-analysis":                     model.DesignMetaAnalysis,
-	"systematic review":                 model.DesignSystematicReview,
+	discTagMeta:                         model.DesignMetaAnalysis,
+	discTagSystematic:                   model.DesignSystematicReview,
 	"literature review":                 model.DesignNarrativeReview,
 	"non-randomized experimental study": model.DesignNonrandomizedTrial,
 	"cohort study":                      model.DesignCohort,

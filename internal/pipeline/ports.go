@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -9,7 +10,7 @@ import (
 // The ports. Everything with a side effect that the pipeline needs from
 // outside — HTTP APIs, PDF download and parsing, the LLM — is an interface
 // declared here, on the consumer's side; the adapters (internal/scite,
-// openalex, crossref, s2, europepmc, pubpeer, consensus, pdf, llm) implement it and are
+// openalex, crossref, s2, europepmc, pubmed, pubpeer, consensus, pdf, llm) implement it and are
 // wired in cmd/internal/app. The pipeline tests run on handwritten fakes.
 //
 // Where a method returns (nil, nil), it means "the source knows nothing about
@@ -83,12 +84,32 @@ type Commentary interface {
 	HasKey() bool
 }
 
+// ErrPaginationDenied is what SemanticSearch.Page wraps when the plan does not
+// allow pages after the first (Consensus answers 403 to them on the free
+// plan). It is a limit of the plan, not a failure of the run: the walk keeps
+// what the first pages returned.
+var ErrPaginationDenied = errors.New("the plan does not allow pages after the first")
+
 // SemanticSearch is the semantic discovery engine (Consensus).
 type SemanticSearch interface {
-	// Page returns one 0-indexed page of results for the query.
+	// Page returns one 0-indexed page of results for the query. The page size
+	// is the adapter's own setting; the size actually applied comes back in
+	// the page. A page after the first that the plan refuses fails with
+	// ErrPaginationDenied.
 	Page(ctx context.Context, query string, page int) (model.SearchPage, error)
 	// HasKey reports whether the API key is configured.
 	HasKey() bool
+}
+
+// PubMed is the PubMed literature index (NCBI E-utilities): a Boolean search
+// over MEDLINE and the records behind its hits.
+type PubMed interface {
+	// Search runs a PubMed query and returns at most limit PMIDs in relevance
+	// order, with the total number of matching records.
+	Search(ctx context.Context, query string, limit int) (model.PubMedHits, error)
+	// Summaries returns the records of the PMIDs, in the order of the PMIDs;
+	// a PMID PubMed does not know is absent.
+	Summaries(ctx context.Context, pmids []string) ([]model.PubMedRecord, error)
 }
 
 // PDFSource downloads open-access PDFs.

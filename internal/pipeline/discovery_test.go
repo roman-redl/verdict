@@ -72,10 +72,9 @@ func TestDiscoverConsensusPagesCapTruncates(t *testing.T) {
 	assert.True(t, st.Discovery.Truncated, "cap hit on a not-ended ranking must set Truncated")
 }
 
-// An explicit --max-papers truncates the corpus after the page it crossed
-// the cap on (one request, one kept paper, PapersFound keeps the retrieved
-// count).
-func TestDiscoverConsensusStopsAtMaxPapers(t *testing.T) {
+// --max-papers cuts the corpus, not the search: PapersFound keeps the
+// retrieved count and the pool keeps every candidate.
+func TestDiscoverConsensusCutsTheCorpusAtMaxPapers(t *testing.T) {
 	search := &fakeSearch{key: true, page: func(string, int) (model.SearchPage, error) {
 		return pageOf(false, hit("10.1/a", "A"), hit("10.1/b", "B"), hit("10.1/c", "C")), nil
 	}}
@@ -89,6 +88,7 @@ func TestDiscoverConsensusStopsAtMaxPapers(t *testing.T) {
 	assert.Len(t, st.Papers, 1, "truncated")
 
 	assert.Equal(t, 3, st.Discovery.PapersFound, "PapersFound keeps the retrieved count")
+	assert.Len(t, st.Discovery.Pool, 3, "the pool keeps what the cut dropped")
 }
 
 // Multiple queries dedupe by DOI; DOI-less results are dropped with a
@@ -209,9 +209,9 @@ func TestDiscoverConsensusErrorIsLoud(t *testing.T) {
 	require.ErrorContains(t, err, "bad key", "the cause stays in the chain")
 }
 
-// Page 0 of every query is fetched before page 1 of any, and the corpus cap
-// trims the pooled lists fairly — the second reformulation is never crowded
-// out by the first (regression: queries after the cap-filler never ran).
+// The corpus cut takes the pool by rank across queries — the second
+// reformulation is never crowded out by the first (regression: queries after
+// the cap-filler never ran).
 func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
 	mkPage := func(prefix string) model.SearchPage {
 		papers := make([]model.Paper, 20)
@@ -229,13 +229,13 @@ func TestDiscoverConsensusFairShareAcrossQueries(t *testing.T) {
 
 		return mkPage("f"), nil
 	}}
-	p := newTest(t, Settings{ConsensusPages: 3, MaxPapers: 10}, Clients{Search: search}, quietLog())
+	p := newTest(t, Settings{ConsensusPages: 1, MaxPapers: 10}, Clients{Search: search}, quietLog())
 
 	st := &State{}
 	require.NoError(t, p.discoverWith(context.Background(), st,
 		Options{Question: "main", Queries: []string{"first q", "second q"}}))
 
-	assert.Equal(t, 2, search.calls.total(), "page 0 of each query; deeper pages skipped")
+	assert.Equal(t, 2, search.calls.total(), "page 0 of each query")
 
 	require.Len(t, st.Papers, 10, "the cap")
 

@@ -167,12 +167,17 @@ verdict run -q "..." --queries "<reformulation 1>" --queries "<reformulation 2>"
 
 Semantic discovery through the Consensus API, straight into the pipeline:
 DOIs, abstracts and study-design tags arrive ready (no title→DOI resolving).
-Each results page is one API use; the walk is capped at `CONSENSUS_PAGES`
-(default 3) per query — ≤9 uses per run with three queries (the Pro tier,
-$12/mo, includes 500/mo). Reformulations still matter: the page cap mirrors
-the web UI's ~50-row cut, so 2-3 `--queries` (from `verdict pico`) recover
-the recall. Provenance — engine, queries, pages spent, truncation — lands in
-`1-discovery.json` under `discovery`.
+A page is `CONSENSUS_PAGE_SIZE` papers (default 100) and costs one API call
+per 100 papers; the walk is capped at `CONSENSUS_PAGES` (default 2) per
+query — 4 calls for two queries (the Pro tier, $12/mo, includes 500/mo).
+Reformulations still matter: 2-3 `--queries` (from `verdict pico`) recover
+the recall. PubMed (free) is searched too, with a model-written MeSH query
+and the Cochrane trial filter. The whole candidate pool is kept, each paper
+with every channel that found it; the reference lists of its systematic
+reviews are mined for more trials, a cheap model screens the pool, and the
+best `MAX_PAPERS` (default 40) go to the critic. Provenance — engine, queries,
+pages, API calls, the pool with its per-channel ranks and screening
+decisions — lands in `1-discovery.json` under `discovery`.
 
 **C — free bridge over the Consensus web UI (manual selection — the
 semantic path without a key):**
@@ -225,7 +230,7 @@ cmd/verdict, cmd/verdictd   flags, wiring, startup; one file per CLI command
 cmd/internal/app            config -> clients (the only reader of internal/config besides the mains)
 internal/pipeline           the domain: stages, state, artifacts, report rendering;
                             depends only on the ports it declares (ports.go)
-internal/openalex, crossref, scite, s2, europepmc, pubpeer, consensus, pdf, llm
+internal/openalex, crossref, scite, s2, europepmc, pubmed, pubpeer, consensus, pdf, llm
                             adapters: each implements a pipeline port over an external service
 internal/httpx              the shared HTTP client: timeout, retries, Retry-After, size cap
 internal/db                 SQLite: numbered migrations, run index, daemon jobs
@@ -255,7 +260,7 @@ refreshed with `go test ./internal/pipeline -update`. Logging is `slog`;
 
 | Component | Default | Paid option |
 |---|---|---|
-| Discovery | mode B: Consensus API — a few uses per run (500/mo on Pro $12/mo); no key → mode C paste / mode A, $0 | — |
+| Discovery | mode B: Consensus API — ~4 calls per run (500/mo on Pro $12/mo); no key → mode C paste / mode A, $0 | — |
 | Citations | $0 (tallies without a key, 1 batched request per run) | Scite Pro $50/mo — not needed at this volume |
 | Metadata/retractions | OpenAlex — $0 (abstract fallback: Europe PMC — $0, no key) | — |
 | LLM | existing Claude Code tariff | direct API ≈ $0.3–0.5/run (a Sonnet-class model, estimate) |

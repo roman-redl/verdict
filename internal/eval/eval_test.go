@@ -321,4 +321,9 @@ func TestUsageOf(t *testing.T) {
 	assert.Nil(t, usageOf(&pipeline.CostReport{}))
 	assert.Equal(t, &Usage{Calls: 2, InputTokens: 5, OutputTokens: 7},
 		usageOf(&pipeline.CostReport{Synthesis: &pipeline.StageCost{Calls: 2, InputTokens: 5, OutputTokens: 7}}))
+	assert.Equal(t, &Usage{Calls: 3, InputTokens: 15, OutputTokens: 9},
+		usageOf(&pipeline.CostReport{
+			Screening: &pipeline.StageCost{Calls: 1, InputTokens: 10, OutputTokens: 2},
+			Synthesis: &pipeline.StageCost{Calls: 2, InputTokens: 5, OutputTokens: 7},
+		}), "the discovery screening is part of the run's spend")
 }

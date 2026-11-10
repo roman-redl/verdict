@@ -13,6 +13,9 @@ import (
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
+// maxConsensusPageSize is the largest page_size the Consensus API accepts.
+const maxConsensusPageSize = 1000
+
 // The values of LOG_FORMAT.
 const (
 	LogText = "text"
@@ -32,6 +35,9 @@ type Config struct {
 	S2APIKey        string `env:"S2_API_KEY"`        // optional: raises Semantic Scholar's free anonymous limits
 	PubPeerDevKey   string `env:"PUBPEER_DEVKEY"`    // optional: enables the PubPeer commentary check
 	ConsensusAPIKey string `env:"CONSENSUS_API_KEY"` // optional: mode B — semantic discovery via the Consensus API
+	// NCBIAPIKey is optional: PubMed's E-utilities allow 3 requests a second
+	// without it and 10 with it. A secret: it goes into requests and nowhere else.
+	NCBIAPIKey string `env:"NCBI_API_KEY"`
 
 	// LLM backend for the analytical stages: "" (auto: always claude-cli) |
 	// anthropic | claude-cli | openai-compat.
@@ -75,7 +81,9 @@ type Config struct {
 	OpenAIKey     string `env:"OPENAI_API_KEY"`
 	OpenAIProxy   string `env:"OPENAI_PROXY"`
 
-	MaxPapers   int `env:"MAX_PAPERS" envDefault:"15"`
+	// MaxPapers caps the papers sent to the critic (~1 critique call per
+	// LLM_CHUNK papers); discovery looks at a wider pool and keeps the best.
+	MaxPapers   int `env:"MAX_PAPERS" envDefault:"40"`
 	Concurrency int `env:"CONCURRENCY" envDefault:"4"`
 	// TextMode selects what the critic reads: lean (abstracts only), hybrid
 	// (abstracts first, then OA full texts for the pivotal studies — the
@@ -85,9 +93,20 @@ type Config struct {
 	// with full texts (the tail of the critique stage, before the synthesis).
 	HybridPivotalMax int `env:"HYBRID_PIVOTAL_MAX" envDefault:"5"`
 	// ConsensusPages caps the Consensus search pages fetched per discovery
-	// query (quota: each HTTP request plausibly consumes one of the plan's
-	// monthly uses).
-	ConsensusPages int `env:"CONSENSUS_PAGES" envDefault:"3"`
+	// query: with the default page size, 2 pages are up to 200 candidates and
+	// 2 API calls per query.
+	ConsensusPages int `env:"CONSENSUS_PAGES" envDefault:"2"`
+	// ConsensusPageSize is the page_size of every Consensus search: one API
+	// call per 100 papers returned. The plan caps it (Free 20, Pro and Teams
+	// 300, Deep 750; the response says what was applied), so the default of
+	// 100 is one call per page on a paid plan.
+	ConsensusPageSize int `env:"CONSENSUS_PAGE_SIZE" envDefault:"100"`
+	// DiscoverySources are the mode B channels (consensus, pubmed, review_refs;
+	// any subset); the run's --discovery-sources overrides it.
+	DiscoverySources pipeline.DiscoverySources `env:"DISCOVERY_SOURCES" envDefault:"consensus,pubmed,review_refs"`
+	// NoScreen skips the LLM screening of the discovery pool: every candidate
+	// counts as included (an audit switch, off by default).
+	NoScreen bool `env:"NO_SCREEN"`
 	// EnrichCacheTTLDays is the freshness window, in days, of the per-topic
 	// DOI enrichment cache (OpenAlex/Crossref lookups); 0 disables the cache.
 	EnrichCacheTTLDays int `env:"ENRICH_CACHE_TTL_DAYS" envDefault:"30"`
@@ -191,6 +210,12 @@ func (c *Config) Validate() error {
 		if f.val < 1 {
 			errs = append(errs, fmt.Errorf("%s must be at least 1, got %d", f.name, f.val))
 		}
+	}
+
+	// (page+1)*page_size <= 1000 is the API's own bound
+	if c.ConsensusPageSize < 1 || c.ConsensusPageSize > maxConsensusPageSize {
+		errs = append(errs, fmt.Errorf("CONSENSUS_PAGE_SIZE must be between 1 and %d, got %d",
+			maxConsensusPageSize, c.ConsensusPageSize))
 	}
 
 	for _, f := range []struct {

@@ -42,12 +42,19 @@ modes A/B/C are a different thing — see docs/usage.md.)
      recon taught you. Recall comes from 2-3 reformulations of the question —
      different populations or angles. Then
      `bin/verdict run --topic <topic> -q "<full question>" --queries "<q1>"
-     --queries "<q2>" --stop-after 1` — discovery only, ≤3 pages per query;
-     tell the user the run spends Consensus quota (~3-9 uses). Read the
-     run's `1-discovery.json`: papers arrive with DOIs, abstracts and
-     design tags — no paste, no resolving. Do not let Consensus's own
-     takeaways frame which papers matter — the pipeline judges papers
-     itself.
+     --queries "<q2>" --stop-after 1` — discovery only (2 pages of 100
+     papers per query by default); tell the user the run spends Consensus
+     quota (state the `discovery.api_calls` it used; calls are not the
+     constraint — do not trim queries or pages to save them). Discovery
+     searches Consensus and PubMed (a model-written MeSH query with the
+     Cochrane trial filter), keeps the whole candidate pool, mines the
+     reference lists of its systematic reviews, screens the pool with a cheap
+     model and keeps the best `MAX_PAPERS` (40): read the run's
+     `1-discovery.json` — `papers` is the corpus (DOIs, abstracts, design
+     tags — no paste, no resolving), `discovery.pool` every candidate with its
+     `sources` (every channel that found it, each with its rank) and
+     screening decision. Do not let Consensus's own takeaways frame which papers
+     matter — the pipeline judges papers itself.
    - **3b (mode C, no key).** Hand the user the 1-3 ready queries (full
      natural-language questions; consensus.app, free). The UI caps the
      visible list at ~50 rows ("Load more" stops there), so recall comes
@@ -63,8 +70,12 @@ modes A/B/C are a different thing — see docs/usage.md.)
    (a CSV export), `bin/verdict dois` instead. Merge with on-topic recon
    candidates and dedupe by DOI. In mode B skip this — the discovery
    artifact already carries DOIs.
-5. **Snowball check (you, free, one command).** Seeds: the mode-C dois.txt
-   or, in mode B, the DOIs from `1-discovery.json`. Run
+5. **Snowball check (you, free, one command; optional in mode B).** In
+   mode B the reference lists of the systematic reviews in the pool are
+   already mined automatically (the references become pool candidates), so
+   run this only as an extra check, e.g. for newer works that cite the
+   corpus. Seeds: the mode-C dois.txt or, in mode B, the DOIs from
+   `1-discovery.json`. Run
    `bin/verdict snowball <seeds>`: it lists works connected to several
    seed papers at once (cited by them or citing them). **You curate**: add
    only candidates clearly on-topic for the question (read their titles;
