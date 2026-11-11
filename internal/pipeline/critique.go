@@ -62,8 +62,9 @@ const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the 
 const critiqueSampleRule = `Report sample size only if it is explicitly stated: for a randomized trial, the ` +
 	`number RANDOMIZED into the compared arms — not the number screened or eligible, not participants of ` +
 	`non-randomized preference, observational or registry arms, not households when individuals were ` +
-	`randomized (when households or other clusters were randomized, give the number randomized and name the ` +
-	`unit in concerns); for a non-randomized study, the number analysed in the compared groups. `
+	`randomized; for a cluster-randomized trial (villages, clinics, households, schools), the number of ` +
+	`individual participants in the randomized clusters, never the number of clusters (name the clusters and ` +
+	`their number in concerns); for a non-randomized study, the number analysed in the compared groups. `
 
 // critiqueEffectRules are the extraction and judgement rules that go with the
 // effect field.
