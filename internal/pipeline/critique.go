@@ -56,6 +56,15 @@ const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the 
 	`reversed (true only when the paper's comparison is the comparator versus the intervention; omit otherwise), ` +
 	`and unit for an MD.`
 
+// critiqueSampleRule says which number sample_size_reported is: the pool and
+// the information-size rating rest on it, so a trial's non-randomized or
+// screened participants must not enter it.
+const critiqueSampleRule = `Report sample size only if it is explicitly stated: for a randomized trial, the ` +
+	`number RANDOMIZED into the compared arms — not the number screened or eligible, not participants of ` +
+	`non-randomized preference, observational or registry arms, not households when individuals were ` +
+	`randomized (when households or other clusters were randomized, give the number randomized and name the ` +
+	`unit in concerns); for a non-randomized study, the number analysed in the compared groups. `
+
 // critiqueEffectRules are the extraction and judgement rules that go with the
 // effect field.
 const critiqueEffectRules = `Effect extraction rules:
@@ -68,6 +77,8 @@ const critiqueEffectRules = `Effect extraction rules:
 	`no counts from percentages (give the percent and the arm's total instead), no SD from a standard error ` +
 	`or an interval, no estimate from counts. Copy a reported interval together with its stated level ` +
 	`(ci_level), whatever it is: 90%, 95%, 97.2%.
+- The totals and n of the arms are those of the compared groups only: never add the participants of a ` +
+	`non-randomized preference, observational or registry arm, and never use the number screened.
 - Prefer counts or means for both arms; use a reported estimate with its interval only when the arms' ` +
 	`numbers are not given, with two exceptions where the estimate comes first. Time-to-event outcomes ` +
 	`(survival, time to relapse, progression or healing): give the reported hazard ratio with its interval, ` +
@@ -92,7 +103,7 @@ const critiqueSystemPrompt = `You are a rigorous methodologist and peer reviewer
 	`You assess a single study's evidential value for a specific research question, ` +
 	`based ONLY on the data provided (title, abstract or full text, design tags, citation tallies). ` +
 	`Never invent facts; if data is missing, use the "unknown"/"unclear" values. ` +
-	`Report sample size only if it is explicitly stated. ` +
+	critiqueSampleRule +
 	`When full_text is provided, it supersedes the abstract: read the methods and results sections, ` +
 	`judge relevance and result_direction from them, ` +
 	`and report concerns invisible in the abstract (statistical issues, endpoint switching, ` +
@@ -140,7 +151,7 @@ const batchCritiqueSystemPrompt = `You are a rigorous methodologist and peer rev
 	`based ONLY on the data provided per study (title, abstract or full text, design tags, citation tallies). ` +
 	`Assess each study INDEPENDENTLY: one study must not influence another's assessment. ` +
 	`Never invent facts; if data is missing, use the "unknown"/"unclear" values. ` +
-	`Report sample size only if it is explicitly stated. ` +
+	critiqueSampleRule +
 	`When a study's full_text is provided, it supersedes its abstract: read the methods and results sections, ` +
 	`judge relevance and result_direction from them, ` +
 	`and report concerns invisible in the abstract (statistical issues, endpoint switching, ` +
