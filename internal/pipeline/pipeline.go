@@ -84,6 +84,7 @@ type Clients struct {
 	Commentary Commentary     // PubPeer: post-publication commentary (behind a developer key)
 	Search     SemanticSearch // Consensus: semantic discovery (behind an API key)
 	PubMed     PubMed         // PubMed: the topic and review searches of mode B discovery
+	Trials     TrialRegistry  // PubMed: the trial registration numbers of a record's data banks
 	FullTexts  FullTexts      // Europe PMC: open-access full texts as XML, tried before the PDF download
 	PMC        PMCArchive     // PubMed Central: ID converter and efetch XML, after Europe PMC
 	Landings   Landings       // doi.org: the publisher page a DOI resolves to (for the page reader)

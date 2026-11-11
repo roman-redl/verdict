@@ -106,7 +106,8 @@ Hard rules:
 	`consensus_status/consensus say WHERE the field leans.
 7. Compare author lists across studies: several studies from the same research group are ONE line of evidence, ` +
 	`not independent replications — weigh them accordingly and note any group overlap in contradictions or gaps; ` +
-	`the overlap alone does not lower the verdict.
+	`the overlap alone does not lower the verdict. Reports that share a registration number ` +
+	`(trial_registrations) are ONE trial reported several times, not replications: count it once.
 8. When pooled_estimate is present, it is the pooled effect of the direct studies computed by the pipeline: ` +
 	`use it for direction and imprecision (a CI that excludes no effect supports a direction; a narrow CI ` +
 	`around no effect supports no_effect); never recompute it; individual non-significant studies do not ` +
@@ -120,8 +121,9 @@ Hard rules:
 	`pooled estimate supports (read against the change the claim states; little_or_no_difference = no_effect; ` +
 	`"undetermined" = you judge the direction), and its levels are the imprecision rating; do not state a ` +
 	`different direction (unless the target is "undetermined") or rate imprecision again. ` +
-	`Studies listed in left_out reported the outcome on another scale and are not in the pooled numbers: ` +
-	`weigh them as individual results.
+	`Studies listed in left_out reported the outcome on another scale, or are earlier reports of a trial ` +
+	`whose latest report is pooled, and are not in the pooled numbers: weigh them as individual results ` +
+	`(a repeat report adds no participants).
 9. Systematic reviews and meta-analyses (see design and critique.study_design) are a cross-check of the ` +
 	`primary studies, not independent evidence: do not count a review in the direct tally together with the ` +
 	`trials it includes. The pooled_estimate never includes them.`
@@ -219,6 +221,7 @@ func synthesisUserPrompt(st *State) (string, error) {
 		Authors              []string             `json:"authors,omitempty"`
 		Design               string               `json:"design,omitempty"`
 		SampleSize           int                  `json:"sample_size,omitempty"`
+		TrialRegistrations   []string             `json:"trial_registrations,omitempty"`
 		Abstract             string               `json:"abstract,omitempty"`
 		CitedBy              int                  `json:"cited_by_count,omitempty"`
 		TLDR                 string               `json:"tldr,omitempty"` // when no abstract exists
@@ -241,6 +244,7 @@ func synthesisUserPrompt(st *State) (string, error) {
 			Authors:              cappedAuthors(e.Authors, 15),
 			Design:               displayDesign(e, crits[i]),
 			SampleSize:           e.SampleSize,
+			TrialRegistrations:   e.TrialIDs(),
 			CitedBy:              e.CitedByCount,
 			TLDR:                 e.TLDR,
 			Tally:                e.Tally,

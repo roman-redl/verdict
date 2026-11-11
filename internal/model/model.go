@@ -177,6 +177,12 @@ type EnrichedPaper struct {
 	// "pmc" (NCBI efetch XML), "pdf" or "jina:<host>" (a page read by the
 	// Jina Reader). Empty in artifacts written before the field existed.
 	FullTextSource string `json:"full_text_source,omitempty"`
+	// TrialRegistrations are the trial registration numbers of the paper
+	// (NCT..., ISRCTN..., normalized), from its abstract and from the PubMed
+	// record's data banks. Papers that share one report the same trial; use
+	// TrialIDs to read them, which also covers artifacts written before the
+	// field existed.
+	TrialRegistrations []string `json:"trial_registrations,omitempty"`
 }
 
 // Critique is the per-paper methodology review (the map step of the LLM stage).

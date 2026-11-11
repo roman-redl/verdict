@@ -57,7 +57,17 @@ type pooledStudy struct {
 
 	// outcome is the critic's name of the outcome with its time point.
 	outcome string
+
+	// trial is 1 + the index of the first paper of the study's trial (papers
+	// that share a trial registration number report one trial); 0 means it is
+	// not known to repeat another study. regs are the study's registration
+	// numbers and year its publication year, the reasons to keep one report.
+	trial int
+	regs  []string
+	year  int
 }
+
+func (ps *pooledStudy) rank() reportRank { return reportRank{doi: ps.doi, year: ps.year, n: ps.n} }
 
 // maxOutcomeRunes caps the joined outcome texts of a pool.
 const maxOutcomeRunes = 200
@@ -100,45 +110,19 @@ var errNoNumbers = errors.New("no usable numbers")
 // Numbers that cannot be an effect are ignored with a warning.
 func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate {
 	crits := critiquesFor(st)
+	trials := trialGroups(trialInputs(st, crits))
 
 	var items []pooledStudy
 
 	for i := range st.Enriched {
-		e, c := &st.Enriched[i], crits[i]
-		if c.Effect == nil || c.Relevance != relevanceDirect || e.Flags.Retracted {
+		e := &st.Enriched[i]
+
+		ps, ok := p.studyEffect(e, crits[i])
+		if !ok {
 			continue
 		}
 
-		// A review's estimate repeats the data of the trials it includes, and
-		// pooling both counts that data twice (a falsely narrow interval). A
-		// study of unknown design stays in the pool: dropping it on a guess
-		// would lose a real trial.
-		if d := resolveDesign(e, c); d.IsSecondary() {
-			p.log.Info("effect not pooled: secondary research", "doi", cmp.Or(e.DOI, e.Title), "design", d)
-			continue
-		}
-
-		ps, err := deriveEffect(c.Effect)
-		if err != nil {
-			p.log.Warn("effect not pooled: unusable numbers", "doi", e.DOI, "err", err)
-			continue
-		}
-
-		ps.doi = cmp.Or(e.DOI, e.Title)
-		ps.outcome = outcomeLabel(c.Effect)
-
-		if ps.converted != "" {
-			p.log.Info("effect counts derived from percentages", "doi", e.DOI, "derived", ps.converted)
-		}
-
-		if ps.flipped != "" {
-			p.log.Info("reported estimate reversed to intervention vs control", "doi", e.DOI, "flipped", ps.flipped)
-		}
-
-		if ps.n == 0 {
-			ps.n = cmp.Or(e.SampleSize, c.SampleSizeReported)
-		}
-
+		ps.trial, ps.regs, ps.year = trials[i]+1, e.TrialIDs(), e.Year
 		items = append(items, ps)
 	}
 
@@ -149,199 +133,44 @@ func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate {
 	return p.poolBest(settleContinuous(items))
 }
 
-// deriveEffect puts one study's extracted numbers on an analysis scale:
-// counts first, then means, then a reported estimate with its interval.
-func deriveEffect(ef *model.Effect) (pooledStudy, error) {
-	if ef.Intervention != nil && ef.Control != nil {
-		a, b, ok, err := countArms(ef.Intervention, ef.Control)
-		if err != nil {
-			return pooledStudy{}, fmt.Errorf("counts: %w", err)
-		}
-
-		if ok {
-			return deriveCounts(a, b)
-		}
-
-		if a, b, ok := meanArms(ef.Intervention, ef.Control); ok {
-			return deriveContinuous(a, b, ef.Unit)
-		}
+// studyEffect puts one study's effect on its analysis scale; false when the
+// study does not take part in pooling.
+func (p *Pipeline) studyEffect(e *model.EnrichedPaper, c model.Critique) (pooledStudy, bool) {
+	if c.Effect == nil || c.Relevance != relevanceDirect || e.Flags.Retracted {
+		return pooledStudy{}, false
 	}
 
-	if ef.Measure != "" {
-		return deriveReported(ef)
+	// A review's estimate repeats the data of the trials it includes, and
+	// pooling both counts that data twice (a falsely narrow interval). A
+	// study of unknown design stays in the pool: dropping it on a guess
+	// would lose a real trial.
+	if d := resolveDesign(e, c); d.IsSecondary() {
+		p.log.Info("effect not pooled: secondary research", "doi", cmp.Or(e.DOI, e.Title), "design", d)
+		return pooledStudy{}, false
 	}
 
-	return pooledStudy{}, errNoNumbers
-}
-
-// deriveCounts turns the counts of both arms into the study's log RR (its
-// default measure) and the log OR it can be pooled as instead.
-func deriveCounts(a, b countedArm) (pooledStudy, error) {
-	rr, err := meta.LogRR(a.events, a.total, b.events, b.total)
+	ps, err := deriveEffect(c.Effect)
 	if err != nil {
-		return pooledStudy{}, fmt.Errorf("counts: %w", err)
+		p.log.Warn("effect not pooled: unusable numbers", "doi", e.DOI, "err", err)
+		return pooledStudy{}, false
 	}
 
-	// LogOR rejects exactly the counts LogRR rejects, so this error is not
-	// expected; it is returned all the same instead of dropping the OR silently
-	or, err := meta.LogOR(a.events, a.total, b.events, b.total)
-	if err != nil {
-		return pooledStudy{}, fmt.Errorf("counts: %w", err)
+	ps.doi = cmp.Or(e.DOI, e.Title)
+	ps.outcome = outcomeLabel(c.Effect)
+
+	if ps.converted != "" {
+		p.log.Info("effect counts derived from percentages", "doi", e.DOI, "derived", ps.converted)
 	}
 
-	return pooledStudy{
-		measure: model.MeasureRR, study: rr, fromCounts: true, or: or, n: int(a.total + b.total),
-		converted: strings.Join(slices.DeleteFunc([]string{a.derived, b.derived},
-			func(s string) bool { return s == "" }), "; "),
-	}, nil
-}
-
-// countedArm is the events and total of one arm; derived describes the count
-// when it was computed from a percentage.
-type countedArm struct {
-	events, total float64
-	derived       string
-}
-
-// countArms returns the events and totals of both arms when both can be
-// counted. An error means a percentage that cannot be one.
-func countArms(i, c *model.Arm) (a, b countedArm, ok bool, err error) {
-	a, okA, err := countArm(i, "intervention")
-	if err != nil {
-		return a, b, false, err
+	if ps.flipped != "" {
+		p.log.Info("reported estimate reversed to intervention vs control", "doi", e.DOI, "flipped", ps.flipped)
 	}
 
-	b, okB, err := countArm(c, "control")
-	if err != nil {
-		return a, b, false, err
+	if ps.n == 0 {
+		ps.n = cmp.Or(e.SampleSize, c.SampleSizeReported)
 	}
 
-	return a, b, okA && okB, nil
-}
-
-// countArm reads one arm: events and total as given, or, when the study
-// reports only a percentage of the arm, events = round(percent / 100 * total).
-// A percentage outside 0-100 is an error; given events win over a percentage.
-func countArm(a *model.Arm, label string) (countedArm, bool, error) {
-	if a.Total == nil {
-		return countedArm{}, false, nil
-	}
-
-	if a.Events != nil {
-		return countedArm{events: *a.Events, total: *a.Total}, true, nil
-	}
-
-	if a.Percent == nil {
-		return countedArm{}, false, nil
-	}
-
-	pct := *a.Percent
-	if math.IsNaN(pct) || pct < 0 || pct > 100 {
-		return countedArm{}, false, fmt.Errorf("%s arm: percent %v is outside 0-100", label, pct)
-	}
-
-	events := math.Round(pct / 100 * *a.Total)
-
-	return countedArm{
-		events: events, total: *a.Total,
-		derived: fmt.Sprintf("%s %v%% of %v = %v events", label, pct, *a.Total, events),
-	}, true, nil
-}
-
-// meanArms returns the means, SDs and sizes of both arms when all are given.
-func meanArms(i, c *model.Arm) (a, b meta.Arm, ok bool) {
-	if i.Mean == nil || i.SD == nil || i.N == nil || c.Mean == nil || c.SD == nil || c.N == nil {
-		return a, b, false
-	}
-
-	return meta.Arm{Mean: *i.Mean, SD: *i.SD, N: *i.N}, meta.Arm{Mean: *c.Mean, SD: *c.SD, N: *c.N}, true
-}
-
-func deriveContinuous(a, b meta.Arm, unit string) (pooledStudy, error) {
-	md, err := meta.MD(a, b)
-	if err != nil {
-		return pooledStudy{}, fmt.Errorf("means: %w", err)
-	}
-
-	smd, err := meta.HedgesG(a, b)
-	if err != nil {
-		return pooledStudy{}, fmt.Errorf("means: %w", err)
-	}
-
-	sd, err := meta.PooledSD(a, b)
-	if err != nil {
-		return pooledStudy{}, fmt.Errorf("means: %w", err)
-	}
-
-	return pooledStudy{
-		continuous: true, unit: tidyUnit(unit), md: md, smd: smd, sd: sd, n: int(a.N + b.N),
-	}, nil
-}
-
-// deriveReported handles a study that reports an estimate and its confidence
-// interval, at the stated level (95% when none is stated).
-func deriveReported(ef *model.Effect) (pooledStudy, error) {
-	m, err := model.ParseMeasure(ef.Measure)
-	if err != nil {
-		return pooledStudy{}, fmt.Errorf("estimate: %w", err)
-	}
-
-	if ef.Value == nil || ef.CILow == nil || ef.CIHigh == nil {
-		return pooledStudy{}, fmt.Errorf("estimate %s: %w: the value or its interval is missing", m, errNoNumbers)
-	}
-
-	ps := pooledStudy{measure: m}
-
-	level := meta.DefaultLevel
-	if ef.CILevel != nil {
-		level = *ef.CILevel
-	}
-
-	value, low, high := *ef.Value, *ef.CILow, *ef.CIHigh
-
-	if ef.Reversed {
-		value, low, high, err = reverseEstimate(m, value, low, high)
-		if err != nil {
-			return pooledStudy{}, fmt.Errorf("estimate %s: %w", m, err)
-		}
-
-		ps.flipped = fmt.Sprintf("%s %v (%v to %v) -> %v (%v to %v)",
-			m, *ef.Value, *ef.CILow, *ef.CIHigh, value, low, high)
-	}
-
-	if m.IsRatio() {
-		ps.study, err = meta.RatioCI(value, low, high, level)
-	} else {
-		ps.study, err = meta.DifferenceCI(value, low, high, level)
-	}
-
-	if err != nil {
-		return pooledStudy{}, fmt.Errorf("estimate %s: %w", m, err)
-	}
-
-	if m == model.MeasureMD {
-		// a mean difference is poolable only with studies in the same unit
-		if ps.unit = tidyUnit(ef.Unit); ps.unit == "" {
-			return pooledStudy{}, errors.New("estimate MD: the unit is not stated")
-		}
-	}
-
-	return ps, nil
-}
-
-// reverseEstimate turns an estimate of the comparator versus the intervention
-// into the intervention versus the comparator: a ratio becomes 1/value with the
-// interval 1/high .. 1/low, a difference becomes -value with -high .. -low.
-func reverseEstimate(m model.Measure, value, low, high float64) (v, lo, hi float64, err error) {
-	if !m.IsRatio() {
-		return -value, -high, -low, nil
-	}
-
-	if value <= 0 || low <= 0 || high <= 0 {
-		return 0, 0, 0, fmt.Errorf("ratio %v (%v to %v) cannot be reversed: it must be positive", value, low, high)
-	}
-
-	return 1 / value, 1 / high, 1 / low, nil
+	return ps, true
 }
 
 // tidyUnit collapses the spaces of a unit as the critic wrote it; normUnit is
@@ -392,6 +221,9 @@ type poolGroup struct {
 	unit    string
 	items   []pooledStudy
 	idx     []int
+	// repeats says, for the studies the group dropped as repeat reports of a
+	// trial it already holds (keyed like idx), why.
+	repeats map[int]string
 }
 
 func (g *poolGroup) participants() int {
@@ -455,6 +287,11 @@ func candidateGroups(items []pooledStudy) []*poolGroup {
 			add(i, model.MeasureOR, items[i].or)
 		}
 	}
+	// before the groups are compared by their participants: a second report of
+	// a trial must not inflate the group's size
+	for _, g := range groups {
+		g.repeats = g.dropRepeatReports()
+	}
 
 	return groups
 }
@@ -486,6 +323,13 @@ func (p *Pipeline) poolBest(items []pooledStudy) *model.PooledEstimate {
 			continue
 		}
 
+		if reason, repeat := best.repeats[i]; repeat {
+			p.log.Info("effect not pooled: repeat report of a trial", "doi", items[i].doi, "reason", reason)
+			pe.LeftOut = append(pe.LeftOut, reason)
+
+			continue
+		}
+
 		// a count study is labelled with its default measure, RR, though it
 		// could have joined an OR pool
 		p.log.Info("effect not pooled: other measure", "doi", items[i].doi, "measure", items[i].measure)
@@ -494,7 +338,8 @@ func (p *Pipeline) poolBest(items []pooledStudy) *model.PooledEstimate {
 
 	if len(pe.LeftOut) > 0 {
 		p.log.Info("effects use several measures: pooling the group with most participants",
-			"measure", best.measure, "studies", len(best.items), "left_out", len(pe.LeftOut))
+			"measure", best.measure, "studies", len(best.items), "left_out", len(pe.LeftOut),
+			"repeat_reports", len(best.repeats))
 	}
 
 	return pe

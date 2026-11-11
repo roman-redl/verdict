@@ -4,7 +4,8 @@ package pipeline
 // then per paper: OpenAlex (retractions, open-access links, abstracts) and
 // Crossref update notices (the Retraction Watch signal, typically ahead of
 // OpenAlex), full texts, PubPeer commentary and the Scite drill-down; at the
-// end one Europe PMC request fills the abstracts still missing. One
+// end one Europe PMC request fills the abstracts still missing and the trial
+// registration numbers are read (abstracts first, then PubMed). One
 // source failing for one paper does not kill the stage — it is recorded in
 // Errors/Warnings and synthesis proceeds on partial data.
 
@@ -89,6 +90,9 @@ func (p *Pipeline) enrich(ctx context.Context, rp runParams, st *State) error {
 	// fresh papers and of cached ones alike.
 	_, warns = p.fillAbstracts(ctx, enriched, batch.cache)
 	st.Warnings = append(st.Warnings, warns...)
+
+	// after the abstracts: the registration numbers are read from them
+	p.fillTrialRegistrations(ctx, enriched)
 
 	if err := batch.cache.Save(cachePath); err != nil {
 		p.log.Warn("enrichment cache not saved", "err", err)

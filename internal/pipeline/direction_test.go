@@ -31,7 +31,7 @@ func TestDirectionTally(t *testing.T) {
 		}, "2 mixed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, directionTally(tc.in))
+			require.Equal(t, tc.want, directionTally(&State{Critiques: tc.in}))
 		})
 	}
 }

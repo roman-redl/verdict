@@ -241,7 +241,7 @@ Keep only correct runs: when a run is superseded or broken, delete it
 |---|---|
 | `0-input.txt` | the raw paste/DOI list the corpus came from (audit trail) |
 | `1-discovery.json` | found papers (DOIs, abstracts, design tags); its `question` field is reused verbatim by challenge re-runs |
-| `2-enrichment.json` | Scite tallies + retraction flags (OpenAlex **and** Crossref/Retraction Watch) + OA links + who contradicts (Scite key) + abstracts OpenAlex withholds (Europe PMC fallback, `abstract_source`) |
+| `2-enrichment.json` | Scite tallies + retraction flags (OpenAlex **and** Crossref/Retraction Watch) + OA links + who contradicts (Scite key) + abstracts OpenAlex withholds (Europe PMC fallback, `abstract_source`) + `trial_registrations` (registration numbers from the abstract and the PubMed record; papers that share one are reports of one trial, pooled and counted once — `left_out` in the pooled estimate names the reports set aside) |
 | `3-critique.json` | per-paper LLM critiques (quality, relevance, direction of findings) |
 | `4-synthesis.json` | the final report JSON |
 | `report.md` / `matrix.csv` | human-readable report / matrix as a table (numbers assembled deterministically, never LLM-copied) |

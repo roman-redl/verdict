@@ -93,6 +93,9 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 	// the page size is the plan's to cap: the response says which one applied
 	search := consensus.New(cfg.ConsensusAPIKey, cfg.ConsensusPageSize)
 
+	// one client for the topic search and the trial registrations: they share NCBI's rate limit
+	ncbi := pubmed.New(cfg.NCBIAPIKey, cfg.OpenAlexEmail)
+
 	clients := pipeline.Clients{
 		Citations:    scite.New(cfg.SciteAPIKey),      // key is optional
 		Works:        openalex.New(cfg.OpenAlexEmail), // no key needed
@@ -104,7 +107,8 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 		Search:       search,                          // mode B; key optional, HasKey gates discovery
 		PDFs:         pdf.NewDownloader(),
 		PDFText:      pdf.NewExtractor(log),
-		PubMed:       pubmed.New(cfg.NCBIAPIKey, cfg.OpenAlexEmail),
+		PubMed:       ncbi,
+		Trials:       ncbi,
 		PMC:          pmc.New(cfg.OpenAlexEmail), // NCBI asks for a contact e-mail; no key
 		Landings:     doi.New(),                  // DOI → the publisher page, for the reader
 		Reader:       jina.New(cfg.JinaAPIKey),   // third-party reader; the key only raises its limit

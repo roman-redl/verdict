@@ -41,7 +41,7 @@ func RenderMarkdown(st *State) string {
 		}
 	}
 
-	if t := directionTally(st.Critiques); t != "" {
+	if t := directionTally(st); t != "" {
 		fmt.Fprintf(&b, "**Direction of direct studies:** %s\n\n", t)
 	}
 
@@ -119,7 +119,7 @@ func RenderContext(st *State) string {
 		writeVerdictDigest(&b, st.Report)
 	}
 
-	if t := directionTally(st.Critiques); t != "" {
+	if t := directionTally(st); t != "" {
 		fmt.Fprintf(&b, "Direction of direct studies: %s\n\n", t)
 	}
 
@@ -217,6 +217,10 @@ func writePaperDigest(b *strings.Builder, e *model.EnrichedPaper, c model.Critiq
 
 	if len(e.ContradictingDOIs) > 0 {
 		fmt.Fprintf(b, "; contradicted by: %s", strings.Join(e.ContradictingDOIs, ", "))
+	}
+
+	if ids := e.TrialIDs(); len(ids) > 0 {
+		fmt.Fprintf(b, "; trial registration: %s", strings.Join(ids, ", "))
 	}
 
 	b.WriteString("\n")
@@ -403,20 +407,19 @@ func orDash(s string) string {
 
 // directionTally summarizes where the direct studies' own findings point,
 // e.g. "7 positive / 3 null / 2 negative" (mixed/unclear shown when present).
-// Computed deterministically from critique fields, not by the LLM.
-func directionTally(critiques []model.Critique) string {
+// Computed deterministically from critique fields, not by the LLM. A trial
+// reported several times counts once, with the direction of its latest
+// report (tallyIndexes).
+func directionTally(st *State) string {
 	var pos, null, neg, mixed, unclear int
 
-	direct := false
+	crits := st.Critiques
+	if len(st.Enriched) > 0 {
+		crits = critiquesFor(st)
+	}
 
-	for i := range critiques {
-		if critiques[i].Relevance != relevanceDirect {
-			continue
-		}
-
-		direct = true
-
-		switch strings.ToLower(critiques[i].ResultDirection) {
+	for _, i := range tallyIndexes(st, crits) {
+		switch strings.ToLower(crits[i].ResultDirection) {
 		case "positive":
 			pos++
 		case "null":
@@ -428,10 +431,6 @@ func directionTally(critiques []model.Critique) string {
 		default:
 			unclear++
 		}
-	}
-
-	if !direct {
-		return ""
 	}
 
 	var parts []string

@@ -118,13 +118,16 @@ type pivotalFetch struct {
 // them have a full text or the candidates (or the attempt bound) run out: a
 // slot whose text cannot be obtained passes to the next candidate. A study
 // that already has its text (a pre-placed PDF, an earlier pass, full mode)
-// counts as obtained without an attempt.
+// counts as obtained without an attempt. A candidate whose trial already has a
+// text among the pivotal ones is skipped: its slot passes on too.
 func (p *Pipeline) fetchPivotalTexts(
 	ctx context.Context, rp runParams, st *State, maxStudies int,
 ) (pivotalFetch, error) {
 	var res pivotalFetch
 
 	maxTries := maxStudies * pivotalAttemptsPerSlot
+	trials := trialGroups(trialInputs(st, critiquesFor(st)))
+	haveText := map[int]bool{} // trials whose full text is already among the pivotal ones
 
 	for _, i := range pivotalStudies(st, len(st.Critiques)) {
 		if res.obtained >= maxStudies || res.tried >= maxTries {
@@ -135,9 +138,18 @@ func (p *Pipeline) fetchPivotalTexts(
 			return res, fmt.Errorf("fetching pivotal full texts: %w", err)
 		}
 
+		// another report of the same trial already has its text: this one adds
+		// no new study to read, so its slot passes on
+		if haveText[trials[i]] {
+			p.log.Info("hybrid: full text skipped, another report of the trial has one", "doi", st.Enriched[i].DOI)
+			continue
+		}
+
 		e := &st.Enriched[i]
 		if e.FullText != "" {
 			res.obtained++
+			haveText[trials[i]] = true
+
 			continue
 		}
 
@@ -147,6 +159,7 @@ func (p *Pipeline) fetchPivotalTexts(
 			e.FullText, e.FullTextSource = txt, src
 			res.obtained++
 			res.fetched++
+			haveText[trials[i]] = true
 		}
 	}
 

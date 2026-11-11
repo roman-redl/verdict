@@ -152,6 +152,21 @@ matching this text".
   from. Papers served from the enrichment cache and a run resumed with
   `--resume` get the same fallback; when Europe PMC is down the run goes on
   and `report.md` carries a data warning.
+- enrichment, trial registration numbers: several publications of one
+  trial (the 12-month result, the five-year result, the HTA report) must not
+  count as separate studies, and the only key that tells they are one trial is
+  a shared registration number. After the abstracts, each paper gets
+  `trial_registrations` in `2-enrichment.json`: the numbers its abstract
+  names (ClinicalTrials.gov NCT, ISRCTN, ACTRN, ChiCTR, EudraCT, DRKS, CTRI,
+  UMIN, IRCT, NTR/NL, PACTR — regular expressions, no model; PROSPERO CRD
+  numbers register reviews and are not read), normalized to uppercase without
+  spaces. For a primary study whose abstract names none, PubMed's record is
+  asked: the accession numbers of its data banks (`DataBankList`). That is one
+  `esearch` per 20 DOIs plus one `efetch` per 200 records (about three free
+  requests for a 40-paper corpus, through the same NCBI client and rate limit
+  as the PubMed channel); a PubMed failure is a log warning and the numbers
+  from the abstracts stay. Artifacts written before the field existed load
+  as they are, and the abstracts are read for the numbers on the fly.
 - full texts (the default `hybrid` text mode, critique stage): the first
   critique pass reads abstracts; then the studies the verdict will rest on —
   *pivotal* — get their full texts and a deep re-critique, before the single
@@ -163,7 +178,10 @@ matching this text".
   unknown ones. The cap counts studies that *have* a full text: a candidate
   whose text cannot be obtained (paywalled, no open-access copy) passes its
   slot to the next one in this order, and a study that already has its text
-  (a PDF the user placed, an earlier pass) counts without a fetch. The walk
+  (a PDF the user placed, an earlier pass) counts without a fetch. A candidate
+  whose trial (a shared registration number) already has a full text among the
+  pivotal studies is skipped the same way: a second report of one trial adds
+  no new study to read. The walk
   is bounded at three fetch attempts per slot, so a run of paywalled papers
   cannot fetch the whole corpus; the log line `hybrid: pivotal full texts`
   gives the cap and the tried and obtained counts. An indirect study is often one whose
@@ -490,7 +508,10 @@ two jobs:
 - **Critic** — one paper at a time (calls run in parallel): reads the
   abstract + design tags + citation tallies → a structured assessment:
   design quality, sample adequacy, N (only if actually stated in the
-  abstract — inventing is forbidden), strengths, concerns, relevance to the
+  abstract — inventing is forbidden; for a randomized trial the number
+  randomized into the compared arms, not the screened or the non-randomized
+  preference or registry participants, and for a cluster-randomized trial the
+  randomized unit named in the concerns), strengths, concerns, relevance to the
   question (direct / indirect / tangential), and `study_design` — the design
   of this paper as its text states it (`rct`, `cluster_rct`, `crossover_rct`,
   `nonrandomized_trial`, `cohort`, `case_control`, `cross_sectional`,
@@ -575,6 +596,36 @@ pool, as before. The same resolved design fills the Design column when the
 paper has no discovery tag (`--dois`, OpenAlex discovery). Critiques saved
 before the field existed load as they are and fall back to the tag and the
 title.
+
+**One report per trial.** Several publications of one trial (12-month
+results, 5-year results, an HTA report) share their participants, so pooling
+them as separate studies counts the same people twice: in a real run the
+12-month and the 5-year report of one trial were pooled as k=2 and the
+information size looked sufficient. Papers that share a trial registration
+number (§2.1, `trial_registrations`) form one trial; a chain counts too
+(report A names number X, B names X and Y, C names Y: one trial). Authors and
+sample sizes are not used: matching by them was measured to merge different
+trials. Reviews never join a trial (they are skipped from pooling anyway),
+and a paper without a registration number is never merged with another.
+Inside every candidate pool, before the pools are compared by their
+participants, one report per trial stays: the latest by publication year, then
+the larger by participants, then the lower DOI (so the choice does not depend
+on the corpus order). The others go to `pooled_estimate.left_out` as
+`doi (same trial as <kept doi>, <registration number>)` and the log. The same
+rule applies where trials are counted: the hybrid full-text walk skips a
+candidate whose trial already has a text, and the direction tally of the
+direct studies counts each trial once with the direction of its latest report.
+The synthesis input carries each study's `trial_registrations`, and the judge
+is told that reports sharing a number are one trial, not replications.
+
+The sample size the pool and the matrix use follows from the same concern: the
+critic records, for a randomized trial, the number randomized into the compared
+arms (never the screened participants or the non-randomized preference,
+observational or registry arms — in the REFLUX trial the 453 preference
+patients next to the 357 randomized), and the arm totals of the extracted
+effect cover the compared groups only. For a non-randomized study it is the
+number analysed in the compared groups. The pool's participants come from the
+effect's own arm counts when it has them, from this field otherwise.
 
 **Imprecision and effect direction.** A model's judgments of imprecision and
 of the direction of the effect vary between runs and mix up "no effect" with

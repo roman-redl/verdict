@@ -331,7 +331,9 @@ docs/how-it-works.md §2.2.
   reported estimate with its CI and the CI's level), `internal/meta` *computes* the
   random-effects pooled estimate (DerSimonian-Laird), and the judge *reads*
   it — so three non-significant trials with a significant pooled effect are
-  not judged one by one. The report states the direction of the effect
+  not judged one by one. One report per trial is pooled: publications that
+  share a trial registration number are one trial, and the latest report
+  stands for it. The report states the direction of the effect
   (`effect_direction`) next to the verdict.
 - **Deterministic checks stay out of the LLM:** retractions come from
   OpenAlex `is_retracted` plus Crossref's Retraction Watch notices (and
