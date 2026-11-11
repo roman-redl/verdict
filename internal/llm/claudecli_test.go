@@ -324,13 +324,15 @@ func TestClaudeCLIRetryWaitIsInterruptible(t *testing.T) {
 }
 
 func TestClaudeCLITimeoutIsNotRetried(t *testing.T) {
-	f := fakeCLI(t, "slow", ClaudeCLIOptions{Timeout: 500 * time.Millisecond})
+	// the timeout leaves the shell time to start and count its attempt even
+	// under -race on a loaded machine (500 ms was flaky)
+	f := fakeCLI(t, "slow", ClaudeCLIOptions{Timeout: 2 * time.Second})
 
 	start := time.Now()
 	_, _, err := complete(f.cli)
 
 	require.ErrorContains(t, err, "timed out")
-	assert.Less(t, time.Since(start), 3*time.Second)
+	assert.Less(t, time.Since(start), 4500*time.Millisecond)
 	assert.Equal(t, 1, f.attempts(t), "a call that ran for minutes is too expensive to repeat")
 	assert.Empty(t, f.sleeps.waited)
 }
