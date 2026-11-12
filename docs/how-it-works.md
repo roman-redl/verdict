@@ -804,6 +804,25 @@ an MD of ±0.2 SD (only when the SD is known).
   about 800 participants applies: under 240 two levels, under 800 one; with
   unknown participants no level, and `size_checked` is false.
 
+**Inconsistency needs more than one study.** GRADE judges inconsistency across
+studies: one study cannot be inconsistent, and neither can studies that report
+other outcomes. The judge, left alone, rated certainty down for inconsistency
+when only one direct study had numbers on the outcome (the other trials had no
+numbers or reported a different outcome). So Go counts the studies the
+judgment can rest on and puts the count in the judge's input as
+`inconsistency_basis.comparable_studies`: the distinct direct primary studies
+(one per trial, by the same trial grouping as the pool; reviews, papers
+without results of their own and retracted papers excluded) whose extracted
+effect is usable (counts, means, or a reported estimate with its interval) and
+whose `outcome_match` is `same` (a missing label reads as the same). The
+design stratum, the measure, the time point and whether the study entered the
+pool do not matter: a second trial with numbers on the outcome that stayed out
+of the pool still makes the judgment possible, so the count is not the pool's
+`k`. With fewer than two, the prompt forbids rating down for inconsistency; a
+lack of numbers is a gap (imprecision or reporting), not inconsistency. The
+rating itself stays with the judge. The report shows the count as "Studies
+with numbers on the outcome".
+
 The judge's own `effect_direction` (`supports`, `no_effect`, `opposite` or
 `unclear`) is separate from the verdict (how certain that direction is) and
 the consensus status (how much the studies agree), and it has to agree with

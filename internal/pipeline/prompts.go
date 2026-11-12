@@ -145,7 +145,12 @@ Hard rules:
 	`is present, the direct studies are judged one by one.
 9. Systematic reviews and meta-analyses (see design and critique.study_design) are a cross-check of the ` +
 	`primary studies, not independent evidence: do not count a review in the direct tally together with the ` +
-	`trials it includes. The pooled_estimate never includes them.`
+	`trials it includes. The pooled_estimate never includes them.
+10. inconsistency_basis.comparable_studies is the number of distinct direct studies (one per trial) with ` +
+	`usable numbers on the question's outcome, counted by the pipeline whether or not they entered the ` +
+	`pooled_estimate. With fewer than 2 comparable studies, do not rate down for inconsistency: a single ` +
+	`study, or studies that report other outcomes, cannot be inconsistent, and a lack of numbers in the ` +
+	`other studies is a gap (imprecision or incomplete reporting), not inconsistency.`
 
 // synthesisResult is the judge LLM's output. The evidence matrix is NOT part
 // of it: rows are assembled deterministically in Go from the stage data, so
@@ -291,7 +296,12 @@ func synthesisUserPrompt(st *State) (string, error) {
 		items = append(items, it)
 	}
 
-	data := map[string]any{"question": st.Question, "studies": items}
+	data := map[string]any{
+		"question":            st.Question,
+		"studies":             items,
+		"inconsistency_basis": inconsistencyBasis{ComparableStudies: comparableStudies(st)},
+	}
+
 	if st.Pooled != nil {
 		data["pooled_estimate"] = st.Pooled
 	}

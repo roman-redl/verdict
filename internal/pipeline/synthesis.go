@@ -60,19 +60,22 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 	direction, directionWarning := p.directionFromPooled(st.Imprecision, jr.ClaimChange,
 		p.effectDirection(jr.EffectDirection))
 
+	withNumbers := comparableStudies(st)
+
 	r := model.Report{
-		Question:         st.Question,
-		GeneratedAt:      p.now().UTC(),
-		Verdict:          jr.Verdict,
-		VerdictRationale: jr.VerdictRationale,
-		ConsensusStatus:  jr.ConsensusStatus,
-		Consensus:        jr.Consensus,
-		EffectDirection:  direction,
-		PooledEstimate:   st.Pooled,
-		Imprecision:      st.Imprecision,
-		Contradictions:   jr.Contradictions,
-		Gaps:             jr.Gaps,
-		Matrix:           buildMatrix(st, jr.Notes),
+		Question:          st.Question,
+		GeneratedAt:       p.now().UTC(),
+		Verdict:           jr.Verdict,
+		VerdictRationale:  jr.VerdictRationale,
+		ConsensusStatus:   jr.ConsensusStatus,
+		Consensus:         jr.Consensus,
+		EffectDirection:   direction,
+		PooledEstimate:    st.Pooled,
+		Imprecision:       st.Imprecision,
+		ComparableStudies: &withNumbers,
+		Contradictions:    jr.Contradictions,
+		Gaps:              jr.Gaps,
+		Matrix:            buildMatrix(st, jr.Notes),
 	}
 	r.Warnings = append([]string{}, st.Warnings...)
 

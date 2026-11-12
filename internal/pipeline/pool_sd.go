@@ -47,27 +47,58 @@ func (p *Pipeline) restoreSDs(doi string, ef *model.Effect) *model.Effect {
 // nor the interval of its mean, stays as it is; so does an arm whose statistic
 // cannot be an SE or an interval (logged).
 func (p *Pipeline) restoreArmSD(doi, label string, a *model.Arm) (*model.Arm, bool) {
-	if a.SD != nil || a.Mean == nil || a.N == nil {
-		return a, false
-	}
-
-	sd, from, err := armSD(a)
+	out, from, err := restoredArm(a)
 	if err != nil {
 		p.log.Warn("arm SD not restored: unusable statistic", "doi", doi, "arm", label, "from", from, "err", err)
 
 		return a, false
 	}
 
-	if from == "" {
+	if out == a {
 		return a, false
 	}
 
-	p.log.Info("arm SD derived", "doi", doi, "arm", label, "from", from, "n", *a.N, "sd", sd)
+	p.log.Info("arm SD derived", "doi", doi, "arm", label, "from", from, "n", *a.N, "sd", *out.SD)
 
-	out := *a
-	out.SD = &sd
+	return out, true
+}
 
-	return &out, true
+// restoredArm is the arm with its SD restored, or the arm itself (the same
+// pointer) when nothing was restored; from names the statistic the SD came
+// from. An unusable statistic is an error and leaves the arm as it is.
+func restoredArm(a *model.Arm) (out *model.Arm, from string, err error) {
+	if a.SD != nil || a.Mean == nil || a.N == nil {
+		return a, "", nil
+	}
+
+	sd, from, err := armSD(a)
+	if err != nil || from == "" {
+		return a, from, err
+	}
+
+	restored := *a
+	restored.SD = &sd
+
+	return &restored, from, nil
+}
+
+// withRestoredSDs is restoreSDs without the log, for the callers that only ask
+// whether the numbers are usable: an arm whose statistic cannot be an SD
+// stays without one, as in restoreSDs.
+func withRestoredSDs(ef *model.Effect) *model.Effect {
+	if ef.Intervention == nil || ef.Control == nil {
+		return ef
+	}
+
+	// the errors are dropped on purpose: such an arm stays without an SD, and
+	// deriveEffect then rejects the numbers
+	i, _, _ := restoredArm(ef.Intervention)
+	c, _, _ := restoredArm(ef.Control)
+
+	out := *ef
+	out.Intervention, out.Control = i, c
+
+	return &out
 }
 
 // armSD derives the SD of an arm from its own SE, else from the 95% interval of

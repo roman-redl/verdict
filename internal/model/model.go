@@ -267,11 +267,15 @@ type Report struct {
 	PooledEstimate *PooledEstimate `json:"pooled_estimate,omitempty"`
 	// Imprecision is the GRADE imprecision rating computed from the pooled
 	// estimate; nil when there is none or in reports written before the field.
-	Imprecision    *Imprecision `json:"imprecision,omitempty"`
-	Matrix         []MatrixRow  `json:"evidence_matrix"`
-	Contradictions []string     `json:"contradictions,omitempty"`
-	Gaps           []string     `json:"gaps,omitempty"`
-	Warnings       []string     `json:"warnings,omitempty"`
+	Imprecision *Imprecision `json:"imprecision,omitempty"`
+	// ComparableStudies is the number of distinct direct studies with usable
+	// numbers on the question's outcome, the basis of the inconsistency
+	// judgment; nil in reports written before the field.
+	ComparableStudies *int        `json:"comparable_studies,omitempty"`
+	Matrix            []MatrixRow `json:"evidence_matrix"`
+	Contradictions    []string    `json:"contradictions,omitempty"`
+	Gaps              []string    `json:"gaps,omitempty"`
+	Warnings          []string    `json:"warnings,omitempty"`
 }
 
 var doiPrefixes = [...]string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"}

@@ -33,6 +33,10 @@ func RenderMarkdown(st *State) string {
 		fmt.Fprintf(&b, "**Imprecision (computed):** %s\n\n", imprecisionText(imp))
 	}
 
+	if n := r.ComparableStudies; n != nil {
+		fmt.Fprintf(&b, "**Studies with numbers on the outcome:** %d\n\n", *n)
+	}
+
 	if r.Consensus != "" || r.ConsensusStatus != "" {
 		fmt.Fprintf(&b, "### Scientific consensus: %s\n\n", consensusLabel(r.ConsensusStatus))
 
