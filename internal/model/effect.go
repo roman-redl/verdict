@@ -69,7 +69,9 @@ func (m Measure) IsRatio() bool {
 // field is a pointer so that "not stated" differs from a real zero.
 // Percent is the alternative to Events for a binary outcome the study gives
 // only as a percentage of the arm (it needs Total); the pipeline turns it into
-// a count.
+// a count. SE and CILow/CIHigh are the standard error and the 95% interval of
+// THIS arm's mean, copied when the SD is not stated: the pipeline restores the
+// SD from them. They are never the statistics of the difference between arms.
 type Arm struct {
 	Events  *float64 `json:"events,omitempty"`
 	Percent *float64 `json:"percent,omitempty"` // 0-100, instead of events
@@ -77,6 +79,9 @@ type Arm struct {
 	Mean    *float64 `json:"mean,omitempty"`
 	SD      *float64 `json:"sd,omitempty"`
 	N       *float64 `json:"n,omitempty"`
+	SE      *float64 `json:"se,omitempty"`
+	CILow   *float64 `json:"ci_low,omitempty"`
+	CIHigh  *float64 `json:"ci_high,omitempty"`
 }
 
 // Effect is what the critic extracts from a study's text for the question's
@@ -106,6 +111,17 @@ type Effect struct {
 
 	Intervention *Arm `json:"intervention,omitempty"`
 	Control      *Arm `json:"control,omitempty"`
+
+	// The direction of the outcome, needed to put studies on one standardized
+	// scale; nil or empty means the critic could not tell (an artifact written
+	// before the fields existed has none). HigherIsBetter is for a continuous
+	// outcome: true when a higher value is the better state of the patient.
+	// Metric is for a continuous outcome: final values or change scores.
+	// EventIsHarm is for a binary outcome: true when the counted event is a bad
+	// outcome (death, relapse), false when it is a good one (remission).
+	HigherIsBetter *bool       `json:"higher_is_better,omitempty"`
+	Metric         ScoreMetric `json:"metric,omitempty"`
+	EventIsHarm    *bool       `json:"event_is_harm,omitempty"`
 
 	// The reported estimate.
 	Measure string   `json:"measure,omitempty"` // RR | OR | HR | MD | SMD
@@ -166,6 +182,11 @@ type PooledEstimate struct {
 	I2 *float64 `json:"i2,omitempty"`
 	// Unit is the outcome's unit of a pooled MD.
 	Unit string `json:"unit,omitempty"`
+	// Converted is true for an SMD that Go built from studies on different
+	// measures of one outcome (means and counts): every study is oriented so
+	// that a POSITIVE value favours the intervention, whatever the direction of
+	// the original scales, and the claim is read against that orientation.
+	Converted bool `json:"converted,omitempty"`
 	// SD is the outcome's standard deviation of a pooled MD (the
 	// participant-weighted mean of the studies' pooled SDs); nil when any
 	// study gave only an estimate, and for the other measures.
@@ -180,6 +201,8 @@ type PooledEstimate struct {
 	// from counts is labelled RR, its default measure, even when the pool is an
 	// OR that it could have joined), another outcome or time point, another
 	// design class, an unadjusted non-randomized or cluster estimate, a repeat
-	// report of a trial, or the same results as another paper.
+	// report of a trial, the same results as another paper, and, beside a
+	// converted SMD, a study whose scale direction is unknown or whose means
+	// are change scores against final values.
 	LeftOut []string `json:"left_out,omitempty"`
 }

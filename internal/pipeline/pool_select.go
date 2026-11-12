@@ -24,6 +24,9 @@ const (
 	leftRepeatReport  = "repeat report of a trial"
 	leftSameResults   = "same results"
 	leftOtherMeasure  = "other measure"
+	// the two reasons below arise only beside a unified SMD pool (pool_unify.go)
+	leftScaleUnknown = "direction of scale unknown"
+	leftMetricMix    = "change vs final scores"
 )
 
 // leftOut is a study kept out of the pool: the kind of decision (one of the

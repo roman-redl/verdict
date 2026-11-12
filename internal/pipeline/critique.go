@@ -61,8 +61,17 @@ const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the 
 	`estimate and interval already account for clustering)},
   and ONE of these:
   - binary outcome: intervention {events, total} and control {events, total}; when the text gives only a ` +
-	`percentage of each arm, {percent, total} instead of events (percent copied as printed, 0-100);
-  - continuous outcome: unit (string), intervention {mean, sd, n} and control {mean, sd, n};
+	`percentage of each arm, {percent, total} instead of events (percent copied as printed, 0-100); also ` +
+	`event_is_harm (true when the counted event is a bad outcome for the patient, e.g. death, relapse, ` +
+	`infection; false when it is a good one, e.g. remission, cure, survival; omit when unclear);
+  - continuous outcome: unit (string), intervention {mean, sd, n} and control {mean, sd, n}; when an arm's SD ` +
+	`is not stated but the standard error of THAT arm's mean is, give se instead of sd, and when only the 95% ` +
+	`confidence interval of THAT arm's mean is stated, give ci_low and ci_high of the arm's mean (never the ` +
+	`SE or the interval of the difference between the arms, and never both a copied statistic and a computed ` +
+	`sd); also higher_is_better (true when a higher value is the better state of the patient, false when a ` +
+	`higher value is worse, e.g. a pain or symptom score; omit when unclear) and metric ("final" when the ` +
+	`means are the values at the end of follow-up, "change" when they are changes from baseline; omit when ` +
+	`unclear);
   - a reported estimate: measure ("RR" | "OR" | "HR" | "MD" | "SMD"), value, ci_low, ci_high, ci_level ` +
 	`(the interval's level in percent as the text states it, e.g. 90, 95, 97.2; omit when not stated), ` +
 	`reversed (true only when the paper's comparison is the comparator versus the intervention; omit otherwise), ` +
@@ -88,8 +97,9 @@ const critiqueEffectRules = `Effect extraction rules:
 	`intervention is cisplatin), set reversed: true; never invert the value or the interval yourself.
 - Copy the numbers verbatim from the provided text. Do not compute, convert, round or infer anything: ` +
 	`no counts from percentages (give the percent and the arm's total instead), no SD from a standard error ` +
-	`or an interval, no estimate from counts. Copy a reported interval together with its stated level ` +
-	`(ci_level), whatever it is: 90%, 95%, 97.2%.
+	`or an interval (copy the arm's se, or ci_low and ci_high of the arm's mean, and the pipeline derives the ` +
+	`SD), no estimate from counts, no direction or metric that the text does not make clear. Copy a reported ` +
+	`interval together with its stated level (ci_level), whatever it is: 90%, 95%, 97.2%.
 - The totals and n of the arms are those of the compared groups only: never add the participants of a ` +
 	`non-randomized preference, observational or registry arm, and never use the number screened.
 - In a randomized trial prefer counts or means for both arms; use a reported estimate with its interval ` +

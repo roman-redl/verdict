@@ -48,8 +48,22 @@ func joinOutcomes(items []pooledStudy) string {
 }
 
 // deriveEffect puts one study's extracted numbers on an analysis scale:
-// counts first, then means, then a reported estimate with its interval.
+// counts first, then means, then a reported estimate with its interval. The
+// critic's labels of the outcome's direction ride along: the unified SMD pool
+// reads them.
 func deriveEffect(ef *model.Effect) (pooledStudy, error) {
+	ps, err := deriveNumbers(ef)
+	if err != nil {
+		return pooledStudy{}, err
+	}
+
+	ps.higherIsBetter, ps.eventIsHarm, ps.metric = ef.HigherIsBetter, ef.EventIsHarm, ef.Metric
+
+	return ps, nil
+}
+
+// deriveNumbers is the arithmetic of deriveEffect.
+func deriveNumbers(ef *model.Effect) (pooledStudy, error) {
 	if ef.Intervention != nil && ef.Control != nil {
 		a, b, ok, err := countArms(ef.Intervention, ef.Control)
 		if err != nil {

@@ -566,6 +566,13 @@ definition; `different`), `timepoint_weeks` (the follow-up in weeks, omitted
 when not stated) with `timepoint_match` (`yes` — the question's time frame, or
 the question has none; `no`; `unclear`), and for a cluster trial a `cluster`
 object (`unit`, `clusters`, `mean_size`, `icc`, `adjusted_for_clustering`).
+For the unified scale (below) it also labels the direction of the outcome, each
+label omitted when the text leaves it unclear: `higher_is_better` and `metric`
+(`final` values or `change` from baseline) for a continuous outcome,
+`event_is_harm` (a bad event such as death or relapse, or a good one such as
+remission) for a binary one. When an arm's SD is not stated but the standard
+error of THAT arm's mean, or the 95% interval of it, is, the critic copies it
+(`se`, or `ci_low` and `ci_high` of the arm's mean) and Go derives the SD.
 These labels decide what is pooled (below). **Go computes** (`internal/meta`): each direct study's
 effect goes on a common scale — the log risk ratio from counts (events from
 a percentage are `round(percent / 100 × total)`, computed in Go and logged as
@@ -578,8 +585,22 @@ A `reversed` estimate is flipped first, in Go, and the flip is logged: a ratio
 becomes `1/value` with the interval `1/ci_high … 1/ci_low`, a difference
 becomes `−value` with `−ci_high … −ci_low`.
 A `ci_level` outside (50, 99.9], a percent outside 0–100 or a percentage
-without a total is ignored with a warning, like any other bad number. The
-direct, non-retracted primary studies of one measure are combined with the
+without a total is ignored with a warning, like any other bad number.
+
+**Restoring a missing SD** (Handbook 6.5.2.2–6.5.2.3). An arm with a mean and a
+size but no SD gets one in Go, before anything else reads the arms: from the
+arm's SE, `SD = SE × √n`; from the 95% interval of the arm's mean,
+`SD = √n × (upper − lower) / (2t)`, with `t` the 97.5% quantile of Student's t
+with `n − 1` degrees of freedom when the arm has fewer than 60 participants
+and 1.96 otherwise (the SE wins when both are given). Each derived SD is
+logged. The SE or interval of the DIFFERENCE between the arms is never used for
+an arm's SD (the critic has no field for it), and no SD is imputed from other
+studies: a study that gives no statistic of its own keeps the missing SD and
+drops out, the conservative choice of Handbook 6.5.2.7. For a cluster trial the
+SD is restored from the n the paper reports, before the design effect divides
+the participants.
+
+The direct, non-retracted primary studies of one measure are combined with the
 DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
 number of studies, participants when known, I². A single study is shown with
 its own interval and marked "not pooled".
@@ -639,6 +660,30 @@ pooled estimate the reasons go to a report warning instead).
    studies, then to the order RR, OR, HR, SMD, MD, then to the unit. A study from
    counts is never in two pools at once. Studies outside the winning pool are
    left out as `doi (MEASURE)` (a study from counts is labelled RR).
+6. **One scale for one construct.** When some eligible studies stay outside
+   the best native pool, they may still report the same outcome on another
+   measure (one trial counts events, another gives the means of a rating scale).
+   Go then builds a unified SMD candidate (Handbook 10.6): a study with means,
+   SDs and sizes is Hedges' g, a study with arm counts is `ln(OR) × √3/π` (the
+   standard error scaled the same). Each study is **oriented** so that a POSITIVE
+   value favours the intervention (Handbook 6.5.1.2): a continuous study by
+   `higher_is_better` (false flips the sign), a binary study by `event_is_harm`
+   (a harmful event: fewer events favours the intervention, so the sign flips; a
+   good event keeps it). A study whose direction the critic could not tell cannot
+   join and is left out as `direction of scale unknown`. Final values and change
+   scores are never put on one SMD scale (Handbook 10.5.2): when both occur
+   among the continuous studies, the metric with more participants stays (final
+   on a tie) and the other is left out as `change vs final scores`; a study that
+   does not state its metric, and a binary study, take no side. A reported HR, an
+   RR or OR without counts, and an MD without SDs cannot be converted: they stay
+   out under their own measure, as before. The unified pool replaces the best
+   native pool only when it holds at least two studies and MORE participants
+   than that pool (the rule of step 5 applied again); otherwise nothing changes.
+   When every eligible study already shares one measure the step does not run, so
+   such pools are exactly what they were. The pooled estimate is marked
+   `converted: true` with `measure: SMD`, its outcome ends with "standardized,
+   positive favours the intervention", and the report line says the measures
+   were converted to one standardized scale.
 
 The judge weighs the left-out studies as individual results, and the report's
 pooled line names the first few with their reasons (the rest are in
@@ -766,7 +811,12 @@ text, because a critic often extracts the complement of the claim's outcome:
 a claim of more pain relief is pooled as "children still in pain", so its
 `claim_change` is `lower`). Go then sets the direction: `no_effect` for the target
 `little_or_no_difference`, `supports` when the target equals `claim_change`,
-`opposite` otherwise. If that differs from the judge's word, the code wins
+`opposite` otherwise. For a converted SMD (`converted: true`, the unified scale
+above) the orientation is already fixed by Go: positive favours the intervention,
+so the target is `higher` when the interval lies above the trivial band and the
+judge is told to read `claim_change` as `higher` when the claim says the
+intervention helps and `lower` when it says it harms; it is never asked to infer
+the sign of the original scales. If that differs from the judge's word, the code wins
 and a report warning records both. Without the rating, with the target
 `undetermined`, or with a missing or invalid `claim_change` (logged), the
 judge's direction stays.

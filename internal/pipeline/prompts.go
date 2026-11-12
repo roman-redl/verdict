@@ -32,7 +32,12 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 - claim_change: "lower" | "higher" — the change the CLAIM in the question implies for the intervention versus ` +
 	`the comparator in the outcome AS MEASURED in pooled_estimate.outcome (not in the claim's own wording when ` +
 	`they differ), taken from the claim and not from the evidence (e.g. "lowers the risk of stroke" → lower; ` +
-	`claim "increases pain relief" with a pooled outcome "children still in pain" → lower). Without a ` +
+	`claim "increases pain relief" with a pooled outcome "children still in pain" → lower). When ` +
+	`pooled_estimate.converted is true, the pooled effect is a standardized one that the pipeline oriented so ` +
+	`that a POSITIVE value favours the intervention (the intervention is better for the patient), whatever the ` +
+	`direction of the original scales: then claim_change is "higher" when the claim says the intervention helps ` +
+	`(improves, benefits, protects) and "lower" when the claim says it harms or is worse; do not infer the ` +
+	`sign of the original scales. Without a ` +
 	`pooled_estimate it is still required, read against the claim's own outcome
 - consensus_status: "broad_agreement" | "contested" | "emerging" | "no_consensus" | "insufficient_data"
 - consensus (string): WHAT the field's majority position actually IS (direction, not strength) — ` +
@@ -128,7 +133,10 @@ Hard rules:
 	`Studies listed in left_out are not in the pooled numbers, each with its reason in parentheses: another ` +
 	`measure, another outcome or time point, a non-randomized or unadjusted study beside randomized trials, ` +
 	`a cluster trial that could not be adjusted for clustering, another report of a trial whose chosen report ` +
-	`is pooled, or the same results as another paper. Weigh them as individual results (a repeat report or a ` +
+	`is pooled, the same results as another paper, or, beside a converted pool, an unknown direction of the ` +
+	`scale or change scores against final values. A pooled_estimate with converted true puts studies that ` +
+	`report one outcome on different measures (means and counts) on one standardized scale: positive favours ` +
+	`the intervention, and its outcome says so. Weigh left-out studies as individual results (a repeat report or a ` +
 	`paper with the same results adds no participants and no independent evidence). When no pooled_estimate ` +
 	`is present, the direct studies are judged one by one.
 9. Systematic reviews and meta-analyses (see design and critique.study_design) are a cross-check of the ` +

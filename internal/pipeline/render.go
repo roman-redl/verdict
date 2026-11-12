@@ -295,6 +295,11 @@ func pooledLabel(pe *model.PooledEstimate) string {
 		return "Effect of the one direct study with numbers (not pooled)"
 	}
 
+	if pe.Converted {
+		return "Pooled effect of the direct studies (random effects, DerSimonian-Laird; " +
+			"measures converted to one standardized scale)"
+	}
+
 	return "Pooled effect of the direct studies (random effects, DerSimonian-Laird)"
 }
 

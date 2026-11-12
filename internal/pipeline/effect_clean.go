@@ -61,7 +61,7 @@ func usableArm(a *model.Arm) *model.Arm {
 	}
 
 	if (a.N != nil && *a.N <= 0) || (a.SD != nil && *a.SD < 0) {
-		out.Mean, out.SD, out.N = nil, nil, nil
+		out.Mean, out.SD, out.N, out.SE, out.CILow, out.CIHigh = nil, nil, nil, nil, nil, nil
 	}
 
 	if out == (model.Arm{}) {

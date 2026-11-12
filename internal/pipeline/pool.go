@@ -55,6 +55,13 @@ type pooledStudy struct {
 	// means; 0 when unknown (a reported estimate carries none).
 	sd float64
 
+	// The critic's labels of the outcome's direction (nil or empty: unknown),
+	// the input of the unified SMD pool: higher-is-better and the metric of a
+	// continuous outcome, whether the counted event is a harm for a binary one.
+	higherIsBetter *bool
+	eventIsHarm    *bool
+	metric         model.ScoreMetric
+
 	// outcome is the critic's name of the outcome with its time point.
 	outcome string
 
@@ -172,7 +179,12 @@ func (p *Pipeline) studyEffect(
 		return pooledStudy{}, nil, false
 	}
 
-	ps, err := deriveEffect(c.Effect)
+	// an SD the paper gives as an SE or an interval of the arm's mean is
+	// restored before anything else reads the arms (the cluster adjustment
+	// changes n, the SD comes from the n the paper reports)
+	ef := p.restoreSDs(doi, c.Effect)
+
+	ps, err := deriveEffect(ef)
 	if err != nil {
 		p.log.Warn("effect not pooled: unusable numbers", "doi", e.DOI, "err", err)
 		return pooledStudy{}, nil, false
@@ -182,12 +194,12 @@ func (p *Pipeline) studyEffect(
 		return pooledStudy{}, leftOutBecause(doi, kind), false
 	}
 
-	if ps, left, ok = p.adjustCluster(doi, design, c.Effect, ps); !ok {
+	if ps, left, ok = p.adjustCluster(doi, design, ef, ps); !ok {
 		return pooledStudy{}, left, false
 	}
 
-	// the key is the numbers as extracted, not as adjusted
-	ps.doi, ps.results = doi, resultsKey(c.Effect)
+	// the key is the numbers as extracted (SDs restored), not as adjusted
+	ps.doi, ps.results = doi, resultsKey(ef)
 	ps.outcome = outcomeLabel(c.Effect)
 
 	if ps.converted != "" {
@@ -272,81 +284,6 @@ func settleContinuous(items []pooledStudy) []pooledStudy {
 	return items
 }
 
-// poolGroup is a candidate pool: the studies that can be expressed on one
-// measure (and, for MD, one unit). Its items are copies already put on the
-// group's measure; idx are the studies' positions in the poolBest input.
-type poolGroup struct {
-	measure model.Measure
-	unit    string
-	items   []pooledStudy
-	idx     []int
-}
-
-func (g *poolGroup) participants() int {
-	total := 0
-
-	for i := range g.items {
-		total += g.items[i].n
-	}
-
-	return total
-}
-
-// better orders groups by the amount of data: more participants (a study of
-// unknown size counts 0), then more studies, then the fixed measure order, then
-// the unit (so that the choice is deterministic).
-func (g *poolGroup) better(o *poolGroup) bool {
-	if a, b := g.participants(), o.participants(); a != b {
-		return a > b
-	}
-
-	if len(g.items) != len(o.items) {
-		return len(g.items) > len(o.items)
-	}
-
-	if a, b := slices.Index(measureOrder, g.measure), slices.Index(measureOrder, o.measure); a != b {
-		return a < b
-	}
-
-	return normUnit(g.unit) < normUnit(o.unit)
-}
-
-// candidateGroups builds the pools the studies could form, one per measure
-// (and, for MD, per unit). Ratio measures are never mixed with each other,
-// except that a study from counts is eligible for both RR and OR (it has both
-// on its analysis scale); HR stays apart (time-to-event), an MD pools only
-// within one unit. A study from counts is therefore in two candidates, but
-// only one candidate is ever pooled.
-func candidateGroups(items []pooledStudy) []*poolGroup {
-	var groups []*poolGroup
-
-	add := func(i int, measure model.Measure, study meta.Study) {
-		it := items[i] // a copy: it is put on this group's measure
-		it.measure, it.study = measure, study
-
-		gi := slices.IndexFunc(groups, func(g *poolGroup) bool {
-			return g.measure == measure && normUnit(g.unit) == normUnit(it.unit)
-		})
-		if gi < 0 {
-			groups = append(groups, &poolGroup{measure: measure, unit: it.unit})
-			gi = len(groups) - 1
-		}
-
-		groups[gi].items = append(groups[gi].items, it)
-		groups[gi].idx = append(groups[gi].idx, i)
-	}
-
-	for i := range items {
-		add(i, items[i].measure, items[i].study)
-
-		if items[i].fromCounts {
-			add(i, model.MeasureOR, items[i].or)
-		}
-	}
-
-	return groups
-}
-
 // poolBest takes the candidate with the most data and pools it: random effects
 // for two or more studies, the study's own effect for one. The studies it gets
 // are already eligible and one per trial, so the measure is the only choice
@@ -354,7 +291,8 @@ func candidateGroups(items []pooledStudy) []*poolGroup {
 // trials does not beat one large trial that happens to be on another measure;
 // ties go by the number of studies, then measureOrder (RR before OR for
 // counts), then the unit. The studies outside the winner come back as left out
-// for their measure.
+// for their measure. When some studies stay outside the winner, the unified SMD
+// pool (pool_unify.go) replaces it if it holds more participants.
 func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, []leftOut) {
 	groups := candidateGroups(items)
 	best := groups[0]
@@ -365,6 +303,8 @@ func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, []leftO
 		}
 	}
 
+	best, reasons := p.preferUnified(items, best)
+
 	pe, err := pooledFrom(best)
 	if err != nil {
 		p.log.Warn("effects not pooled", "measure", best.measure, "err", err)
@@ -374,14 +314,22 @@ func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, []leftO
 	var left []leftOut
 
 	for i := range items {
-		if !slices.Contains(best.idx, i) {
-			// a count study is labelled with its default measure, RR, though it
-			// could have joined an OR pool
-			left = append(left, leftOutMeasure(&items[i]))
+		if slices.Contains(best.idx, i) {
+			continue
 		}
+
+		if reason, ok := reasons[i]; ok {
+			left = append(left, reason)
+
+			continue
+		}
+
+		// a count study is labelled with its default measure, RR, though it
+		// could have joined an OR pool
+		left = append(left, leftOutMeasure(&items[i]))
 	}
 
-	if len(left) > 0 {
+	if len(left) > 0 && !best.converted {
 		p.log.Info("effects use several measures: pooling the group with most participants",
 			"measure", best.measure, "studies", len(best.items), "left_out", len(left))
 	}
@@ -442,6 +390,10 @@ func pooledFrom(g *poolGroup) (*model.PooledEstimate, error) {
 
 	if g.measure == model.MeasureMD {
 		pe.SD = g.meanSD()
+	}
+
+	if g.converted {
+		pe.Converted, pe.Outcome = true, standardizedOutcome(pe.Outcome)
 	}
 
 	return pe, nil

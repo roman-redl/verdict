@@ -35,6 +35,15 @@ func normalizeEffect(ef *model.Effect, doi string, log *slog.Logger) {
 		ef.TimepointMatch = m
 	}
 
+	if ef.Metric != "" {
+		m, err := model.ParseScoreMetric(string(ef.Metric))
+		if err != nil {
+			log.Warn("critic returned an unknown score metric: treated as missing", "doi", doi, "err", err)
+		}
+
+		ef.Metric = m
+	}
+
 	if !positiveNumber(ef.TimepointWeeks) {
 		ef.TimepointWeeks = nil
 	}
