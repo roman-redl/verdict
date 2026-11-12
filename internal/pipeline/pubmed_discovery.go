@@ -302,7 +302,8 @@ func (pm *PubMedInfo) noDOIOf(search PubMedSearch) {
 func pubmedCandidate(rec model.PubMedRecord, by FoundBy) Candidate {
 	c := newCandidate(model.Paper{
 		DOI: rec.DOI, Title: rec.Title, Year: rec.Year, StudyDesign: designTagFromPubTypes(rec.PubTypes),
-		Source: model.SourcePubMed,
+		PublicationTypes: model.NormalizePublicationTypes(rec.PubTypes),
+		Source:           model.SourcePubMed,
 	}, by)
 	c.PMID = rec.PMID
 

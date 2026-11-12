@@ -47,6 +47,18 @@ const critiqueDesignField = `study_design: "rct" | "cluster_rct" | "crossover_rc
 const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the text has no numbers for the ` +
 	`question's outcome): the numbers the text reports for the question's outcome, with
   outcome (short text: which outcome these numbers are for), timepoint (when it was measured; only if stated),
+  outcome_match: "same" | "related" | "different" — "same" is the question's primary outcome, defined the ` +
+	`same way; "related" is a surrogate, a composite, a component, or the same outcome under another ` +
+	`definition; "different" is another outcome,
+  timepoint_weeks (number: the follow-up at which these numbers are measured, converted to weeks ` +
+	`(1 month = 4.3 weeks, 1 year = 52 weeks); omit when the text does not state it),
+  timepoint_match: "yes" | "no" | "unclear" — whether that follow-up is the time frame the question asks ` +
+	`about; "yes" when the question names no time frame, "unclear" when the follow-up or the frame cannot be told,
+  adjusted (true for a non-randomized study whose numbers are an adjusted estimate; omit otherwise),
+  cluster (only for a cluster-randomized trial): {unit (what was randomized: village, clinic, school), ` +
+	`clusters (number of clusters randomized), mean_size (participants per cluster, only if stated), ` +
+	`icc (intracluster correlation, only if reported), adjusted_for_clustering (true when the reported ` +
+	`estimate and interval already account for clustering)},
   and ONE of these:
   - binary outcome: intervention {events, total} and control {events, total}; when the text gives only a ` +
 	`percentage of each arm, {percent, total} instead of events (percent copied as printed, 0-100);
@@ -80,14 +92,24 @@ const critiqueEffectRules = `Effect extraction rules:
 	`(ci_level), whatever it is: 90%, 95%, 97.2%.
 - The totals and n of the arms are those of the compared groups only: never add the participants of a ` +
 	`non-randomized preference, observational or registry arm, and never use the number screened.
-- Prefer counts or means for both arms; use a reported estimate with its interval only when the arms' ` +
-	`numbers are not given, with two exceptions where the estimate comes first. Time-to-event outcomes ` +
-	`(survival, time to relapse, progression or healing): give the reported hazard ratio with its interval, ` +
-	`not counts of events, because counts ignore follow-up time; if only medians are reported, omit the ` +
-	`effect and mention the medians in strengths or concerns. Cluster-randomized trials: give the reported ` +
-	`adjusted estimate with its interval, because it accounts for clustering and raw counts overstate ` +
-	`precision. All numbers are JSON numbers, not strings. When a number is missing, omit the effect ` +
-	`rather than guess. Take the question's primary outcome at its main timepoint.
+- In a randomized trial prefer counts or means for both arms; use a reported estimate with its interval ` +
+	`only when the arms' numbers are not given, with two exceptions where the estimate comes first. ` +
+	`Time-to-event outcomes (survival, time to relapse, progression or healing): give the reported hazard ` +
+	`ratio with its interval, not counts of events, because counts ignore follow-up time; if only medians ` +
+	`are reported, omit the effect and mention the medians in strengths or concerns. Cluster-randomized ` +
+	`trials: give the reported adjusted estimate with its interval and set cluster.adjusted_for_clustering ` +
+	`to true, because it accounts for clustering and raw counts overstate precision; give the arms' ` +
+	`counts or means only when no such estimate is reported, and always fill the cluster object with what ` +
+	`the text states.
+- In a non-randomized study (cohort, case-control, non-randomized trial, registry analysis) give the ` +
+	`ADJUSTED estimate with its interval (aOR, aRR, aHR, adjusted mean difference) and set adjusted: true, ` +
+	`because raw counts do not control confounding; give the arms' crude counts or means only when no ` +
+	`adjusted estimate is reported, and leave adjusted out then.
+- All numbers are JSON numbers, not strings. When a number is missing, omit the effect rather than guess. ` +
+	`Take the question's primary outcome at its main timepoint; when the paper reports several time points ` +
+	`or outcomes, give the one that matches the question and say so in outcome_match and timepoint_match; if ` +
+	`only another outcome or time point is reported, give it and mark outcome_match or timepoint_match ` +
+	`accordingly instead of omitting the effect.
 
 Result direction from numbers: when the text gives counts, means or an estimate for the question's outcome, ` +
 	`judge result_direction from those numbers even if the authors report no significance test or effect ` +
@@ -226,6 +248,7 @@ func normalizeCritique(c model.Critique, e model.EnrichedPaper, log *slog.Logger
 	c.SampleAdequacy = cmp.Or(c.SampleAdequacy, valueUnclear)
 	c.Relevance = cmp.Or(c.Relevance, valueUnknown)
 	c.ResultDirection = cmp.Or(c.ResultDirection, valueUnclear)
+	normalizeEffect(c.Effect, c.DOI, log)
 
 	return c
 }

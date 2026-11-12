@@ -165,8 +165,14 @@ matching this text".
   `esearch` per 20 DOIs plus one `efetch` per 200 records (about three free
   requests for a 40-paper corpus, through the same NCBI client and rate limit
   as the PubMed channel); a PubMed failure is a log warning and the numbers
-  from the abstracts stay. Artifacts written before the field existed load
-  as they are, and the abstracts are read for the numbers on the fly.
+  from the abstracts stay. The same record gives the paper's publication types
+  (`PublicationTypeList`), which, with OpenAlex's `type` and `type_crossref`,
+  tell an erratum, a comment or a letter from a study report
+  (`publication_types`; see "Papers that are not study reports" in §2.4), so a
+  primary study that no source has typed yet is looked up even when its
+  abstract names a registration number. Artifacts written before the fields
+  existed load as they are, and the abstracts are read for the numbers on the
+  fly.
 - full texts (the default `hybrid` text mode, critique stage): the first
   critique pass reads abstracts; then the studies the verdict will rest on —
   *pivotal* — get their full texts and a deep re-critique, before the single
@@ -376,6 +382,11 @@ Discovery keeps a *pool* and chooses the corpus in four steps:
    each PMID's title, year, publication types, DOI and PMCID. Publication types
    become the design tag: "Randomized Controlled Trial" and "Clinical Trial"
    (any phase) → `rct`; "Systematic Review" and "Meta-Analysis" → a review.
+   They are also kept as the candidate's `publication_types`: a hit typed as an
+   erratum, a comment, an editorial, a letter, news or a retraction notice
+   (and not also as a trial) is not eligible and takes no corpus slot, and the
+   log counts them per kind (`candidates left out of the corpus: not a study
+   report`). The same holds for a candidate OpenAlex typed (review references).
    A record with no DOI stays in the pool for the audit (with its PMID) but
    cannot be selected — the pipeline is keyed by DOI; the count is logged and
    warned. A PubMed failure is a warning, not a failed run (the Consensus
@@ -524,6 +535,9 @@ two jobs:
   Numbers must be copied from the input verbatim — recomputing or inventing
   them is forbidden by the prompt.
 
+Which Cochrane and GRADE rules the pooling and the certainty rating follow,
+and which they still lack: [cochrane-grade-rules.md](cochrane-grade-rules.md).
+
 **Effect numbers and pooling.** A meta-analysis does not judge studies one
 by one: three trials that are each non-significant can add up to a
 significant pooled effect. The pipeline does the same, with a strict split
@@ -538,11 +552,21 @@ none. A reported estimate is copied as printed; when the paper compares the
 comparator against the intervention (a "HR for carboplatin vs cisplatin" for a
 question about cisplatin), the critic sets `reversed: true` and leaves the
 numbers alone (the field applies only to a reported estimate, not to the arms).
-Counts are the default source; a reported estimate comes first for
-time-to-event outcomes (the hazard ratio, because counts ignore follow-up
-time; medians alone are not poolable and go into the strengths or concerns)
-and for cluster-randomized trials (the adjusted estimate, because raw counts
-overstate precision). **Go computes** (`internal/meta`): each direct study's
+In a randomized trial counts are the default source; a reported estimate
+comes first for time-to-event outcomes (the hazard ratio, because counts
+ignore follow-up time; medians alone are not poolable and go into the
+strengths or concerns) and for cluster-randomized trials (the estimate that
+accounts for clustering, because raw counts overstate precision). In a
+non-randomized study the critic gives the ADJUSTED estimate (aOR, aRR, aHR)
+with its interval and `adjusted: true`, and crude counts only when no adjusted
+estimate is reported. The critic, which sees the question, also labels each
+effect: `outcome_match` (`same` — the question's primary outcome defined the
+same way; `related` — a surrogate, a composite, a component or another
+definition; `different`), `timepoint_weeks` (the follow-up in weeks, omitted
+when not stated) with `timepoint_match` (`yes` — the question's time frame, or
+the question has none; `no`; `unclear`), and for a cluster trial a `cluster`
+object (`unit`, `clusters`, `mean_size`, `icc`, `adjusted_for_clustering`).
+These labels decide what is pooled (below). **Go computes** (`internal/meta`): each direct study's
 effect goes on a common scale — the log risk ratio from counts (events from
 a percentage are `round(percent / 100 × total)`, computed in Go and logged as
 derived; a 0.5 correction for a zero cell, studies without events in both
@@ -560,20 +584,65 @@ DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
 number of studies, participants when known, I². A single study is shown with
 its own interval and marked "not pooled".
 
-**Which studies are pooled.** Counts give an odds ratio as well as a risk
-ratio (`meta.LogOR` and `meta.LogRR` share the zero-cell rule), so a study
-from counts is a candidate for both an RR pool and an OR pool; a study that
-reports only an OR can join the studies with counts in the OR pool. The
-candidate pools are RR, OR, HR (time-to-event, never merged with RR or OR),
-SMD, and MD per unit. The pool with the most participants wins (a study of
-unknown size counts 0), so two small pilot trials do not outweigh one large
-trial on another measure; ties go to more studies, then to the order RR, OR,
-HR, SMD, MD, then to the unit. A study from counts is never in two pools at
-once. Every direct study with usable numbers that is not in the winning pool
-is listed in `pooled_estimate.left_out` as `doi (MEASURE)` (a study from
-counts is labelled RR) and logged; the judge weighs those studies as
-individual results, and the report's pooled line says how many were not
-pooled. The **judge reads** the result
+**Which studies are pooled.** A pool answers one question: the same outcome at
+the same time point, from studies of one design class (Cochrane Handbook 5.2.1,
+6.2.4, 10.10.1, 24.6.2.1). The rules apply in this order, and every study with
+usable numbers that a rule keeps out is listed in `pooled_estimate.left_out` as
+`doi (reason)` and logged, one info line per reason with the count (without a
+pooled estimate the reasons go to a report warning instead).
+
+1. **Design stratum.** Randomized = `rct`, `cluster_rct`, `crossover_rct`;
+   non-randomized = every other primary design; reviews never. If the corpus
+   holds ANY direct randomized study (not retracted, a study report) — whether
+   or not it has usable numbers — only the randomized stratum may be pooled,
+   and a non-randomized effect goes to `left_out` as `non-randomized`. When
+   those trials have no usable numbers there is no pooled estimate, and the
+   judge weighs the trials one by one: a pool of registry cohorts is never put
+   in their place. Only without a direct randomized study is the non-randomized
+   stratum pooled, and then only from adjusted estimates (`adjusted: true`, §2.4):
+   a crude non-randomized effect goes to `left_out` as `unadjusted
+   non-randomized`, because raw counts do not control confounding. A study
+   whose design is unknown is not guessed into a stratum: beside a trial or a
+   cohort it is left out as `design unknown`, and a corpus in which no design
+   is known pools as it did before, with no stratum. The pooled estimate
+   carries `stratum` (`randomized` or `non-randomized`), the report line shows it
+   (`design: randomized`) and the synthesis starts its GRADE level from it:
+   randomized strong, non-randomized weak; without a pooled estimate, from the
+   best design among the direct studies.
+2. **Outcome and time point.** Only an effect whose `outcome_match` is `same`
+   (a missing label reads as `same`) and whose `timepoint_match` is not `no`
+   (a missing one reads as `unclear`) is pooled; the others are left out as
+   `other outcome` or `other time point`. "Unknown" is never "different": a
+   garbled or missing label does not exclude a study.
+3. **Cluster trials.** A `cluster_rct` effect from counts or means that does not
+   account for clustering (`cluster.adjusted_for_clustering` not true) has the
+   participants and events of each arm divided by the design effect
+   `DE = 1 + (m − 1) × ICC` (Handbook 23.1.4), with `m` the stated mean cluster
+   size, else the participants over the clusters, and the reported ICC, else the
+   default 0.05 (Handbook: typical values are below 0.05, so the upper end is
+   the cautious choice, as it shrinks the sample most). The ratio does not change, the
+   interval widens, and the participants the imprecision rule reads are the
+   effective ones. When `m` cannot be had (no stated size and no cluster count)
+   the trial is left out as `cluster trial not adjusted for clustering`. An
+   effect that is adjusted for clustering, or a reported estimate, is used as
+   reported; a design other than `cluster_rct` is never divided.
+4. **One report per trial** and **one study, once** (below): the report that
+   matches the question is chosen, then exact duplicates are dropped.
+5. **Measure.** Counts give an odds ratio as well as a risk
+   ratio (`meta.LogOR` and `meta.LogRR` share the zero-cell rule), so a study
+   from counts is a candidate for both an RR pool and an OR pool; a study that
+   reports only an OR can join the studies with counts in the OR pool. The
+   candidate pools are RR, OR, HR (time-to-event, never merged with RR or OR),
+   SMD, and MD per unit. Among the studies that are left, the pool with the most
+   participants wins (a study of unknown size counts 0), so two small pilot
+   trials do not outweigh one large trial on another measure; ties go to more
+   studies, then to the order RR, OR, HR, SMD, MD, then to the unit. A study from
+   counts is never in two pools at once. Studies outside the winning pool are
+   left out as `doi (MEASURE)` (a study from counts is labelled RR).
+
+The judge weighs the left-out studies as individual results, and the report's
+pooled line names the first few with their reasons (the rest are in
+`pooled_estimate.left_out`). The **judge reads** the result
 (`pooled_estimate` in its input) and may not recompute it; `report.md`
 prints the numbers from Go. The method is checked against the BCG vaccine
 example of the metafor package. A pooled mean difference also carries `sd`,
@@ -591,8 +660,9 @@ as independent evidence. The design is resolved from, in order: the critic's
 `meta-analysis`, `systematic review`, `literature review`, `cohort study`
 and so on, mapped onto the same set; its catch-all `other` says nothing); the
 title ("systematic review", "meta-analysis", "pooled analysis", "umbrella
-review", "Cochrane review"). A study whose design stays unknown remains in the
-pool, as before. The same resolved design fills the Design column when the
+review", "Cochrane review"). A study whose design stays unknown is not
+skipped as a review, but it has no design class either (see the strata above).
+The same resolved design fills the Design column when the
 paper has no discovery tag (`--dois`, OpenAlex discovery). Critiques saved
 before the field existed load as they are and fall back to the tag and the
 title.
@@ -607,16 +677,49 @@ number (§2.1, `trial_registrations`) form one trial; a chain counts too
 sample sizes are not used: matching by them was measured to merge different
 trials. Reviews never join a trial (they are skipped from pooling anyway),
 and a paper without a registration number is never merged with another.
-Inside every candidate pool, before the pools are compared by their
-participants, one report per trial stays: the latest by publication year, then
-the larger by participants, then the lower DOI (so the choice does not depend
-on the corpus order). The others go to `pooled_estimate.left_out` as
-`doi (same trial as <kept doi>, <registration number>)` and the log. The same
-rule applies where trials are counted: the hybrid full-text walk skips a
-candidate whose trial already has a text, and the direction tally of the
-direct studies counts each trial once with the direction of its latest report.
-The synthesis input carries each study's `trial_registrations`, and the judge
-is told that reports sharing a number are one trial, not replications.
+Among the eligible reports of a trial (the outcome and time rules of the
+section above come first), one stays, and it is chosen **before** the measure
+is, by what the report measures and when, in this order: its `timepoint_match`
+is `yes` rather than `unclear`; then its `outcome_match` is `same`; then the
+longer `timepoint_weeks`; then the later publication year; then the lower DOI
+(so the choice does not depend on the corpus order). A report with no label
+reads as `unclear` / `same` and no stated follow-up, so an old artifact falls
+back to "the later year", as the pool did before. The case that motivated the
+order is REFLUX: a question about 12 months must take the 12-month report, not
+the 5-year one that is merely the later publication. The other reports go to
+`pooled_estimate.left_out` as `doi (same trial as <kept doi>, <registration
+number>)` and the log (a report at another time point or outcome is named for
+that instead). The same rule applies where trials are counted: the hybrid
+full-text walk skips a candidate whose trial already has a text, and the
+direction tally of the direct studies counts each trial once, with the
+direction of the report that ranks first. The synthesis input carries each
+study's `trial_registrations`, and the judge is told that reports sharing a
+number are one trial, not replications.
+
+**Papers that are not study reports.** An erratum or correction, a comment, an
+editorial, a letter, news, a retraction notice, an expression of concern and a
+front-matter item carry no results of their own, or repeat those of another
+paper (the SUPPORT trial was counted twice through a correction notice that
+reprinted its abstract). They are told in code from metadata, with no model:
+OpenAlex's `type` and `type_crossref`, and PubMed's publication types
+(`PublicationTypeList` of the same `efetch` record that gives the trial
+registration numbers; the discovery PubMed channel has them from its summaries).
+They are kept as `publication_types` on the paper (`1-discovery.json`,
+`2-enrichment.json`; the enrichment cache stores OpenAlex's). A paper typed
+both as such an item and as a trial or an observational study is a study report
+(a research letter). Such a paper is never pooled and never counted in the
+direction tally, and it never joins a trial's group. In discovery it takes no
+corpus slot (`Candidate.Eligible`) when a channel has typed it (PubMed hits,
+works OpenAlex returned, mined references); a Consensus hit is typed only at the
+enrichment, so there it is excluded from the pool and the tally but may have
+used a slot, and the `--dois` list is the user's own. A correction notice that
+OpenAlex files as an `article` is caught by the next rule instead.
+
+**One study, once.** Two primary papers whose extracted arm data are identical
+— both arms' events and totals, or both arms' mean, SD and n — report the same
+results. One is pooled (the one published first, then the lower DOI) and the
+other goes to `left_out` as `doi (same results as <kept doi>)`. Only exact
+equality counts, and an estimate with no arm data has nothing to compare.
 
 The sample size the pool and the matrix use follows from the same concern: the
 critic records, for a randomized trial, the number randomized into the compared

@@ -200,6 +200,10 @@ func (cp *candidatePool) add(c Candidate) {
 		have.Year = c.Year
 	}
 
+	// the types any channel gave the paper reach the corpus record too
+	have.PublicationTypes = model.MergePublicationTypes(have.PublicationTypes, c.PublicationTypes)
+	have.paper.PublicationTypes = have.PublicationTypes
+
 	if have.PMID == "" {
 		have.PMID = c.PMID
 	}

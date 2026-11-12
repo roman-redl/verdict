@@ -14,7 +14,7 @@ import (
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
-var _ pipeline.TrialRegistry = (*Client)(nil)
+var _ pipeline.PubMedRecords = (*Client)(nil)
 
 const (
 	// doiBatch is how many DOIs one esearch query carries: the query is a GET
@@ -28,14 +28,15 @@ const (
 	maxFetchBytes = 64 << 20
 )
 
-// Registrations returns the accession numbers of the PubMed records' data
-// banks (ClinicalTrials.gov NCT numbers, ISRCTN, ...), keyed by normalized
-// DOI. It takes one esearch per 20 DOIs to find the records and one efetch
-// per 200 records to read them. A DOI without a record, or whose record lists
-// no data bank, is absent; when a request fails, the numbers collected before
-// it come back together with the error.
-func (c *Client) Registrations(ctx context.Context, dois []string) (map[string][]string, error) {
-	out := map[string][]string{}
+// Records returns what the full PubMed records say beyond the summary: the
+// accession numbers of the data banks (ClinicalTrials.gov NCT numbers,
+// ISRCTN, ...) and the publication types, keyed by normalized DOI. It takes
+// one esearch per 20 DOIs to find the records and one efetch per 200 records
+// to read them. A DOI without a record, or whose record lists neither a data
+// bank nor a publication type, is absent; when a request fails, the details
+// collected before it come back together with the error.
+func (c *Client) Records(ctx context.Context, dois []string) (map[string]model.PubMedDetail, error) {
+	out := map[string]model.PubMedDetail{}
 	wanted := map[string]bool{}
 
 	for _, d := range dois {
@@ -56,9 +57,14 @@ func (c *Client) Registrations(ctx context.Context, dois []string) (map[string][
 		}
 
 		for _, r := range records {
-			if wanted[r.doi] && len(r.numbers) > 0 {
-				out[r.doi] = model.NormalizeRegistrations(append(out[r.doi], r.numbers...))
+			if !wanted[r.doi] || (len(r.numbers) == 0 && len(r.pubTypes) == 0) {
+				continue
 			}
+
+			d := out[r.doi]
+			d.Registrations = model.NormalizeRegistrations(append(d.Registrations, r.numbers...))
+			d.PubTypes = model.NormalizePublicationTypes(append(d.PubTypes, r.pubTypes...))
+			out[r.doi] = d
 		}
 	}
 
@@ -91,19 +97,21 @@ func (c *Client) findRecords(ctx context.Context, dois []string) ([]string, erro
 	return slices.Compact(pmids), nil
 }
 
-// fetched is one record read from efetch: its DOI and the accession numbers
-// of its data banks.
+// fetched is one record read from efetch: its DOI, the accession numbers of
+// its data banks and its publication types.
 type fetched struct {
-	doi     string
-	numbers []string
+	doi      string
+	numbers  []string
+	pubTypes []string
 }
 
-// article is the part of a PubmedArticle the registrations come from.
+// article is the part of a PubmedArticle the details come from.
 type article struct {
 	DataBanks []struct {
 		Numbers []string `xml:"AccessionNumberList>AccessionNumber"`
 	} `xml:"MedlineCitation>Article>DataBankList>DataBank"`
-	IDs []struct {
+	PubTypes []string `xml:"MedlineCitation>Article>PublicationTypeList>PublicationType"`
+	IDs      []struct {
 		Type  string `xml:"IdType,attr"`
 		Value string `xml:",chardata"`
 	} `xml:"PubmedData>ArticleIdList>ArticleId"`
@@ -138,7 +146,7 @@ func (c *Client) fetchDataBanks(ctx context.Context, pmids []string) ([]fetched,
 
 	for i := range set.Articles {
 		a := &set.Articles[i]
-		f := fetched{}
+		f := fetched{pubTypes: a.PubTypes}
 
 		for _, id := range a.IDs {
 			if id.Type == "doi" {

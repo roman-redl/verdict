@@ -47,7 +47,11 @@ Respond with a single JSON object, no markdown, with exactly these fields:
 
 Verdict definitions — the certainty that the stated direction (supports the claim / no effect / opposite) ` +
 	`is right, rated GRADE-style over the direct studies:
-- Start from the design: randomized trials start at strong, observational studies at weak.
+- Start from the design of the evidence the verdict rests on: when pooled_estimate is present, its stratum ` +
+	`decides ("randomized" starts at strong, "non-randomized" at weak); without a pooled_estimate, or with ` +
+	`no stratum in it, start from the best design among the direct studies (strong when any direct study ` +
+	`is a randomized trial, otherwise weak). Non-randomized studies are never averaged into a randomized ` +
+	`pool: weigh them separately and do not let them raise or lower the starting level of the trials.
 - Lower one level for each SERIOUS problem in one of five domains and two levels for a VERY SERIOUS one, ` +
 	`and name the domain; nothing else lowers the level, and one problem counts in one domain only:
   - risk of bias: a flaw that could plausibly change this outcome's result (allocation, missing data, ` +
@@ -121,9 +125,12 @@ Hard rules:
 	`pooled estimate supports (read against the change the claim states; little_or_no_difference = no_effect; ` +
 	`"undetermined" = you judge the direction), and its levels are the imprecision rating; do not state a ` +
 	`different direction (unless the target is "undetermined") or rate imprecision again. ` +
-	`Studies listed in left_out reported the outcome on another scale, or are earlier reports of a trial ` +
-	`whose latest report is pooled, and are not in the pooled numbers: weigh them as individual results ` +
-	`(a repeat report adds no participants).
+	`Studies listed in left_out are not in the pooled numbers, each with its reason in parentheses: another ` +
+	`measure, another outcome or time point, a non-randomized or unadjusted study beside randomized trials, ` +
+	`a cluster trial that could not be adjusted for clustering, another report of a trial whose chosen report ` +
+	`is pooled, or the same results as another paper. Weigh them as individual results (a repeat report or a ` +
+	`paper with the same results adds no participants and no independent evidence). When no pooled_estimate ` +
+	`is present, the direct studies are judged one by one.
 9. Systematic reviews and meta-analyses (see design and critique.study_design) are a cross-check of the ` +
 	`primary studies, not independent evidence: do not count a review in the direct tally together with the ` +
 	`trials it includes. The pooled_estimate never includes them.`

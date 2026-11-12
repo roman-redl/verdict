@@ -14,6 +14,39 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
+// maxOutcomeRunes caps the joined outcome texts of a pool.
+const maxOutcomeRunes = 200
+
+// outcomeLabel is "outcome (timepoint)" with the spaces collapsed; empty when
+// the critic named no outcome.
+func outcomeLabel(ef *model.Effect) string {
+	o := tidyUnit(ef.Outcome)
+	if o == "" {
+		return ""
+	}
+
+	if tp := tidyUnit(ef.Timepoint); tp != "" {
+		return o + " (" + tp + ")"
+	}
+
+	return o
+}
+
+// joinOutcomes lists the distinct outcome texts of a pool in study order,
+// separated by " / " and cut to a length that stays readable.
+func joinOutcomes(items []pooledStudy) string {
+	var seen []string
+
+	for i := range items {
+		o := items[i].outcome
+		if o != "" && !slices.ContainsFunc(seen, func(s string) bool { return strings.EqualFold(s, o) }) {
+			seen = append(seen, o)
+		}
+	}
+
+	return truncate(strings.Join(seen, " / "), maxOutcomeRunes)
+}
+
 // deriveEffect puts one study's extracted numbers on an analysis scale:
 // counts first, then means, then a reported estimate with its interval.
 func deriveEffect(ef *model.Effect) (pooledStudy, error) {
@@ -55,7 +88,8 @@ func deriveCounts(a, b countedArm) (pooledStudy, error) {
 	}
 
 	return pooledStudy{
-		measure: model.MeasureRR, study: rr, fromCounts: true, or: or, n: int(a.total + b.total),
+		// rounded: the totals of a cluster trial are divided by its design effect
+		measure: model.MeasureRR, study: rr, fromCounts: true, or: or, n: int(math.Round(a.total + b.total)),
 		converted: strings.Join(slices.DeleteFunc([]string{a.derived, b.derived},
 			func(s string) bool { return s == "" }), "; "),
 	}, nil
@@ -139,7 +173,7 @@ func deriveContinuous(a, b meta.Arm, unit string) (pooledStudy, error) {
 	}
 
 	return pooledStudy{
-		continuous: true, unit: tidyUnit(unit), md: md, smd: smd, sd: sd, n: int(a.N + b.N),
+		continuous: true, unit: tidyUnit(unit), md: md, smd: smd, sd: sd, n: int(math.Round(a.N + b.N)),
 	}, nil
 }
 

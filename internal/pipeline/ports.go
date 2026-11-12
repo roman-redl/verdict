@@ -145,17 +145,18 @@ type PubMed interface {
 	Summaries(ctx context.Context, pmids []string) ([]model.PubMedRecord, error)
 }
 
-// TrialRegistry gives the trial registration numbers a literature index
-// records for papers (PubMed: the accession numbers of a record's data banks,
-// ClinicalTrials.gov and ISRCTN among them).
-type TrialRegistry interface {
-	// Registrations returns the accession numbers listed for each paper, keyed
-	// by normalized DOI; a DOI the source does not know, or knows without a
-	// number, is absent. The numbers come as the source spells them (data banks
-	// that are not trial registries included): the caller recognizes the
-	// registrations among them. When a request fails, the map holds what was
+// PubMedRecords gives what the full records of a literature index say about
+// papers known by DOI (PubMed): the trial registration numbers (the accession
+// numbers of a record's data banks, ClinicalTrials.gov and ISRCTN among them)
+// and the publication types.
+type PubMedRecords interface {
+	// Records returns the details of each paper, keyed by normalized DOI; a DOI
+	// the source does not know, or knows without a data bank or a publication
+	// type, is absent. The registration numbers come as the source spells them
+	// (data banks that are not trial registries included): the caller recognizes
+	// the registrations among them. When a request fails, the map holds what was
 	// collected before the failure, together with the error.
-	Registrations(ctx context.Context, dois []string) (map[string][]string, error)
+	Records(ctx context.Context, dois []string) (map[string]model.PubMedDetail, error)
 }
 
 // PDFSource downloads open-access PDFs.

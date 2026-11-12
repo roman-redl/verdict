@@ -9,10 +9,7 @@ package pipeline
 // different trials. Papers without a registration number are never merged.
 
 import (
-	"cmp"
-	"context"
 	"slices"
-	"strings"
 
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -20,7 +17,8 @@ import (
 // trialPaper is a paper as the grouping sees it.
 type trialPaper struct {
 	ids []string // normalized trial registration numbers
-	// primary is false for a review or other secondary research: it repeats the
+	// primary is false for a review or other secondary research, and for a
+	// paper that is not a study report (an erratum, a comment): it repeats the
 	// data of the trials it covers and never joins a trial's group.
 	primary bool
 }
@@ -72,6 +70,15 @@ func trialGroups(papers []trialPaper) []int {
 	return root
 }
 
+// isStudyReport reports whether the paper may count as a study of its own: it
+// is not a review (secondary research) and its publication types do not say
+// it is an erratum, a comment, a letter or another paper without results of
+// its own. The design is the critic's, else the discovery tag, else the title
+// (resolveDesign); a design that cannot be told counts as a study.
+func isStudyReport(e *model.EnrichedPaper, c model.Critique) bool {
+	return !resolveDesign(e, c).IsSecondary() && model.NonStudyKind(e.PublicationTypes) == ""
+}
+
 // trialInputs lists the papers of the corpus for trialGroups; crits are
 // aligned with st.Enriched.
 func trialInputs(st *State, crits []model.Critique) []trialPaper {
@@ -79,7 +86,7 @@ func trialInputs(st *State, crits []model.Critique) []trialPaper {
 
 	for i := range st.Enriched {
 		e := &st.Enriched[i]
-		if resolveDesign(e, crits[i]).IsSecondary() {
+		if !isStudyReport(e, crits[i]) {
 			continue
 		}
 
@@ -89,23 +96,67 @@ func trialInputs(st *State, crits []model.Critique) []trialPaper {
 	return out
 }
 
-// reportRank orders the reports of one trial: the one to keep is the latest.
+// reportRank orders the reports of one trial: the one to keep is the report
+// that carries the question's outcome at the question's time frame.
 type reportRank struct {
 	doi  string
 	year int // zero when unknown: loses to any known year
-	n    int // participants; zero when unknown
+	// timepoint is how well the report's follow-up matches the question's time
+	// frame: 2 yes, 1 unclear or unknown, 0 no.
+	timepoint int
+	// outcome is how well its outcome matches the question's: 2 the same (or
+	// unknown), 1 related, 0 different.
+	outcome int
+	weeks   float64 // follow-up in weeks; zero when unknown: loses to any stated one
+}
+
+// rankOf builds the rank of a report from its extracted effect; a report
+// without one ranks as an unknown outcome at an unknown time point.
+func rankOf(doi string, year int, ef *model.Effect) reportRank {
+	r := reportRank{doi: doi, year: year, timepoint: 1, outcome: 2}
+	if ef == nil {
+		return r
+	}
+
+	switch ef.TimepointMatch {
+	case model.TimepointYes:
+		r.timepoint = 2
+	case model.TimepointNo:
+		r.timepoint = 0
+	case model.TimepointUnclear, "":
+		r.timepoint = 1
+	}
+
+	switch ef.OutcomeMatch {
+	case model.OutcomeSame, "":
+		r.outcome = 2
+	case model.OutcomeRelated:
+		r.outcome = 1
+	case model.OutcomeDifferent:
+		r.outcome = 0
+	}
+
+	if ef.TimepointWeeks != nil {
+		r.weeks = *ef.TimepointWeeks
+	}
+
+	return r
 }
 
 // keptOver reports whether the report is the one to keep over the other: the
-// later publication, then the one with more participants, then the lower DOI
-// (so that the choice does not depend on the corpus order).
+// one whose time point matches the question (yes over unclear), then the one
+// whose outcome does, then the longer follow-up, then the later publication,
+// then the lower DOI (so that the choice does not depend on the corpus order).
 func (r reportRank) keptOver(o reportRank) bool {
-	if r.year != o.year {
+	switch {
+	case r.timepoint != o.timepoint:
+		return r.timepoint > o.timepoint
+	case r.outcome != o.outcome:
+		return r.outcome > o.outcome
+	case r.weeks != o.weeks:
+		return r.weeks > o.weeks
+	case r.year != o.year:
 		return r.year > o.year
-	}
-
-	if r.n != o.n {
-		return r.n > o.n
 	}
 
 	return r.doi < o.doi
@@ -128,84 +179,37 @@ func sharedRegistration(dropped, kept []string) string {
 	return ""
 }
 
-// fillTrialRegistrations sets the trial registration numbers of every paper:
-// from the abstract (a regular expression per registry), and, for a primary
-// study whose abstract names none, from the data banks of its PubMed record.
-// A PubMed failure only costs the second source: the numbers from the
-// abstracts stay. Reviews are not looked up — they never join a trial.
-func (p *Pipeline) fillTrialRegistrations(ctx context.Context, enriched []model.EnrichedPaper) {
-	byDOI := map[string][]int{} // normalized DOI -> indexes of the papers to look up
-
-	var dois []string
-
-	for i := range enriched {
-		e := &enriched[i]
-		e.TrialRegistrations = model.NormalizeRegistrations(
-			append(e.TrialRegistrations, model.TrialRegistrations(e.Abstract)...))
-
-		doi := model.NormalizeDOI(e.DOI)
-		if len(e.TrialRegistrations) > 0 || doi == "" || p.clients.Trials == nil ||
-			resolveDesign(e, model.Critique{}).IsSecondary() {
-			continue
-		}
-
-		if _, seen := byDOI[doi]; !seen {
-			dois = append(dois, doi)
-		}
-
-		byDOI[doi] = append(byDOI[doi], i)
-	}
-
-	if len(dois) == 0 {
-		return
-	}
-
-	found, err := p.clients.Trials.Registrations(ctx, dois)
-	if err != nil {
-		p.log.Warn("pubmed unavailable: trial registrations taken from the abstracts only", "err", err)
-	}
-
-	filled := 0
-
-	for doi, numbers := range found {
-		ids := model.TrialRegistrations(strings.Join(numbers, " "))
-
-		for _, i := range byDOI[doi] {
-			enriched[i].TrialRegistrations = ids
-
-			if len(ids) > 0 {
-				filled++
-			}
-		}
-	}
-
-	p.log.Info("trial registrations looked up in pubmed", "papers", len(dois), "filled", filled)
-}
-
 // tallyIndexes lists the critiques the direction tally counts: every direct
-// study, with the reports of one trial reduced to the latest one among them.
-// Without the enriched papers (the stage before the enrichment) there is no
-// registration number to group by.
+// primary study, with the reports of one trial reduced to the one report of the
+// trial that ranks first (reportRank). A review or meta-analysis and a paper
+// that is not a study report are never counted. Without the enriched papers
+// (the stage before the enrichment) there is no registration number to group
+// by, and only the critic's own design tells a review.
 func tallyIndexes(st *State, crits []model.Critique) []int {
+	enriched := len(st.Enriched) == len(crits)
+
+	countable := func(i int) bool {
+		if enriched {
+			return isStudyReport(&st.Enriched[i], crits[i])
+		}
+
+		return !crits[i].StudyDesign.IsSecondary()
+	}
+
 	var direct []int
 
 	for i := range crits {
-		if crits[i].Relevance == relevanceDirect {
+		if crits[i].Relevance == relevanceDirect && countable(i) {
 			direct = append(direct, i)
 		}
 	}
 
-	if len(st.Enriched) != len(crits) {
+	if !enriched {
 		return direct
 	}
 
 	groups := trialGroups(trialInputs(st, crits))
-	rank := func(i int) reportRank {
-		return reportRank{
-			doi: st.Enriched[i].DOI, year: st.Enriched[i].Year,
-			n: cmp.Or(st.Enriched[i].SampleSize, crits[i].SampleSizeReported),
-		}
-	}
+	rank := func(i int) reportRank { return rankOf(st.Enriched[i].DOI, st.Enriched[i].Year, crits[i].Effect) }
 
 	best := map[int]int{} // trial -> the report to count
 

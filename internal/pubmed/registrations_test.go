@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/roman-redl/verdict/internal/model"
 )
 
 const (
@@ -59,19 +61,23 @@ func newRegistryServer(t *testing.T) *registryServer {
 	return rs
 }
 
-func TestRegistrations(t *testing.T) {
+func TestRecords(t *testing.T) {
 	rs := newRegistryServer(t)
 	c := NewWithBase(rs.URL, testKey, "me@example.org")
 
-	got, err := c.Registrations(t.Context(), []string{
+	got, err := c.Records(t.Context(), []string{
 		"https://doi.org/" + strings.ToUpper(doiRefluxA), doiRefluxB, doiNoBank, "10.1/not-in-pubmed",
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, map[string][]string{
-		doiRefluxA: {"ISRCTN15517081"},
-		doiRefluxB: {"AB123456", "NCT01234567", "NCT01234568"},
-	}, got, "keyed by normalized DOI; a record without data banks, an unknown DOI and an unrequested record are absent")
+	assert.Equal(t, map[string]model.PubMedDetail{
+		doiRefluxA: {
+			Registrations: []string{"ISRCTN15517081"},
+			PubTypes:      []string{"comparative study", "randomized controlled trial"},
+		},
+		doiRefluxB: {Registrations: []string{"AB123456", "NCT01234567", "NCT01234568"}},
+		doiNoBank:  {PubTypes: []string{"published erratum"}},
+	}, got, "keyed by normalized DOI, types lower case; an unknown DOI and an unrequested record are absent")
 
 	require.Len(t, rs.searches, 1)
 	term := rs.searches[0].Get("term")
@@ -87,7 +93,7 @@ func TestRegistrations(t *testing.T) {
 	assert.Equal(t, testKey, f.Get("api_key"))
 }
 
-func TestRegistrationsBatchesTheRequests(t *testing.T) {
+func TestRecordsBatchesTheRequests(t *testing.T) {
 	var (
 		mu       sync.Mutex
 		searches int
@@ -120,7 +126,7 @@ func TestRegistrationsBatchesTheRequests(t *testing.T) {
 		dois = append(dois, fmt.Sprintf("10.1/d%03d", i))
 	}
 
-	got, err := NewWithBase(srv.URL, "", "").Registrations(t.Context(), dois)
+	got, err := NewWithBase(srv.URL, "", "").Records(t.Context(), dois)
 	require.NoError(t, err)
 
 	assert.Empty(t, got)
@@ -128,10 +134,10 @@ func TestRegistrationsBatchesTheRequests(t *testing.T) {
 	assert.Equal(t, []int{200, 40}, fetched, "at most 200 PMIDs per efetch")
 }
 
-func TestRegistrationsNoDOIsMakesNoRequest(t *testing.T) {
+func TestRecordsNoDOIsMakesNoRequest(t *testing.T) {
 	rs := newRegistryServer(t)
 
-	got, err := NewWithBase(rs.URL, "", "").Registrations(t.Context(), []string{"", `10.1/has"quote`})
+	got, err := NewWithBase(rs.URL, "", "").Records(t.Context(), []string{"", `10.1/has"quote`})
 	require.NoError(t, err)
 
 	assert.Empty(t, got)
@@ -139,7 +145,7 @@ func TestRegistrationsNoDOIsMakesNoRequest(t *testing.T) {
 	assert.Empty(t, rs.fetches)
 }
 
-func TestRegistrationsFailures(t *testing.T) {
+func TestRecordsFailures(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		search  string
@@ -163,7 +169,7 @@ func TestRegistrationsFailures(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			got, err := NewWithBase(srv.URL, "", "").Registrations(t.Context(), []string{doiRefluxA})
+			got, err := NewWithBase(srv.URL, "", "").Records(t.Context(), []string{doiRefluxA})
 
 			require.ErrorContains(t, err, tc.wantErr)
 			assert.Empty(t, got)

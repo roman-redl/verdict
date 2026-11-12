@@ -5,7 +5,8 @@ package pipeline
 // Crossref update notices (the Retraction Watch signal, typically ahead of
 // OpenAlex), full texts, PubPeer commentary and the Scite drill-down; at the
 // end one Europe PMC request fills the abstracts still missing and the trial
-// registration numbers are read (abstracts first, then PubMed). One
+// registration numbers and publication types are read (abstracts first, then
+// PubMed). One
 // source failing for one paper does not kill the stage — it is recorded in
 // Errors/Warnings and synthesis proceeds on partial data.
 
@@ -92,7 +93,7 @@ func (p *Pipeline) enrich(ctx context.Context, rp runParams, st *State) error {
 	st.Warnings = append(st.Warnings, warns...)
 
 	// after the abstracts: the registration numbers are read from them
-	p.fillTrialRegistrations(ctx, enriched)
+	p.fillRecordDetails(ctx, enriched)
 
 	if err := batch.cache.Save(cachePath); err != nil {
 		p.log.Warn("enrichment cache not saved", "err", err)
@@ -141,6 +142,7 @@ func (p *Pipeline) enrichPaper(
 		AbstractSource: e.AbstractSource,
 		OALink:         e.OALink,
 		OALocations:    e.OALocations,
+		Types:          e.PublicationTypes,
 		Retracted:      e.Flags.Retracted,
 		Reason:         e.Flags.Reason,
 		Notes:          e.Flags.Notes,
@@ -164,6 +166,7 @@ func applyCached(e *model.EnrichedPaper, c CacheEntry) {
 		e.OALocations = c.OALocations
 	}
 
+	e.PublicationTypes = model.MergePublicationTypes(e.PublicationTypes, c.Types)
 	e.Flags.Notes = append(e.Flags.Notes, c.Notes...)
 }
 
@@ -198,6 +201,7 @@ func (p *Pipeline) checkIntegrity(ctx context.Context, e *model.EnrichedPaper) {
 
 			e.OALink = cmp.Or(e.OALink, w.OAURL)
 			e.Abstract = cmp.Or(e.Abstract, w.Abstract)
+			e.PublicationTypes = model.MergePublicationTypes(e.PublicationTypes, w.Types)
 
 			if len(e.OALocations) == 0 {
 				e.OALocations = w.Locations

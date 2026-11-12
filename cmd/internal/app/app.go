@@ -108,7 +108,7 @@ func BuildClients(cfg *config.Config, log *slog.Logger, opts pipeline.Options) (
 		PDFs:         pdf.NewDownloader(),
 		PDFText:      pdf.NewExtractor(log),
 		PubMed:       ncbi,
-		Trials:       ncbi,
+		Records:      ncbi,
 		PMC:          pmc.New(cfg.OpenAlexEmail), // NCBI asks for a contact e-mail; no key
 		Landings:     doi.New(),                  // DOI → the publisher page, for the reader
 		Reader:       jina.New(cfg.JinaAPIKey),   // third-party reader; the key only raises its limit

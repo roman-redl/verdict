@@ -34,6 +34,12 @@ type Paper struct {
 	// or the judge as evidence: the pipeline judges papers from abstracts
 	// and full texts (critiquePaper sends an explicit field allowlist).
 	Takeaway string `json:"takeaway,omitempty"`
+	// PublicationTypes are the types the metadata sources give the paper,
+	// lower case (OpenAlex type and type_crossref, PubMed publication types):
+	// NonStudyKind tells from them an erratum, a comment or a letter from a
+	// study report. Empty when no source said, and in artifacts written before
+	// the field existed.
+	PublicationTypes []string `json:"publication_types,omitempty"`
 	// Retracted is known already at discovery when the source was OpenAlex
 	// (the enrichment stage then skips re-querying it).
 	Retracted bool   `json:"retracted,omitempty"`
@@ -70,6 +76,9 @@ type Work struct {
 	CitedByCount int
 	Retracted    bool
 	References   []string // IDs of the works this one cites
+	// Types are the work's types as the source classifies it (OpenAlex type
+	// and type_crossref), lower case.
+	Types []string
 }
 
 // ToPaper converts a work into a corpus paper. The DOI is taken from the
@@ -97,6 +106,8 @@ func (w *Work) ToPaper(fallbackDOI string) Paper {
 		CitedByCount: w.CitedByCount,
 		Retracted:    w.Retracted,
 		Source:       SourceOpenAlex,
+
+		PublicationTypes: NormalizePublicationTypes(w.Types),
 	}
 }
 

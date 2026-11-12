@@ -46,6 +46,17 @@ func means(sd float64, unit string) *model.Effect {
 	}
 }
 
+// shifted moves the means of both arms up by one: the same difference and SD
+// from other numbers, so that two such studies are not exact duplicates.
+func shifted(ef *model.Effect) *model.Effect {
+	out := *ef
+	i, c := *ef.Intervention, *ef.Control
+	i.Mean, c.Mean = new(*i.Mean+1), new(*c.Mean+1)
+	out.Intervention, out.Control = &i, &c
+
+	return &out
+}
+
 // reported is an estimate with its 95% interval.
 func reported(measure string, value, low, high float64) *model.Effect {
 	return &model.Effect{Measure: measure, Value: new(value), CILow: new(low), CIHigh: new(high)}
@@ -85,18 +96,21 @@ func poolPipeline(t *testing.T) (*Pipeline, *bytes.Buffer) {
 func TestPoolEffectsFromCounts(t *testing.T) {
 	p, _ := poolPipeline(t)
 
-	// two identical trials, 10/100 vs 20/100: RR 0.5, SE of each log RR
-	// sqrt(0.13), pooled SE sqrt(0.13/2), CI 0.5 * exp(+-1.96 * 0.25495)
-	pe := p.poolEffects(poolState(counts(10, 100, 20, 100), counts(10, 100, 20, 100)))
+	// two trials with the same RR 0.5, 10/100 vs 20/100 and 20/200 vs 40/200 (not
+	// the same numbers: those would be one study). The SE of each log RR is
+	// sqrt(0.13) and sqrt(0.065), the pooled SE 1 / sqrt(1/0.13 + 1/0.065),
+	// the CI 0.5 * exp(+-1.96 * SE)
+	pe := p.poolEffects(poolState(counts(10, 100, 20, 100), counts(20, 200, 40, 200)))
+	se := 1 / math.Sqrt(1/0.13+1/0.065)
 
 	require.NotNil(t, pe)
 	assert.Equal(t, model.PoolRandomEffects, pe.Method)
 	assert.Equal(t, model.MeasureRR, pe.Measure)
 	assert.Equal(t, 2, pe.K)
-	assert.Equal(t, 400, pe.Participants)
+	assert.Equal(t, 600, pe.Participants)
 	assert.InDelta(t, 0.5, pe.Estimate, 1e-9)
-	assert.InDelta(t, 0.3034, pe.CILow, 0.0001)
-	assert.InDelta(t, 0.8241, pe.CIHigh, 0.0001)
+	assert.InDelta(t, 0.5*math.Exp(-1.96*se), pe.CILow, 0.0001)
+	assert.InDelta(t, 0.5*math.Exp(1.96*se), pe.CIHigh, 0.0001)
 	require.NotNil(t, pe.I2)
 	assert.InDelta(t, 0, *pe.I2, 1e-9)
 	assert.Equal(t, []string{study1, study2}, pe.Studies)
@@ -163,7 +177,7 @@ func TestPoolEffectsMeanDifferenceInOneUnit(t *testing.T) {
 	p, _ := poolPipeline(t)
 
 	// MD 2, SE of each sqrt(0.4); pooled SE sqrt(0.2) = 0.44721
-	pe := p.poolEffects(poolState(means(2, unitPoints), means(2, " Points ")))
+	pe := p.poolEffects(poolState(means(2, unitPoints), shifted(means(2, " Points "))))
 
 	require.NotNil(t, pe)
 	assert.Equal(t, model.MeasureMD, pe.Measure)
@@ -215,7 +229,7 @@ func TestPoolEffectsMeanDifferenceWithoutSD(t *testing.T) {
 	for name, st := range map[string]*State{
 		"a reported estimate":      poolState(reportedMD),
 		"arms and a reported one":  poolState(means(2, unitPoints), reportedMD),
-		"standardized differences": poolState(means(2, unitMmHg), means(2, unitPoints)),
+		"standardized differences": poolState(means(2, unitMmHg), shifted(means(2, unitPoints))),
 		"a ratio":                  poolState(counts(10, 100, 20, 100)),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -236,7 +250,7 @@ func TestPoolEffectsMeansInDifferentUnitsAreStandardized(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p, _ := poolPipeline(t)
 
-			pe := p.poolEffects(poolState(means(2, units[0]), means(2, units[1])))
+			pe := p.poolEffects(poolState(means(2, units[0]), shifted(means(2, units[1]))))
 
 			require.NotNil(t, pe)
 			assert.Equal(t, model.MeasureSMD, pe.Measure)
@@ -421,14 +435,14 @@ func TestPoolEffectsOutcome(t *testing.T) {
 		},
 		"distinct outcomes in study order": {
 			effects: []*model.Effect{
-				named(counts(10, 100, 20, 100), "Pain at 24 h", ""), named(counts(10, 100, 20, 100), "Pain at 48 h", ""),
-				named(counts(10, 100, 20, 100), "Pain at 24 h", ""),
+				named(counts(10, 100, 20, 100), "Pain at 24 h", ""), named(counts(11, 100, 20, 100), "Pain at 48 h", ""),
+				named(counts(12, 100, 20, 100), "Pain at 24 h", ""),
 			},
 			want: "Pain at 24 h / Pain at 48 h",
 		},
 		"a study without an outcome adds nothing": {
 			effects: []*model.Effect{
-				named(counts(10, 100, 20, 100), "", "48 hours"), named(counts(10, 100, 20, 100), "Pain", ""),
+				named(counts(10, 100, 20, 100), "", "48 hours"), named(counts(11, 100, 20, 100), "Pain", ""),
 			},
 			want: "Pain",
 		},
@@ -452,7 +466,7 @@ func TestPoolEffectsOutcomeIsCapped(t *testing.T) {
 	effects := make([]*model.Effect, 0, 40)
 
 	for i := range 40 {
-		ef := counts(10, 100, 20, 100)
+		ef := counts(10+float64(i), 100, 50, 100)
 		ef.Outcome = fmt.Sprintf("Outcome number %d", i)
 		effects = append(effects, ef)
 	}
@@ -562,9 +576,8 @@ func TestPoolEffectsLargeTrialBeatsTwoPilots(t *testing.T) {
 	assert.Equal(t, 406, pe.Participants)
 	assert.Equal(t, []string{study3}, pe.Studies)
 	assert.Equal(t, []string{study1 + " (RR)", study2 + " (RR)"}, pe.LeftOut)
-	assert.Equal(t, 2, bytes.Count(logs.Bytes(), []byte("effect not pooled: other measure")))
-	assert.Contains(t, logs.String(), "doi="+study1)
-	assert.Contains(t, logs.String(), "measure=RR")
+	assert.Equal(t, 1, bytes.Count(logs.Bytes(), []byte(`reason="other measure"`)), "one line for the kind")
+	assert.Contains(t, logs.String(), `"effects not pooled" reason="other measure" count=2`)
 }
 
 // The choice among the candidate pools: participants, then studies, then the
@@ -672,7 +685,7 @@ func TestPoolEffectsChoosesTheLargestData(t *testing.T) {
 func TestPoolEffectsSkipsIndirectAndRetracted(t *testing.T) {
 	p, _ := poolPipeline(t)
 
-	st := poolState(counts(10, 100, 20, 100), counts(10, 100, 20, 100), counts(5, 100, 25, 100), counts(1, 100, 30, 100))
+	st := poolState(counts(10, 100, 20, 100), counts(11, 100, 21, 100), counts(5, 100, 25, 100), counts(1, 100, 30, 100))
 	st.Critiques[2].Relevance = relevanceIndirect
 	st.Enriched[3].Flags.Retracted = true
 
@@ -707,7 +720,7 @@ func TestPoolEffectsIgnoresBadValuesWithAWarning(t *testing.T) {
 		{Intervention: &model.Arm{Events: new(3.0)}, Control: &model.Arm{Events: new(2.0)}},
 		// the two good trials
 		counts(10, 100, 20, 100),
-		counts(10, 100, 20, 100),
+		counts(11, 100, 21, 100),
 	}
 
 	p, logs := poolPipeline(t)
@@ -752,39 +765,46 @@ func TestPoolEffectsLeavesOutAReviewAndPoolsItsTrials(t *testing.T) {
 }
 
 // Which designs stay out of the pool: reviews and guidelines, by the critic's
-// word, the discovery tag or the title; an unknown design stays in (the old
-// behaviour), so that a trial is not dropped on a guess.
+// word, the discovery tag or the title. The second study is a trial (or, where
+// the first is of unknown design too, unknown), so that the pool is never empty
+// and the stratum is the same for both. Randomized trials, non-randomized
+// studies and unknown designs among themselves: see the stratum tests.
 func TestPoolEffectsByDesign(t *testing.T) {
 	tests := []struct {
 		name   string
 		critic model.StudyDesign
 		tag    string
 		title  string
-		pooled bool
+		second model.StudyDesign
+		pooled bool // the first study is in the pool
 	}{
-		{name: "rct", critic: model.DesignRCT, pooled: true},
-		{name: "observational", critic: model.DesignCohort, pooled: true},
-		{name: "outside the list", critic: model.DesignOther, pooled: true},
-		{name: "systematic review", critic: model.DesignSystematicReview},
-		{name: "meta-analysis", critic: model.DesignMetaAnalysis},
-		{name: "narrative review", critic: model.DesignNarrativeReview},
-		{name: "guideline", critic: model.DesignGuideline},
+		{name: "rct", critic: model.DesignRCT, second: model.DesignRCT, pooled: true},
+		{name: "systematic review", critic: model.DesignSystematicReview, second: model.DesignRCT},
+		{name: "meta-analysis", critic: model.DesignMetaAnalysis, second: model.DesignRCT},
+		{name: "narrative review", critic: model.DesignNarrativeReview, second: model.DesignRCT},
+		{name: "guideline", critic: model.DesignGuideline, second: model.DesignRCT},
 		{name: "unknown design", critic: model.DesignUnclear, pooled: true},
 		{name: "no critic design, no tag", pooled: true},
-		{name: "no critic design, review tag", tag: tagMetaAnalysis},
-		{name: "no critic design, trial tag", tag: designRCT, pooled: true},
-		{name: "no critic design, review title", title: "Zinc for colds: a systematic review"},
-		{name: "the critic overrides a review tag", critic: model.DesignRCT, tag: tagMetaAnalysis, pooled: true},
-		{name: "the critic overrides a trial tag", critic: model.DesignMetaAnalysis, tag: designRCT},
+		{name: "no critic design, review tag", tag: tagMetaAnalysis, second: model.DesignRCT},
+		{name: "no critic design, trial tag", tag: designRCT, second: model.DesignRCT, pooled: true},
+		{
+			name: "no critic design, review title", title: "Zinc for colds: a systematic review",
+			second: model.DesignRCT,
+		},
+		{
+			name: "the critic overrides a review tag", critic: model.DesignRCT, tag: tagMetaAnalysis,
+			second: model.DesignRCT, pooled: true,
+		},
+		{name: "the critic overrides a trial tag", critic: model.DesignMetaAnalysis, tag: designRCT, second: model.DesignRCT},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p, _ := poolPipeline(t)
 
-			// the second study is a trial, so the pool is never empty
-			st := poolState(counts(10, 100, 20, 100), counts(10, 100, 20, 100))
+			st := poolState(counts(10, 100, 20, 100), counts(11, 100, 21, 100))
 			st.Critiques[0].StudyDesign = tt.critic
+			st.Critiques[1].StudyDesign = tt.second
 			st.Enriched[0].StudyDesign = tt.tag
 
 			if tt.title != "" {
@@ -894,7 +914,7 @@ func TestPromptsCarryTheEffectInstructions(t *testing.T) {
 func TestSynthesisInputCarriesThePooledEstimate(t *testing.T) {
 	p, _ := poolPipeline(t)
 
-	st := poolState(counts(10, 100, 20, 100), counts(10, 100, 20, 100))
+	st := poolState(counts(10, 100, 20, 100), counts(11, 100, 21, 100))
 
 	without, err := synthesisUserPrompt(st)
 	require.NoError(t, err)

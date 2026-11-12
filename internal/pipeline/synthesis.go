@@ -28,8 +28,13 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 
 	// the final critiques are in (the hybrid re-critique included): pool the
 	// extracted effects in Go, so that the judge reads the numbers
-	st.Pooled = p.poolEffects(st)
+	res := p.pool(st)
+	st.Pooled = res.est
 	st.Imprecision = p.assessImprecision(st.Pooled)
+
+	if w := noPoolWarning(res); w != "" {
+		st.Warnings = append(st.Warnings, w)
+	}
 
 	user, err := judgePrompt(st)
 	if err != nil {

@@ -68,6 +68,7 @@ func TestToModelAndPaper(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"id":"https://openalex.org/W1","doi":"https://doi.org/10.1/X",
 			"display_name":"A study","publication_year":2021,"is_retracted":true,"cited_by_count":12,
+			"type":"Erratum","type_crossref":"journal-article",
 			"open_access":{"is_oa":true,"oa_url":"https://oa.test/x"},
 			"authorships":[{"author":{"display_name":"Ann"}},{"author":{"display_name":""}},{"author":{"display_name":"Bo"}}],
 			"primary_location":{"source":{"display_name":"BMJ"},"pdf_url":"https://pdf.test/x.pdf"},
@@ -88,9 +89,11 @@ func TestToModelAndPaper(t *testing.T) {
 	assert.Equal(t, "hello world", w.Abstract)
 	assert.True(t, w.Retracted)
 	assert.Equal(t, []string{"https://openalex.org/W9"}, w.References)
+	assert.Equal(t, []string{"erratum", "journal-article"}, w.Types, "type and type_crossref, lower case")
 
 	p := w.ToPaper("")
 	assert.Equal(t, "10.1/x", p.DOI)
+	assert.Equal(t, []string{"erratum", "journal-article"}, p.PublicationTypes)
 	assert.Equal(t, "https://oa.test/x", p.OALink, "the OA URL wins over the PDF URL")
 	assert.Equal(t, 12, p.CitedByCount)
 

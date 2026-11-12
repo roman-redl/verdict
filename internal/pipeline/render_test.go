@@ -99,7 +99,7 @@ func reportState() *State {
 			EffectDirection:  model.EffectSupports,
 			PooledEstimate: &model.PooledEstimate{
 				Method: model.PoolRandomEffects, Measure: model.MeasureSMD, Estimate: -0.22, CILow: -0.40, CIHigh: -0.03,
-				K: 3, Participants: 1234, I2: new(41.6), Studies: []string{doiTrial, doiElderly},
+				Stratum: model.StratumRandomized, K: 3, Participants: 1234, I2: new(41.6), Studies: []string{doiTrial, doiElderly},
 				Outcome: "Memory score (12 weeks)", LeftOut: []string{"10.1000/d (RR)"},
 			},
 			Imprecision: &model.Imprecision{
@@ -235,7 +235,24 @@ func TestPooledText(t *testing.T) {
 				Method: model.PoolRandomEffects, Measure: model.MeasureOR, Estimate: 0.69,
 				CILow: 0.49, CIHigh: 0.99, K: 3, LeftOut: []string{"10.1/a (MD)", "10.1/b (HR)"},
 			},
-			"OR 0.69 (95% CI 0.49 to 0.99), 3 studies; not pooled (other measure): 2 studies",
+			"OR 0.69 (95% CI 0.49 to 0.99), 3 studies; not pooled (2 studies): 10.1/a (MD), 10.1/b (HR)",
+		},
+		{
+			"with the design stratum",
+			model.PooledEstimate{
+				Method: model.PoolSingleStudy, Measure: model.MeasureHR, Estimate: 0.55,
+				CILow: 0.4, CIHigh: 0.75, K: 1, Stratum: model.StratumNonRandomized,
+			},
+			"HR 0.55 (95% CI 0.40 to 0.75), 1 study; design: non-randomized",
+		},
+		{
+			"a long list of left-out studies is cut",
+			model.PooledEstimate{
+				Method: model.PoolSingleStudy, Measure: model.MeasureRR, Estimate: 0.5,
+				CILow: 0.3, CIHigh: 0.8, K: 1,
+				LeftOut: []string{"a (x)", "b (x)", "c (x)", "d (x)", "e (x)", "f (x)", "g (x)"},
+			},
+			"RR 0.50 (95% CI 0.30 to 0.80), 1 study; not pooled (7 studies): a (x), b (x), c (x), d (x), e (x), and 2 more",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

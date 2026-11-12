@@ -86,11 +86,26 @@ type Arm struct {
 // the text, never computed by the model; the pipeline pools them.
 // Intervention is the claim's intervention, Control its comparator.
 type Effect struct {
-	Outcome      string `json:"outcome,omitempty"`   // which outcome the numbers are for
-	Timepoint    string `json:"timepoint,omitempty"` // when it was measured, if stated
-	Unit         string `json:"unit,omitempty"`      // of a continuous outcome (mean, SD, MD)
-	Intervention *Arm   `json:"intervention,omitempty"`
-	Control      *Arm   `json:"control,omitempty"`
+	Outcome   string `json:"outcome,omitempty"`   // which outcome the numbers are for
+	Timepoint string `json:"timepoint,omitempty"` // when it was measured, if stated
+	Unit      string `json:"unit,omitempty"`      // of a continuous outcome (mean, SD, MD)
+
+	// OutcomeMatch is how the outcome relates to the question's primary one;
+	// empty (an artifact written before the field existed) reads as "same".
+	OutcomeMatch OutcomeMatch `json:"outcome_match,omitempty"`
+	// TimepointWeeks is the follow-up the effect is measured at, in weeks;
+	// nil when the text does not state it. TimepointMatch says whether it is
+	// the question's time frame; empty reads as "unclear".
+	TimepointWeeks *float64       `json:"timepoint_weeks,omitempty"`
+	TimepointMatch TimepointMatch `json:"timepoint_match,omitempty"`
+	// Adjusted is true when the numbers are an adjusted estimate (aOR, aRR,
+	// aHR) of a non-randomized study; false or absent means crude numbers.
+	Adjusted bool `json:"adjusted,omitempty"`
+	// Cluster is set for a cluster-randomized trial.
+	Cluster *Cluster `json:"cluster,omitempty"`
+
+	Intervention *Arm `json:"intervention,omitempty"`
+	Control      *Arm `json:"control,omitempty"`
 
 	// The reported estimate.
 	Measure string   `json:"measure,omitempty"` // RR | OR | HR | MD | SMD
@@ -119,16 +134,31 @@ const (
 	PoolSingleStudy PoolMethod = "single_study"
 )
 
+// Stratum is the design class a pooled estimate is made of: randomized trials
+// and non-randomized studies are never pooled together.
+type Stratum string
+
+const (
+	// StratumRandomized is randomized trials (parallel, cluster, crossover).
+	StratumRandomized Stratum = "randomized"
+	// StratumNonRandomized is every other primary design; the GRADE starting
+	// level is low.
+	StratumNonRandomized Stratum = "non-randomized"
+)
+
 // PooledEstimate is the pooled effect of the direct studies (or the effect of
 // the single study that reported one), computed by the pipeline from the
 // critics' extracted numbers.
 type PooledEstimate struct {
-	Method   PoolMethod `json:"method"`
-	Measure  Measure    `json:"measure"`
-	Estimate float64    `json:"estimate"` // ratios on the natural scale, differences in the outcome's unit
-	CILow    float64    `json:"ci_low"`
-	CIHigh   float64    `json:"ci_high"`
-	K        int        `json:"k"`
+	Method PoolMethod `json:"method"`
+	// Stratum is the design class of the pooled studies; empty when their
+	// design is unknown, and in artifacts written before the field existed.
+	Stratum  Stratum `json:"stratum,omitempty"`
+	Measure  Measure `json:"measure"`
+	Estimate float64 `json:"estimate"` // ratios on the natural scale, differences in the outcome's unit
+	CILow    float64 `json:"ci_low"`
+	CIHigh   float64 `json:"ci_high"`
+	K        int     `json:"k"`
 	// Participants is the total across the pooled studies; zero when any
 	// study's size is unknown.
 	Participants int `json:"participants,omitempty"`
@@ -146,8 +176,10 @@ type PooledEstimate struct {
 	Outcome string   `json:"outcome,omitempty"`
 	Studies []string `json:"studies"` // DOIs
 	// LeftOut lists the direct studies with usable numbers that are not in the
-	// pool because they report the outcome on another measure, each as
-	// "doi (MEASURE)". A study from counts is labelled RR, its default measure,
-	// even when the pool is an OR that it could have joined.
+	// pool, each as "doi (reason)": another measure ("doi (MEASURE)"; a study
+	// from counts is labelled RR, its default measure, even when the pool is an
+	// OR that it could have joined), another outcome or time point, another
+	// design class, an unadjusted non-randomized or cluster estimate, a repeat
+	// report of a trial, or the same results as another paper.
 	LeftOut []string `json:"left_out,omitempty"`
 }

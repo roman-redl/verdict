@@ -54,7 +54,12 @@ type work struct {
 	PublicationYear int    `json:"publication_year"`
 	IsRetracted     bool   `json:"is_retracted"`
 	CitedByCount    int    `json:"cited_by_count"`
-	OpenAccess      struct {
+	// Type is OpenAlex's own classification (article, review, erratum,
+	// editorial, letter, retraction, paratext, ...); TypeCrossref is the
+	// publisher's, as Crossref registered it. Either may be absent.
+	Type         string `json:"type"`
+	TypeCrossref string `json:"type_crossref"`
+	OpenAccess   struct {
 		IsOA  bool   `json:"is_oa"`
 		OAURL string `json:"oa_url"`
 	} `json:"open_access"`
@@ -308,6 +313,7 @@ func (w *work) toModel() model.Work {
 		CitedByCount: w.CitedByCount,
 		Retracted:    w.IsRetracted,
 		References:   w.ReferencedWorks,
+		Types:        model.NormalizePublicationTypes([]string{w.Type, w.TypeCrossref}),
 	}
 
 	for i := range w.Locations {

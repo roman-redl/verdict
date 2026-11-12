@@ -61,101 +61,133 @@ type pooledStudy struct {
 	// trial is 1 + the index of the first paper of the study's trial (papers
 	// that share a trial registration number report one trial); 0 means it is
 	// not known to repeat another study. regs are the study's registration
-	// numbers and year its publication year, the reasons to keep one report.
+	// numbers, year its publication year and rank how well it answers the
+	// question: the reasons to keep one report of a trial.
 	trial int
 	regs  []string
 	year  int
-}
+	rank  reportRank
 
-func (ps *pooledStudy) rank() reportRank { return reportRank{doi: ps.doi, year: ps.year, n: ps.n} }
-
-// maxOutcomeRunes caps the joined outcome texts of a pool.
-const maxOutcomeRunes = 200
-
-// outcomeLabel is "outcome (timepoint)" with the spaces collapsed; empty when
-// the critic named no outcome.
-func outcomeLabel(ef *model.Effect) string {
-	o := tidyUnit(ef.Outcome)
-	if o == "" {
-		return ""
-	}
-
-	if tp := tidyUnit(ef.Timepoint); tp != "" {
-		return o + " (" + tp + ")"
-	}
-
-	return o
-}
-
-// joinOutcomes lists the distinct outcome texts of a pool in study order,
-// separated by " / " and cut to a length that stays readable.
-func joinOutcomes(items []pooledStudy) string {
-	var seen []string
-
-	for i := range items {
-		o := items[i].outcome
-		if o != "" && !slices.ContainsFunc(seen, func(s string) bool { return strings.EqualFold(s, o) }) {
-			seen = append(seen, o)
-		}
-	}
-
-	return truncate(strings.Join(seen, " / "), maxOutcomeRunes)
+	// results is the study's extracted arm data as one text (resultsKey), the
+	// key of the exact-duplicate check; empty without arm data.
+	results string
 }
 
 var errNoNumbers = errors.New("no usable numbers")
 
-// poolEffects pools the effects the critics extracted from the direct,
-// non-retracted primary studies; reviews and meta-analyses are left out. It
-// returns nil when no study has usable numbers.
-// Numbers that cannot be an effect are ignored with a warning.
-func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate {
+// poolResult is what pooling made of the corpus: the pooled estimate, nil when
+// no study with usable numbers was left, and every study that was kept out with
+// the reason (the estimate's left_out lists them; without an estimate they are
+// only logged and warned about).
+type poolResult struct {
+	est     *model.PooledEstimate
+	leftOut []leftOut
+}
+
+// poolEffects is the pooled estimate of the corpus; see pool.
+func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate { return p.pool(st).est }
+
+// pool pools the effects the critics extracted from the direct, non-retracted
+// primary studies. Reviews and meta-analyses, and papers that are not study
+// reports, are left out. The order of the rules is fixed: the design stratum,
+// the outcome and the time point, the cluster adjustment; then one report per
+// trial; then exact duplicates; then the measure. Numbers that cannot be an
+// effect are ignored with a warning.
+func (p *Pipeline) pool(st *State) poolResult {
 	crits := critiquesFor(st)
 	trials := trialGroups(trialInputs(st, crits))
+	stratum := poolStratum(st, crits)
 
-	var items []pooledStudy
+	var (
+		items []pooledStudy
+		out   []leftOut
+	)
 
 	for i := range st.Enriched {
 		e := &st.Enriched[i]
 
-		ps, ok := p.studyEffect(e, crits[i])
+		ps, left, ok := p.studyEffect(e, crits[i], stratum)
+		if left != nil {
+			out = append(out, *left)
+		}
+
 		if !ok {
 			continue
 		}
 
 		ps.trial, ps.regs, ps.year = trials[i]+1, e.TrialIDs(), e.Year
+		ps.rank = rankOf(ps.doi, ps.year, crits[i].Effect)
 		items = append(items, ps)
 	}
 
-	if len(items) == 0 {
-		return nil
+	items, dropped := chooseReports(items)
+	out = append(out, dropped...)
+
+	items, dropped = dropDuplicates(items)
+	out = append(out, dropped...)
+
+	var est *model.PooledEstimate
+
+	if len(items) > 0 {
+		var measureLeft []leftOut
+
+		est, measureLeft = p.poolBest(settleContinuous(items))
+		out = append(out, measureLeft...)
 	}
 
-	return p.poolBest(settleContinuous(items))
+	p.logLeftOut(out)
+
+	if est != nil {
+		est.Stratum, est.LeftOut = stratum, leftOutTexts(out)
+	}
+
+	return poolResult{est: est, leftOut: out}
 }
 
-// studyEffect puts one study's effect on its analysis scale; false when the
-// study does not take part in pooling.
-func (p *Pipeline) studyEffect(e *model.EnrichedPaper, c model.Critique) (pooledStudy, bool) {
+// studyEffect puts one study's effect on its analysis scale. ok is false when
+// the study does not take part in pooling; left is set when it would have, but
+// the rules keep it out (and ok is false then too).
+func (p *Pipeline) studyEffect(
+	e *model.EnrichedPaper, c model.Critique, stratum model.Stratum,
+) (ps pooledStudy, left *leftOut, ok bool) {
 	if c.Effect == nil || c.Relevance != relevanceDirect || e.Flags.Retracted {
-		return pooledStudy{}, false
+		return pooledStudy{}, nil, false
 	}
+
+	doi := cmp.Or(e.DOI, e.Title)
+	design := resolveDesign(e, c)
 
 	// A review's estimate repeats the data of the trials it includes, and
 	// pooling both counts that data twice (a falsely narrow interval). A
-	// study of unknown design stays in the pool: dropping it on a guess
+	// study of unknown design is not dropped for that: dropping it on a guess
 	// would lose a real trial.
-	if d := resolveDesign(e, c); d.IsSecondary() {
-		p.log.Info("effect not pooled: secondary research", "doi", cmp.Or(e.DOI, e.Title), "design", d)
-		return pooledStudy{}, false
+	if design.IsSecondary() {
+		p.log.Info("effect not pooled: secondary research", "doi", doi, "design", design)
+		return pooledStudy{}, nil, false
+	}
+
+	// an erratum or a comment carries no results of its own
+	if kind := model.NonStudyKind(e.PublicationTypes); kind != "" {
+		p.log.Info("effect not pooled: not a study report", "doi", doi, "kind", kind)
+		return pooledStudy{}, nil, false
 	}
 
 	ps, err := deriveEffect(c.Effect)
 	if err != nil {
 		p.log.Warn("effect not pooled: unusable numbers", "doi", e.DOI, "err", err)
-		return pooledStudy{}, false
+		return pooledStudy{}, nil, false
 	}
 
-	ps.doi = cmp.Or(e.DOI, e.Title)
+	if kind := eligibilityKind(design, c.Effect, stratum); kind != "" {
+		return pooledStudy{}, leftOutBecause(doi, kind), false
+	}
+
+	if ps, left, ok = p.adjustCluster(doi, design, c.Effect, ps); !ok {
+		return pooledStudy{}, left, false
+	}
+
+	// the key is the numbers as extracted, not as adjusted
+	ps.doi, ps.results = doi, resultsKey(c.Effect)
 	ps.outcome = outcomeLabel(c.Effect)
 
 	if ps.converted != "" {
@@ -170,7 +202,34 @@ func (p *Pipeline) studyEffect(e *model.EnrichedPaper, c model.Critique) (pooled
 		ps.n = cmp.Or(e.SampleSize, c.SampleSizeReported)
 	}
 
-	return ps, true
+	return ps, nil, true
+}
+
+// adjustCluster puts a cluster trial's counts or means on the scale of the
+// effective sample (clusterAdjusted); the trial is left out when that cannot be
+// done. Another study passes unchanged.
+func (p *Pipeline) adjustCluster(
+	doi string, design model.StudyDesign, ef *model.Effect, ps pooledStudy,
+) (pooledStudy, *leftOut, bool) {
+	adjusted, de, icc, ok := clusterAdjusted(design, ef, &ps)
+	if !ok {
+		return ps, leftOutBecause(doi, leftCluster), false
+	}
+
+	if adjusted == ef {
+		return ps, nil, true
+	}
+
+	eff, err := deriveEffect(adjusted)
+	if err != nil {
+		p.log.Warn("effect not pooled: unusable numbers after the cluster adjustment", "doi", doi, "err", err)
+		return ps, nil, false
+	}
+
+	p.log.Info("cluster trial: participants divided by the design effect",
+		"doi", doi, "design_effect", de, "icc", icc, "participants", ps.n, "effective", eff.n)
+
+	return eff, nil, true
 }
 
 // tidyUnit collapses the spaces of a unit as the critic wrote it; normUnit is
@@ -221,9 +280,6 @@ type poolGroup struct {
 	unit    string
 	items   []pooledStudy
 	idx     []int
-	// repeats says, for the studies the group dropped as repeat reports of a
-	// trial it already holds (keyed like idx), why.
-	repeats map[int]string
 }
 
 func (g *poolGroup) participants() int {
@@ -287,22 +343,19 @@ func candidateGroups(items []pooledStudy) []*poolGroup {
 			add(i, model.MeasureOR, items[i].or)
 		}
 	}
-	// before the groups are compared by their participants: a second report of
-	// a trial must not inflate the group's size
-	for _, g := range groups {
-		g.repeats = g.dropRepeatReports()
-	}
 
 	return groups
 }
 
 // poolBest takes the candidate with the most data and pools it: random effects
-// for two or more studies, the study's own effect for one. The candidate with
-// the most participants wins, so that a pair of pilot trials does not beat one
-// large trial that happens to be on another measure; ties go by the number of
-// studies, then measureOrder (RR before OR for counts), then the unit. The
-// studies outside the winner are named in LeftOut and logged.
-func (p *Pipeline) poolBest(items []pooledStudy) *model.PooledEstimate {
+// for two or more studies, the study's own effect for one. The studies it gets
+// are already eligible and one per trial, so the measure is the only choice
+// left. The candidate with the most participants wins, so that a pair of pilot
+// trials does not beat one large trial that happens to be on another measure;
+// ties go by the number of studies, then measureOrder (RR before OR for
+// counts), then the unit. The studies outside the winner come back as left out
+// for their measure.
+func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, []leftOut) {
 	groups := candidateGroups(items)
 	best := groups[0]
 
@@ -315,34 +368,25 @@ func (p *Pipeline) poolBest(items []pooledStudy) *model.PooledEstimate {
 	pe, err := pooledFrom(best)
 	if err != nil {
 		p.log.Warn("effects not pooled", "measure", best.measure, "err", err)
-		return nil
+		return nil, nil
 	}
+
+	var left []leftOut
 
 	for i := range items {
-		if slices.Contains(best.idx, i) {
-			continue
+		if !slices.Contains(best.idx, i) {
+			// a count study is labelled with its default measure, RR, though it
+			// could have joined an OR pool
+			left = append(left, leftOutMeasure(&items[i]))
 		}
-
-		if reason, repeat := best.repeats[i]; repeat {
-			p.log.Info("effect not pooled: repeat report of a trial", "doi", items[i].doi, "reason", reason)
-			pe.LeftOut = append(pe.LeftOut, reason)
-
-			continue
-		}
-
-		// a count study is labelled with its default measure, RR, though it
-		// could have joined an OR pool
-		p.log.Info("effect not pooled: other measure", "doi", items[i].doi, "measure", items[i].measure)
-		pe.LeftOut = append(pe.LeftOut, fmt.Sprintf("%s (%s)", items[i].doi, items[i].measure))
 	}
 
-	if len(pe.LeftOut) > 0 {
+	if len(left) > 0 {
 		p.log.Info("effects use several measures: pooling the group with most participants",
-			"measure", best.measure, "studies", len(best.items), "left_out", len(pe.LeftOut),
-			"repeat_reports", len(best.repeats))
+			"measure", best.measure, "studies", len(best.items), "left_out", len(left))
 	}
 
-	return pe
+	return pe, left
 }
 
 // pooledFrom runs the arithmetic and brings the result back to the natural

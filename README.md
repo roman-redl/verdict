@@ -331,10 +331,15 @@ docs/how-it-works.md §2.2.
   reported estimate with its CI and the CI's level), `internal/meta` *computes* the
   random-effects pooled estimate (DerSimonian-Laird), and the judge *reads*
   it — so three non-significant trials with a significant pooled effect are
-  not judged one by one. One report per trial is pooled: publications that
-  share a trial registration number are one trial, and the latest report
-  stands for it. The report states the direction of the effect
-  (`effect_direction`) next to the verdict.
+  not judged one by one. A pool is one outcome at one time point from one
+  design class: randomized trials and non-randomized studies are never pooled
+  together (randomized first, non-randomized only from adjusted estimates),
+  cluster trials are adjusted for clustering, and papers that are not study
+  reports (errata, comments) are left out. One report per trial is pooled:
+  publications that share a trial registration number are one trial, and the
+  report that matches the question's outcome and time frame stands for it. The
+  report states the direction of the effect (`effect_direction`) next to the
+  verdict.
 - **Deterministic checks stay out of the LLM:** retractions come from
   OpenAlex `is_retracted` plus Crossref's Retraction Watch notices (and
   corrections land as notes), not from a model's opinion. The evidence

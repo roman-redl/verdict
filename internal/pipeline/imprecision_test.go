@@ -150,7 +150,7 @@ func TestDirectionFromPooled(t *testing.T) {
 func TestSynthesisInputCarriesTheImprecision(t *testing.T) {
 	p, _ := poolPipeline(t)
 
-	st := poolState(counts(10, 100, 20, 100), counts(10, 100, 20, 100))
+	st := poolState(counts(10, 100, 20, 100), counts(11, 100, 21, 100))
 	st.Pooled = p.poolEffects(st)
 
 	without, err := synthesisUserPrompt(st)

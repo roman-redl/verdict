@@ -57,6 +57,9 @@ type CacheEntry struct {
 	// OALocations are the work's open-access locations (an entry written
 	// before they were kept has none; the full-text fetch then has OALink).
 	OALocations []model.Location `json:"oa_locations,omitempty"`
+	// Types are the publication types the metadata sources gave the paper (an
+	// entry written before they were kept has none; PubMed is asked then).
+	Types []string `json:"types,omitempty"`
 }
 
 // LoadEnrichCache reads the cache and drops entries older than ttl as of now.

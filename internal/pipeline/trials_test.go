@@ -16,30 +16,34 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
-// fakeTrials is the PubMed registration lookup: canned accession numbers per
-// DOI, or one error for every call.
+// fakeTrials is the PubMed record lookup: canned accession numbers and
+// publication types per DOI, or one error for every call.
 type fakeTrials struct {
 	calls   counter
 	asked   [][]string // the DOIs of each call
 	numbers map[string][]string
+	types   map[string][]string
 	err     error
 }
 
-var _ TrialRegistry = (*fakeTrials)(nil)
+var _ PubMedRecords = (*fakeTrials)(nil)
 
-func (f *fakeTrials) Registrations(_ context.Context, dois []string) (map[string][]string, error) {
-	f.calls.add("Registrations")
+func (f *fakeTrials) Records(_ context.Context, dois []string) (map[string]model.PubMedDetail, error) {
+	f.calls.add("Records")
 	f.asked = append(f.asked, dois)
 
 	if f.err != nil {
-		return map[string][]string{}, f.err
+		return map[string]model.PubMedDetail{}, f.err
 	}
 
-	out := map[string][]string{}
+	out := map[string]model.PubMedDetail{}
 
 	for _, d := range dois {
-		if n, ok := f.numbers[d]; ok {
-			out[d] = n
+		n, hasNumbers := f.numbers[d]
+		t, hasTypes := f.types[d]
+
+		if hasNumbers || hasTypes {
+			out[d] = model.PubMedDetail{Registrations: n, PubTypes: t}
 		}
 	}
 
@@ -83,21 +87,41 @@ func TestTrialGroups(t *testing.T) {
 }
 
 func TestReportRankKeptOver(t *testing.T) {
-	rk := func(doi string, year, n int) reportRank { return reportRank{doi: doi, year: year, n: n} }
+	// a report: its DOI and year, how its time point and outcome match the
+	// question (empty: not stated) and its follow-up in weeks (0: not stated)
+	rk := func(doi string, year int, tp model.TimepointMatch, oc model.OutcomeMatch, weeks float64) reportRank {
+		ef := &model.Effect{TimepointMatch: tp, OutcomeMatch: oc}
+		if weeks > 0 {
+			ef.TimepointWeeks = &weeks
+		}
+
+		return rankOf(doi, year, ef)
+	}
+
+	const (
+		yes, no, unclear = model.TimepointYes, model.TimepointNo, model.TimepointUnclear
+		same, related    = model.OutcomeSame, model.OutcomeRelated
+	)
 
 	for _, tc := range []struct {
 		name string
 		a, b reportRank
 		want bool
 	}{
-		{"the later year", rk("z", 2013, 0), rk("a", 2008, 900), true},
-		{"the earlier year", rk("a", 2008, 900), rk("z", 2013, 0), false},
-		{"an unknown year", rk("a", 0, 0), rk("z", 2008, 0), false},
-		{"the same year, more participants", rk("z", 2013, 300), rk("a", 2013, 200), true},
-		{"the same year, fewer participants", rk("a", 2013, 200), rk("z", 2013, 300), false},
-		{"all equal, the lower DOI", rk("a", 2013, 200), rk("b", 2013, 200), true},
-		{"all equal, the higher DOI", rk("b", 2013, 200), rk("a", 2013, 200), false},
-		{"the same report", rk("a", 2013, 0), rk("a", 2013, 0), false},
+		{"the match beats the unclear time point", rk("a", 2008, yes, "", 52), rk("z", 2013, unclear, "", 260), true},
+		{"the unclear one loses to the match", rk("z", 2013, unclear, "", 260), rk("a", 2008, yes, "", 52), false},
+		{"an unstated time point reads as unclear", rk("a", 2008, yes, "", 0), rk("z", 2013, "", "", 0), true},
+		{"no match loses to an unclear time point", rk("a", 2013, no, "", 0), rk("z", 2008, unclear, "", 0), false},
+		{"the same time point match: the outcome decides", rk("a", 2008, yes, same, 0), rk("z", 2013, yes, related, 0), true},
+		{"an unstated outcome match reads as the same", rk("z", 2008, yes, "", 0), rk("a", 2013, yes, related, 0), true},
+		{"the same matches: the longer follow-up", rk("z", 2008, yes, same, 260), rk("a", 2013, yes, same, 52), true},
+		{"a stated follow-up beats an unstated one", rk("z", 2008, yes, same, 52), rk("a", 2013, yes, same, 0), true},
+		{"the same follow-up: the later year", rk("z", 2013, yes, same, 52), rk("a", 2008, yes, same, 52), true},
+		{"the earlier year", rk("a", 2008, yes, same, 52), rk("z", 2013, yes, same, 52), false},
+		{"an unknown year", rk("a", 0, yes, same, 52), rk("z", 2008, yes, same, 52), false},
+		{"all equal, the lower DOI", rk("a", 2013, yes, same, 52), rk("b", 2013, yes, same, 52), true},
+		{"all equal, the higher DOI", rk("b", 2013, yes, same, 52), rk("a", 2013, yes, same, 52), false},
+		{"the same report", rk("a", 2013, yes, same, 52), rk("a", 2013, yes, same, 52), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, tc.a.keptOver(tc.b))
@@ -113,20 +137,22 @@ func TestSharedRegistration(t *testing.T) {
 }
 
 // fillTestPipeline builds a pipeline whose log goes into the returned buffer.
-func fillTestPipeline(t *testing.T, trials TrialRegistry) (*Pipeline, *bytes.Buffer) {
+func fillTestPipeline(t *testing.T, records PubMedRecords) (*Pipeline, *bytes.Buffer) {
 	t.Helper()
 
 	var logs bytes.Buffer
 
 	log := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	return newTest(t, Settings{}, Clients{Trials: trials}, log), &logs
+	return newTest(t, Settings{}, Clients{Records: records}, log), &logs
 }
 
-func TestFillTrialRegistrations(t *testing.T) {
+func TestFillRecordDetails(t *testing.T) {
+	// a paper as OpenAlex typed it, so that only the registration numbers are open
 	paper := func(doi, abstract string) model.EnrichedPaper {
 		e := ep(doi)
 		e.Abstract = abstract
+		e.PublicationTypes = []string{pubArticle}
 
 		return e
 	}
@@ -136,7 +162,7 @@ func TestFillTrialRegistrations(t *testing.T) {
 		p, _ := fillTestPipeline(t, ft)
 		enriched := []model.EnrichedPaper{paper(doiA, "Methods. Trial registration: ISRCTN15517081.")}
 
-		p.fillTrialRegistrations(t.Context(), enriched)
+		p.fillRecordDetails(t.Context(), enriched)
 
 		assert.Equal(t, []string{regReflux}, enriched[0].TrialRegistrations)
 		assert.Zero(t, ft.calls.total())
@@ -155,7 +181,7 @@ func TestFillTrialRegistrations(t *testing.T) {
 			paper("", "No DOI to look up."),
 		}
 
-		p.fillTrialRegistrations(t.Context(), enriched)
+		p.fillRecordDetails(t.Context(), enriched)
 
 		assert.Equal(t, []string{regNCT}, enriched[0].TrialRegistrations)
 		assert.Empty(t, enriched[1].TrialRegistrations)
@@ -163,7 +189,37 @@ func TestFillTrialRegistrations(t *testing.T) {
 		assert.Empty(t, enriched[3].TrialRegistrations)
 		require.Len(t, ft.asked, 1, "one batched lookup")
 		assert.Equal(t, []string{doiA, doiB}, ft.asked[0])
-		assert.Contains(t, logs.String(), "filled=1")
+		assert.Contains(t, logs.String(), "registrations_filled=1")
+	})
+
+	t.Run("PubMed types the papers no source typed, whatever their abstract says", func(t *testing.T) {
+		ft := &fakeTrials{types: map[string][]string{doiA: {pubErratum}, doiB: {pubTrial}}}
+		p, logs := fillTestPipeline(t, ft)
+		untyped := paper(doiA, "Registered at NCT00000003.")
+		untyped.PublicationTypes = nil
+		typed := paper(doiB, "Registered at NCT00000004.")
+		enriched := []model.EnrichedPaper{untyped, typed, paper(doiC, "No number.")}
+
+		p.fillRecordDetails(t.Context(), enriched)
+
+		assert.Equal(t, []string{pubErratum}, enriched[0].PublicationTypes)
+		assert.Equal(t, []string{"NCT00000003"}, enriched[0].TrialRegistrations, "the abstract's number stays")
+		assert.Equal(t, []string{pubArticle}, enriched[1].PublicationTypes, "a typed paper with a number is not asked")
+		assert.Equal(t, [][]string{{doiA, doiC}}, ft.asked, "the untyped one, and the one with no number")
+		assert.Contains(t, logs.String(), "typed=1")
+		assert.NotEmpty(t, model.NonStudyKind(enriched[0].PublicationTypes))
+	})
+
+	t.Run("the types of every source are merged", func(t *testing.T) {
+		ft := &fakeTrials{types: map[string][]string{doiA: {"Comment", "Journal Article"}}}
+		p, _ := fillTestPipeline(t, ft)
+		e := paper(doiA, "No number.")
+		e.PublicationTypes = []string{pubArticle, "journal article"}
+		enriched := []model.EnrichedPaper{e}
+
+		p.fillRecordDetails(t.Context(), enriched)
+
+		assert.Equal(t, []string{pubArticle, pubComment, "journal article"}, enriched[0].PublicationTypes)
 	})
 
 	t.Run("a PubMed failure only logs: the abstract numbers stay", func(t *testing.T) {
@@ -174,7 +230,7 @@ func TestFillTrialRegistrations(t *testing.T) {
 			paper(doiB, regReflux),
 		}
 
-		p.fillTrialRegistrations(t.Context(), enriched)
+		p.fillRecordDetails(t.Context(), enriched)
 
 		assert.Empty(t, enriched[0].TrialRegistrations)
 		assert.Equal(t, []string{regReflux}, enriched[1].TrialRegistrations)
@@ -189,7 +245,7 @@ func TestFillTrialRegistrations(t *testing.T) {
 		review.StudyDesign = discTagMeta
 		enriched := []model.EnrichedPaper{review}
 
-		p.fillTrialRegistrations(t.Context(), enriched)
+		p.fillRecordDetails(t.Context(), enriched)
 
 		assert.Empty(t, enriched[0].TrialRegistrations)
 		assert.Zero(t, ft.calls.total())
@@ -199,7 +255,7 @@ func TestFillTrialRegistrations(t *testing.T) {
 		p, _ := fillTestPipeline(t, nil)
 		enriched := []model.EnrichedPaper{paper(doiA, regReflux), paper(doiB, "none")}
 
-		p.fillTrialRegistrations(t.Context(), enriched)
+		p.fillRecordDetails(t.Context(), enriched)
 
 		assert.Equal(t, []string{regReflux}, enriched[0].TrialRegistrations)
 		assert.Empty(t, enriched[1].TrialRegistrations)
@@ -209,7 +265,7 @@ func TestFillTrialRegistrations(t *testing.T) {
 // The enrichment stage fills the field and the artifact carries it.
 func TestEnrichStoresTrialRegistrations(t *testing.T) {
 	ft := &fakeTrials{numbers: map[string][]string{doiB: {regReflux}}}
-	p := newTest(t, Settings{Concurrency: 1}, Clients{Citations: &fakeCitations{}, Trials: ft}, quietLog())
+	p := newTest(t, Settings{Concurrency: 1}, Clients{Citations: &fakeCitations{}, Records: ft}, quietLog())
 
 	st := &State{Papers: []model.Paper{
 		{DOI: doiA, Abstract: "Trial registration: NCT01234567.", Source: sourceManual},
@@ -221,7 +277,7 @@ func TestEnrichStoresTrialRegistrations(t *testing.T) {
 
 	assert.Equal(t, []string{regNCT}, st.Enriched[0].TrialRegistrations)
 	assert.Equal(t, []string{regReflux}, st.Enriched[1].TrialRegistrations)
-	assert.Equal(t, [][]string{{doiB}}, ft.asked)
+	assert.Equal(t, [][]string{{doiA, doiB}}, ft.asked, "no source typed the papers, so PubMed is asked for both")
 
 	b, err := json.Marshal(st)
 	require.NoError(t, err)
@@ -231,6 +287,9 @@ func TestEnrichStoresTrialRegistrations(t *testing.T) {
 	assert.Equal(t, st.Enriched[1].TrialRegistrations, back.Enriched[1].TrialRegistrations, "the artifact round-trips")
 }
 
+// onePositive is the tally of a corpus that counts one positive study.
+const onePositive = "1 positive"
+
 // tallyPaper is one study of the tally tests.
 type tallyPaper struct {
 	doi       string
@@ -239,18 +298,24 @@ type tallyPaper struct {
 	relevance string
 	direction string
 	design    model.StudyDesign
+	// effect carries the matches that rank the reports of one trial; pubTypes
+	// are the paper's publication types
+	effect   *model.Effect
+	pubTypes []string
 }
 
 func tallyState(papers ...tallyPaper) *State {
 	st := &State{}
 
-	for _, tp := range papers {
+	for i := range papers {
+		tp := &papers[i]
 		e := ep(tp.doi)
 		e.Year, e.SampleSize, e.TrialRegistrations = tp.year, tp.n, tp.ids
+		e.PublicationTypes = tp.pubTypes
 		e.Abstract = "An abstract with no number."
 
 		c := crit(tp.doi, qualityHigh, tp.relevance, tp.direction)
-		c.StudyDesign = tp.design
+		c.StudyDesign, c.Effect = tp.design, tp.effect
 
 		st.Enriched = append(st.Enriched, e)
 		st.Critiques = append(st.Critiques, c)
@@ -291,15 +356,50 @@ func TestDirectionTallyCountsATrialOnce(t *testing.T) {
 				{doi: doiOld, year: 2008, ids: reg, relevance: relevanceDirect, direction: directionPositive},
 				{doi: "10.1/hta", year: 2015, ids: reg, relevance: relevanceIndirect, direction: directionNegative},
 			},
-			want: "1 positive",
+			want: onePositive,
 		},
 		{
-			name: "the same year: the larger report",
+			name: "the same year: the lower DOI",
 			papers: []tallyPaper{
-				{doi: "10.1/small", year: 2013, n: 100, ids: reg, relevance: relevanceDirect, direction: directionPositive},
-				{doi: "10.1/large", year: 2013, n: 900, ids: reg, relevance: relevanceDirect, direction: directionNull},
+				{doi: doiB, year: 2013, n: 900, ids: reg, relevance: relevanceDirect, direction: directionPositive},
+				{doi: doiA, year: 2013, n: 100, ids: reg, relevance: relevanceDirect, direction: directionNull},
 			},
 			want: "1 null",
+		},
+		{
+			name: "the report at the question's time point beats the later one",
+			papers: []tallyPaper{
+				{
+					doi: doiOld, year: 2008, ids: reg, relevance: relevanceDirect, direction: directionPositive,
+					effect: &model.Effect{TimepointMatch: model.TimepointYes},
+				},
+				{
+					doi: doiNew, year: 2013, ids: reg, relevance: relevanceDirect, direction: directionNegative,
+					effect: &model.Effect{TimepointMatch: model.TimepointNo},
+				},
+			},
+			want: onePositive,
+		},
+		{
+			name: "a paper that is not a study report is never counted",
+			papers: []tallyPaper{
+				{doi: doiA, year: 2008, relevance: relevanceDirect, direction: directionPositive},
+				{
+					doi: doiB, year: 2013, relevance: relevanceDirect, direction: directionNegative,
+					pubTypes: []string{pubErratum},
+				},
+			},
+			want: onePositive,
+		},
+		{
+			name: "a letter that is also typed as a trial is a study report",
+			papers: []tallyPaper{
+				{
+					doi: doiA, year: 2008, relevance: relevanceDirect, direction: directionPositive,
+					pubTypes: []string{pubLetter, pubTrial},
+				},
+			},
+			want: onePositive,
 		},
 		{
 			name: "papers without registration numbers count as they did",
@@ -318,15 +418,19 @@ func TestDirectionTallyCountsATrialOnce(t *testing.T) {
 			want: "1 positive / 1 negative",
 		},
 		{
-			name: "a review sharing the number is counted on its own, as before",
+			name: "a review sharing the number is not counted: primary studies only",
 			papers: []tallyPaper{
 				{doi: "10.1/trial", year: 2013, ids: reg, relevance: relevanceDirect, direction: directionPositive},
 				{
 					doi: "10.1/review", year: 2020, ids: reg, relevance: relevanceDirect, direction: directionNegative,
 					design: model.DesignSystematicReview,
 				},
+				{
+					doi: "10.1/meta", year: 2021, relevance: relevanceDirect, direction: directionNegative,
+					design: model.DesignMetaAnalysis,
+				},
 			},
-			want: "1 positive / 1 negative",
+			want: onePositive,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

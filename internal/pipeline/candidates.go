@@ -72,6 +72,11 @@ type Candidate struct {
 	// Design is the discovery study-type tag (Consensus's, or derived from
 	// PubMed's publication types), empty for mined references.
 	Design string `json:"design,omitempty"`
+	// PublicationTypes are the types the discovering source gave the paper
+	// (PubMed's publication types, OpenAlex's type), lower case; empty for a
+	// Consensus hit no other channel typed. A paper they show not to be a study
+	// report (an erratum, a comment, a letter) is not eligible.
+	PublicationTypes []string `json:"publication_types,omitempty"`
 	// Snippet is the takeaway or the abstract start: what the screening saw
 	// besides the title.
 	Snippet string `json:"snippet,omitempty"`
@@ -89,9 +94,10 @@ type Candidate struct {
 func newCandidate(p model.Paper, by FoundBy) Candidate {
 	return Candidate{
 		DOI: model.NormalizeDOI(p.DOI), Title: p.Title, Year: p.Year, Sources: []FoundBy{by},
-		Design:  p.StudyDesign,
-		Snippet: truncate(cmp.Or(p.Takeaway, p.Abstract), snippetChars),
-		paper:   p,
+		Design:           p.StudyDesign,
+		PublicationTypes: p.PublicationTypes,
+		Snippet:          truncate(cmp.Or(p.Takeaway, p.Abstract), snippetChars),
+		paper:            p,
 	}
 }
 
@@ -107,12 +113,14 @@ func (c *Candidate) design() model.StudyDesign {
 
 // Eligible reports whether the candidate may enter the corpus: what the
 // screening stage lets through (the eval reads it as "kept by screening"). A
-// paper with no DOI never does. An unscreened Consensus hit is on-topic by
-// construction and stays in; an unscreened PubMed hit (a loose study-design
-// filter over an LLM-written topic query) or reference (one of hundreds picked
-// by citation alone) stays out.
+// paper with no DOI never does, nor does one whose publication types show it is
+// not a study report (an erratum takes no corpus slot, whatever the screening
+// says). An unscreened Consensus hit is on-topic by construction and stays in;
+// an unscreened PubMed hit (a loose study-design filter over an LLM-written
+// topic query) or reference (one of hundreds picked by citation alone) stays
+// out.
 func (c *Candidate) Eligible() bool {
-	if c.DOI == "" {
+	if c.DOI == "" || model.NonStudyKind(c.PublicationTypes) != "" {
 		return false
 	}
 

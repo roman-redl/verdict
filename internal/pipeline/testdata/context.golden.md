@@ -1,7 +1,7 @@
 Question: Does creatine improve cognitive performance in healthy adults?
 
 Verdict: MODERATE — limited but consistent evidence. Effect direction: supports the claim. Consensus: contested.
-Pooled effect of the direct studies (random effects, DerSimonian-Laird): SMD -0.220 (95% CI -0.400 to -0.030), 3 studies, 1234 participants, I² = 42%; outcome: Memory score (12 weeks); not pooled (other measure): 1 study.
+Pooled effect of the direct studies (random effects, DerSimonian-Laird): SMD -0.220 (95% CI -0.400 to -0.030), 3 studies, 1234 participants, I² = 42%; design: randomized; outcome: Memory score (12 weeks); not pooled (1 study): 10.1000/d (RR).
 Field position: Most direct studies lean positive (10.1000/a), one is mixed (10.1000/c).
 Rationale: 10.1000/a is a well-run RCT; 10.1000/c disagrees on direction.
 Contradictions: 10.1000/a vs 10.1000/c on direction

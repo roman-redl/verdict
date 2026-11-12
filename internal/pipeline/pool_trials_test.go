@@ -90,7 +90,7 @@ func TestPoolEffectsTrialIdentity(t *testing.T) {
 			name: "different registration numbers stay separate",
 			studies: []trialStudy{
 				{doi: doiOld, year: 2008, ids: []string{regISRCTN1}, effect: counts(10, 100, 20, 100)},
-				{doi: doiNew, year: 2013, ids: []string{"ISRCTN22222222"}, effect: counts(10, 100, 20, 100)},
+				{doi: doiNew, year: 2013, ids: []string{"ISRCTN22222222"}, effect: counts(11, 100, 21, 100)},
 			},
 			wantStudies: []string{doiOld, doiNew}, wantParticip: 400,
 		},
@@ -98,7 +98,7 @@ func TestPoolEffectsTrialIdentity(t *testing.T) {
 			name: "papers without registration numbers are never merged",
 			studies: []trialStudy{
 				{doi: doiOld, year: 2008, effect: counts(10, 100, 20, 100)},
-				{doi: doiNew, year: 2013, effect: counts(10, 100, 20, 100)},
+				{doi: doiNew, year: 2013, effect: counts(11, 100, 21, 100)},
 			},
 			wantStudies: []string{doiOld, doiNew}, wantParticip: 400,
 		},
@@ -112,12 +112,12 @@ func TestPoolEffectsTrialIdentity(t *testing.T) {
 			wantLeftOut: []string{doiOld + " (same trial as " + doiNew + ", " + regReflux + ")"},
 		},
 		{
-			name: "the same year: the larger report wins",
+			name: "the same year: the lower DOI wins, not the larger report",
 			studies: []trialStudy{
-				{doi: doiOld, year: 2013, ids: []string{regReflux}, effect: counts(10, 100, 20, 100)},
-				{doi: doiNew, year: 2013, ids: []string{regReflux}, effect: counts(10, 300, 20, 300)},
+				{doi: doiOld, year: 2013, ids: []string{regReflux}, effect: counts(10, 300, 20, 300)},
+				{doi: doiNew, year: 2013, ids: []string{regReflux}, effect: counts(10, 100, 20, 100)},
 			},
-			wantStudies: []string{doiNew}, wantParticip: 600,
+			wantStudies: []string{doiNew}, wantParticip: 200,
 			wantLeftOut: []string{doiOld + " (same trial as " + doiNew + ", " + regReflux + ")"},
 		},
 		{
@@ -156,7 +156,7 @@ func TestPoolEffectsTrialIdentity(t *testing.T) {
 			studies: []trialStudy{
 				{doi: doiOld, year: 2008, ids: []string{regReflux}, effect: counts(10, 100, 20, 100)},
 				{doi: doiNew, year: 2013, ids: []string{regReflux}, effect: counts(10, 100, 20, 100)},
-				{doi: doiX, year: 2010, ids: []string{regNCT2}, effect: counts(10, 100, 20, 100)},
+				{doi: doiX, year: 2010, ids: []string{regNCT2}, effect: counts(11, 100, 21, 100)},
 			},
 			wantStudies: []string{doiNew, doiX}, wantParticip: 400,
 			wantLeftOut: []string{doiOld + " (same trial as " + doiNew + ", " + regReflux + ")"},
@@ -187,8 +187,9 @@ func TestPoolEffectsTrialIdentity(t *testing.T) {
 	}
 }
 
-// A second report must not tip the choice of the measure: the pool with the
-// most participants wins, counted after the repeat reports are dropped.
+// A second report must not tip the choice of the measure: the report of a trial
+// is chosen first, and the pool with the most participants wins counted after
+// the repeat reports are dropped.
 func TestPoolEffectsDropsRepeatReportsBeforeChoosingTheMeasure(t *testing.T) {
 	const doiHR = "10.1/hr-trial"
 
@@ -204,8 +205,10 @@ func TestPoolEffectsDropsRepeatReportsBeforeChoosingTheMeasure(t *testing.T) {
 	require.NotNil(t, pe)
 	assert.Equal(t, model.MeasureHR, pe.Measure, "300 participants beat the 200 of the one trial")
 	assert.Equal(t, []string{doiHR}, pe.Studies)
-	assert.Equal(t, []string{doiReflux12m + " (RR)", doiReflux5y + " (RR)"}, pe.LeftOut,
-		"outside the winning pool, a study is left out for its measure")
+	assert.Equal(t, []string{
+		doiReflux12m + " (same trial as " + doiReflux5y + ", " + regReflux + ")",
+		doiReflux5y + " (RR)",
+	}, pe.LeftOut, "the repeat report is named as such, the kept one is left out for its measure")
 }
 
 // The repeat is dropped from the group the pool uses; a count study that is in

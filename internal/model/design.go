@@ -76,6 +76,13 @@ func ParseStudyDesign(s string) (StudyDesign, error) {
 // "unclear".
 func (d StudyDesign) IsKnown() bool { return d != "" && d != DesignUnclear }
 
+// IsRandomized reports whether the design randomizes participants or groups:
+// parallel, cluster and crossover trials. Every other design, including an
+// unknown one, is not.
+func (d StudyDesign) IsRandomized() bool {
+	return d == DesignRCT || d == DesignClusterRCT || d == DesignCrossoverRCT
+}
+
 // IsSecondary reports whether the design is secondary research: a review or a
 // guideline that summarizes other studies. Its numbers are not independent of
 // the primary studies it covers.

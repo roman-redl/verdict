@@ -12,6 +12,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -94,6 +96,7 @@ func (p *Pipeline) discoverPooled(ctx context.Context, opts Options, st *State, 
 	}
 
 	papers := selectCandidates(info.Pool, lim)
+	p.logNonStudyCandidates(info.Pool)
 	st.Warnings = append(st.Warnings, p.selectionWarnings(info, len(papers), lim)...)
 
 	st.Papers = papers
@@ -160,6 +163,26 @@ func (p *Pipeline) selectionWarnings(info *DiscoveryInfo, selected, lim int) []s
 	}
 
 	return warnings
+}
+
+// logNonStudyCandidates logs what the publication types keep out of the
+// corpus, one line per kind of paper that is not a study report.
+func (p *Pipeline) logNonStudyCandidates(pool []Candidate) {
+	counts := map[string]int{}
+
+	for i := range pool {
+		if pool[i].DOI == "" {
+			continue
+		}
+
+		if kind := model.NonStudyKind(pool[i].PublicationTypes); kind != "" {
+			counts[kind]++
+		}
+	}
+
+	for _, kind := range slices.Sorted(maps.Keys(counts)) {
+		p.log.Info("candidates left out of the corpus: not a study report", "kind", kind, "count", counts[kind])
+	}
 }
 
 func countEligible(pool []Candidate) int {

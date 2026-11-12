@@ -327,15 +327,32 @@ func pooledText(pe *model.PooledEstimate) string {
 		s += fmt.Sprintf(", I² = %.0f%%", *pe.I2)
 	}
 
+	if pe.Stratum != "" {
+		s += "; design: " + string(pe.Stratum)
+	}
+
 	if pe.Outcome != "" {
 		s += "; outcome: " + pe.Outcome
 	}
 
 	if n := len(pe.LeftOut); n > 0 {
-		s += fmt.Sprintf("; not pooled (other measure): %d %s", n, plural(n, "study", "studies"))
+		s += fmt.Sprintf("; not pooled (%d %s): %s", n, plural(n, "study", "studies"), leftOutPreview(pe.LeftOut))
 	}
 
 	return s
+}
+
+// maxLeftOutShown caps the left-out entries a report line names.
+const maxLeftOutShown = 5
+
+// leftOutPreview names the first left-out studies with their reasons; the full
+// list is pooled_estimate.left_out in the artifact.
+func leftOutPreview(left []string) string {
+	if len(left) <= maxLeftOutShown {
+		return strings.Join(left, ", ")
+	}
+
+	return strings.Join(left[:maxLeftOutShown], ", ") + fmt.Sprintf(", and %d more", len(left)-maxLeftOutShown)
 }
 
 // imprecisionText renders the computed rating: the levels, then the reason
@@ -407,9 +424,11 @@ func orDash(s string) string {
 
 // directionTally summarizes where the direct studies' own findings point,
 // e.g. "7 positive / 3 null / 2 negative" (mixed/unclear shown when present).
-// Computed deterministically from critique fields, not by the LLM. A trial
-// reported several times counts once, with the direction of its latest
-// report (tallyIndexes).
+// Computed deterministically from critique fields, not by the LLM. Primary
+// studies only: reviews and papers that are not study reports (errata,
+// comments) are not counted, and a trial reported several times counts once,
+// with the direction of the report that best matches the question's outcome
+// and time frame (tallyIndexes).
 func directionTally(st *State) string {
 	var pos, null, neg, mixed, unclear int
 
