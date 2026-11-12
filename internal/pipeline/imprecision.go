@@ -4,7 +4,9 @@ package pipeline
 // the pooled estimate: the synthesis judged both itself before, and its
 // answers varied between runs and mixed up "no effect" with "not enough
 // data". Now the model reads the rating and the conclusion it applies to; it
-// only tells which way the claim says the outcome moves.
+// only tells which way the claim says the outcome moves. A direction is stated
+// only when the pooled interval excludes no effect; an interval that includes
+// it gives "no difference seen" or, when too wide, "cannot tell" (grade).
 
 import (
 	"fmt"
@@ -77,25 +79,33 @@ func (p *Pipeline) assessImprecision(pe *model.PooledEstimate) *model.Imprecisio
 }
 
 // directionFromPooled is the effect direction implied by the computed
-// conclusion and the change the claim states. Without the rating, with an
-// undetermined target, or without a usable claim_change, the synthesis's own
-// direction stays (a missing or invalid claim_change is logged). When the code's direction differs from the
-// synthesis's, the code wins and the second result is the report warning that
-// records both.
+// conclusion and the change the claim states: supports or opposite when the
+// interval excludes no effect, no_effect when it includes no effect and is not
+// too wide, unclear when it is too wide to say anything. Without the rating,
+// or without a usable claim_change where the target needs one, the synthesis's
+// own direction stays (a missing or invalid claim_change is logged). When the
+// code's direction differs from the synthesis's, the code wins and the second
+// result is the report warning that records both.
 func (p *Pipeline) directionFromPooled(imp *model.Imprecision, claimChange string,
 	said model.EffectDirection,
 ) (direction model.EffectDirection, warning string) {
-	// an undetermined target (no threshold for a trivial effect is known)
-	// gives no direction to impose: the synthesis judges it
-	if imp == nil || imp.Target == model.TargetUndetermined {
+	if imp == nil {
 		return said, ""
 	}
 
-	claim, err := model.ParseClaimChange(claimChange)
-	if err != nil {
-		p.log.Warn("effect_direction kept from the synthesis: no usable claim_change", "err", err)
+	// no_effect and unclear do not depend on the claim, so they are imposed
+	// even when the synthesis returned no usable claim_change
+	var claim model.ClaimChange
 
-		return said, ""
+	if imp.Target.DependsOnClaim() {
+		var err error
+
+		claim, err = model.ParseClaimChange(claimChange)
+		if err != nil {
+			p.log.Warn("effect_direction kept from the synthesis: no usable claim_change", "err", err)
+
+			return said, ""
+		}
 	}
 
 	computed, ok := imp.Target.DirectionFor(claim)

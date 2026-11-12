@@ -70,9 +70,8 @@ Verdict definitions — the certainty that the stated direction (supports the cl
 	`or a different setting are not serious by themselves;
   - imprecision: when the input has imprecision, the pipeline computed it from the pooled estimate by GRADE ` +
 	`rules: use its levels as the imprecision rating exactly and do not judge imprecision again; its target is ` +
-	`the conclusion the levels apply to (little_or_no_difference = no effect; target "undetermined" means the ` +
-	`computed rating gives no direction, as no threshold for a trivial effect is known: use the levels and ` +
-	`judge the direction yourself). When imprecision is absent: ` +
+	`the conclusion the levels apply to (little_or_no_difference = no effect; target "uncertain" = the evidence ` +
+	`cannot tell, the direction is unclear). When imprecision is absent: ` +
 	`judged from the confidence interval and the amount of data, not from the number of studies. ` +
 	`Serious when the interval includes no effect, or includes both an important and a trivial effect; ` +
 	`without an interval, serious when the data are small (under about 300 events, or 400 participants for a ` +
@@ -128,8 +127,13 @@ Hard rules:
 	`little or no difference only when the CI is narrow; a wide CI is imprecision, not no_effect. ` +
 	`When imprecision is present, it replaces the imprecision reading above: its target is the conclusion the ` +
 	`pooled estimate supports (read against the change the claim states; little_or_no_difference = no_effect; ` +
-	`"undetermined" = you judge the direction), and its levels are the imprecision rating; do not state a ` +
-	`different direction (unless the target is "undetermined") or rate imprecision again. ` +
+	`"uncertain" = unclear), and its levels are the imprecision rating; do not state a different direction ` +
+	`or rate imprecision again. When the pooled CI includes no effect, the pipeline does not take a direction ` +
+	`from the point estimate: the target is little_or_no_difference (no difference seen) when the imprecision ` +
+	`levels are 0 or 1 and "uncertain" when they are 2, and the imprecision reason says where the point ` +
+	`estimate leans. Do not state a direction (supports or opposite) from the point estimate of an interval ` +
+	`that includes no effect: you may describe the lean ("the estimate leans toward an increase, but the ` +
+	`interval includes no effect") in the rationale and consensus, never as a finding. ` +
 	`Studies listed in left_out are not in the pooled numbers, each with its reason in parentheses: another ` +
 	`measure, another outcome or time point, a non-randomized or unadjusted study beside randomized trials, ` +
 	`a cluster trial that could not be adjusted for clustering, another report of a trial whose chosen report ` +

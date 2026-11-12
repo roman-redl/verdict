@@ -44,11 +44,10 @@ const (
 	// TargetLittleOrNoDifference is the conclusion that there is little or
 	// no difference.
 	TargetLittleOrNoDifference Target = "little_or_no_difference"
-	// TargetUndetermined means the rule gives no conclusion: without a
-	// threshold for a trivial effect (a mean difference with no SD) nothing
-	// tells little or no difference from a small effect, so the sign of the
-	// point estimate must not pass for a direction.
-	TargetUndetermined Target = "undetermined"
+	// TargetUncertain means the evidence cannot tell: the interval includes no
+	// effect and reaches past two thresholds of a trivial effect, so the
+	// sign of the point estimate must not pass for a direction.
+	TargetUncertain Target = "uncertain"
 )
 
 // Default thresholds.
@@ -92,7 +91,9 @@ type Assessment struct {
 	// nil for a mean difference without an SD, and when the interval excludes
 	// no effect (the null itself is the threshold then).
 	BandLow, BandHigh *float64
-	// Reason is one short sentence with the numbers behind the levels.
+	// Reason is one short sentence with the numbers behind the levels; for an
+	// interval that includes no effect and is not inside the band it also says
+	// where the point estimate leans.
 	Reason string
 	// SizeChecked is false only when the information-size rule was needed
 	// but could not be applied because the number of participants is unknown.
@@ -181,25 +182,27 @@ func bandOf(in Input) band {
 	return band{}
 }
 
-// includesNull rates an interval that includes no effect. With a band, the
-// question is whether the interval stays within the trivial effects (then it
-// shows little or no difference precisely) or reaches past band edges, each
-// edge crossed being one level. Without a band there is no threshold to show
-// "little or no difference" against, and none to tell it from a small effect:
-// one level, and the target stays undetermined.
+// includesNull rates an interval that includes no effect. The point estimate
+// never gives the direction then (strict GRADE would say "may increase"; the
+// Cochrane practice is "no difference seen"). With a band, the question is
+// whether the interval stays within the trivial effects (little or no
+// difference, precisely) or reaches past band edges, each edge crossed being
+// one level. Without a band (a mean difference with no SD) nothing tells
+// little or no difference from a small effect: it counts as one level, as if
+// one edge were crossed. Levels 0 and 1 conclude little or no difference and
+// name where the estimate leans; levels 2 conclude that the evidence cannot
+// tell.
 func includesNull(in Input, b band) Assessment {
-	a := Assessment{SizeChecked: true}
+	a := Assessment{SizeChecked: true, Target: TargetLittleOrNoDifference}
 	ci := fmt.Sprintf("CI %s to %s includes no effect", num(in.CILow), num(in.CIHigh))
 
 	if !b.known {
-		a.Target = TargetUndetermined
 		a.Levels = 1
-		a.Reason = ci + " and no threshold for a trivial effect is known (the outcome's SD is missing)"
+		a.Reason = ci + " and no threshold for a trivial effect is known (the outcome's SD is missing)" + leanOf(in)
 
 		return a
 	}
 
-	a.Target = targetInside(in.Estimate, b)
 	lo, hi := b.low, b.high
 	a.BandLow, a.BandHigh = &lo, &hi
 
@@ -217,25 +220,34 @@ func includesNull(in Input, b band) Assessment {
 	case 0:
 		a.Reason = fmt.Sprintf("%s and lies within the %s to %s thresholds", ci, num(b.low), num(b.high))
 	case 1:
-		a.Reason = fmt.Sprintf("%s and crosses the %s threshold", ci, crossed[0])
+		a.Reason = fmt.Sprintf("%s and crosses the %s threshold", ci, crossed[0]) + leanOf(in)
 	default:
-		a.Reason = fmt.Sprintf("%s and crosses the %s and %s thresholds", ci, crossed[0], crossed[1])
+		a.Reason = fmt.Sprintf("%s and crosses the %s and %s thresholds", ci, crossed[0], crossed[1]) + leanOf(in)
+		a.Target = TargetUncertain
 	}
 
 	return a
 }
 
-// targetInside is the conclusion for an interval that includes no effect and
-// has a band: the point estimate against it.
-func targetInside(estimate float64, b band) Target {
+// leanOf is the clause that says where the point estimate leans when the
+// interval does not exclude no effect, with a leading separator; empty when
+// the estimate sits exactly at no effect. It names the sign only: the
+// interval's levels say how much that lean is worth.
+func leanOf(in Input) string {
+	null := nullOf(in.Measure)
+
+	var way string
+
 	switch {
-	case estimate < b.low:
-		return TargetLower
-	case estimate > b.high:
-		return TargetHigher
+	case in.Estimate > null:
+		way = "an increase"
+	case in.Estimate < null:
+		way = "a decrease"
 	default:
-		return TargetLittleOrNoDifference
+		return ""
 	}
+
+	return fmt.Sprintf("; the estimate %s leans toward %s, but the interval includes no effect", num(in.Estimate), way)
 }
 
 // excludesNull rates an interval that excludes no effect: the null is the

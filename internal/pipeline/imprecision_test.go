@@ -12,7 +12,10 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
-const claimLower = "lower"
+const (
+	claimLower  = "lower"
+	claimHigher = "higher"
+)
 
 func TestGradeInput(t *testing.T) {
 	sd := 4.0
@@ -63,19 +66,22 @@ func TestAssessImprecision(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, 1, got.Levels)
 	assert.Equal(t, model.TargetLittleOrNoDifference, got.Target)
-	assert.Equal(t, "CI 0.48 to 1.23 includes no effect and crosses the 0.75 threshold", got.Reason)
+	assert.Equal(t, "CI 0.48 to 1.23 includes no effect and crosses the 0.75 threshold; "+
+		"the estimate 0.77 leans toward a decrease, but the interval includes no effect", got.Reason)
 	assert.True(t, got.SizeChecked)
 	require.NotNil(t, got.BandLow)
 	assert.InDelta(t, 0.75, *got.BandLow, 1e-12)
 	assert.Empty(t, logs.String())
 
-	// a mean difference without an SD has no threshold: one level, no direction
+	// a mean difference without an SD has no threshold: one level, no
+	// difference seen, and the lean is named
 	got = p.assessImprecision(&model.PooledEstimate{
 		Measure: model.MeasureMD, Estimate: 0.87, CILow: -1.58, CIHigh: 3.32,
 	})
 	require.NotNil(t, got)
 	assert.Equal(t, 1, got.Levels)
-	assert.Equal(t, model.TargetUndetermined, got.Target)
+	assert.Equal(t, model.TargetLittleOrNoDifference, got.Target)
+	assert.Contains(t, got.Reason, "the estimate 0.87 leans toward an increase")
 	assert.Nil(t, got.BandLow)
 	assert.Nil(t, got.BandHigh)
 
@@ -87,10 +93,93 @@ func TestAssessImprecision(t *testing.T) {
 	assert.Equal(t, 2, bytes.Count(logs.Bytes(), []byte("imprecision not computed")))
 }
 
+// From the pooled numbers to the effect direction: an interval that includes no
+// effect gives no_effect (levels 0 or 1) or unclear (levels 2) whatever the
+// point estimate and the claim; one that excludes it follows the estimate.
+func TestPooledIntervalDecidesTheDirection(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		pe         model.PooledEstimate
+		levels     int
+		target     model.ImprecisionTarget
+		claim      string
+		said       model.EffectDirection
+		want       model.EffectDirection
+		reasonPart string
+	}{
+		{
+			name:   "RR 1.29 includes no effect: no difference seen, the lean named",
+			pe:     model.PooledEstimate{Measure: model.MeasureRR, Estimate: 1.29, CILow: 0.99, CIHigh: 1.68},
+			levels: 1, target: model.TargetLittleOrNoDifference, claim: claimHigher,
+			said: model.EffectSupports, want: model.EffectNoEffect,
+			reasonPart: "the estimate 1.29 leans toward an increase, but the interval includes no effect",
+		},
+		{
+			name:   "RR 1.29 with the limits in the wrong order and a claim of a lower value",
+			pe:     model.PooledEstimate{Measure: model.MeasureRR, Estimate: 1.29, CILow: 1.68, CIHigh: 0.99},
+			levels: 1, target: model.TargetLittleOrNoDifference, claim: claimLower,
+			said: model.EffectOpposite, want: model.EffectNoEffect,
+			reasonPart: "leans toward an increase",
+		},
+		{
+			name:   "RR 0.67 with a very wide interval: unclear whatever the claim",
+			pe:     model.PooledEstimate{Measure: model.MeasureRR, Estimate: 0.67, CILow: 0.12, CIHigh: 3.84},
+			levels: 2, target: model.TargetUncertain, claim: claimLower,
+			said: model.EffectSupports, want: model.EffectUnclear,
+			reasonPart: "leans toward a decrease",
+		},
+		{
+			name:   "RR 0.35 excludes no effect: the direction follows the estimate",
+			pe:     model.PooledEstimate{Measure: model.MeasureRR, Estimate: 0.35, CILow: 0.18, CIHigh: 0.67},
+			levels: 1, target: model.TargetLower, claim: claimLower,
+			said: model.EffectUnclear, want: model.EffectSupports,
+		},
+		{
+			name:   "RR 0.35 excludes no effect against a claim of a higher value",
+			pe:     model.PooledEstimate{Measure: model.MeasureRR, Estimate: 0.35, CILow: 0.67, CIHigh: 0.18},
+			levels: 1, target: model.TargetLower, claim: claimHigher,
+			said: model.EffectSupports, want: model.EffectOpposite,
+		},
+		{
+			name:   "MD without an SD, CI -1 to 3: no difference seen with the lean",
+			pe:     model.PooledEstimate{Measure: model.MeasureMD, Estimate: 1, CILow: -1, CIHigh: 3},
+			levels: 1, target: model.TargetLittleOrNoDifference, claim: claimLower,
+			said: model.EffectUnclear, want: model.EffectNoEffect,
+			reasonPart: "the estimate 1 leans toward an increase, but the interval includes no effect",
+		},
+		{
+			name:   "SMD past both thresholds: unclear",
+			pe:     model.PooledEstimate{Measure: model.MeasureSMD, Estimate: 0.1, CILow: 0.5, CIHigh: -0.6},
+			levels: 2, target: model.TargetUncertain, claim: claimHigher,
+			said: model.EffectNoEffect, want: model.EffectUnclear,
+		},
+		{
+			name:   "SMD inside the trivial band: no effect, no lean",
+			pe:     model.PooledEstimate{Measure: model.MeasureSMD, Estimate: 0.05, CILow: -0.1, CIHigh: 0.15},
+			levels: 0, target: model.TargetLittleOrNoDifference, claim: claimHigher,
+			said: model.EffectNoEffect, want: model.EffectNoEffect,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, logs := poolPipeline(t)
+
+			imp := p.assessImprecision(&tc.pe)
+			require.NotNil(t, imp)
+			assert.Equal(t, tc.levels, imp.Levels, imp.Reason)
+			assert.Equal(t, tc.target, imp.Target)
+			assert.Contains(t, imp.Reason, tc.reasonPart)
+
+			got, _ := p.directionFromPooled(imp, tc.claim, tc.said)
+			assert.Equal(t, tc.want, got)
+			assert.Empty(t, logs.String())
+		})
+	}
+}
+
 func TestDirectionFromPooled(t *testing.T) {
 	lower := &model.Imprecision{Target: model.TargetLower}
 	flat := &model.Imprecision{Target: model.TargetLittleOrNoDifference}
-	undetermined := &model.Imprecision{Levels: 1, Target: model.TargetUndetermined}
+	uncertain := &model.Imprecision{Levels: 2, Target: model.TargetUncertain}
 
 	for _, tc := range []struct {
 		name     string
@@ -119,12 +208,23 @@ func TestDirectionFromPooled(t *testing.T) {
 			warning: "effect_direction set from the pooled estimate: supports (the synthesis said unclear)",
 		},
 		{
-			name: "an undetermined target imposes nothing", imp: undetermined, claim: claimLower,
-			said: model.EffectNoEffect, want: model.EffectNoEffect,
+			name: "an uncertain target imposes unclear", imp: uncertain, claim: claimLower,
+			said: model.EffectNoEffect, want: model.EffectUnclear,
+			warning: "effect_direction set from the pooled estimate: unclear (the synthesis said no_effect)",
 		},
 		{
-			name: "an undetermined target needs no claim_change", imp: undetermined,
-			said: model.EffectSupports, want: model.EffectSupports,
+			name: "an uncertain target needs no claim_change", imp: uncertain,
+			said: model.EffectSupports, want: model.EffectUnclear,
+			warning: "effect_direction set from the pooled estimate: unclear (the synthesis said supports)",
+		},
+		{
+			name: "little or no difference needs no claim_change", imp: flat,
+			said: model.EffectSupports, want: model.EffectNoEffect,
+			warning: "effect_direction set from the pooled estimate: no_effect (the synthesis said supports)",
+		},
+		{
+			name: "an uncertain target agrees with an unclear synthesis", imp: uncertain,
+			said: model.EffectUnclear, want: model.EffectUnclear,
 		},
 		{
 			name: "a missing claim_change keeps the synthesis", imp: lower, said: model.EffectNoEffect,
@@ -172,7 +272,11 @@ func TestSynthesisPromptSplitsTheJudgments(t *testing.T) {
 	assert.Contains(t, synthesisSystemPrompt, "do not judge imprecision again")
 	assert.Contains(t, synthesisSystemPrompt, "little_or_no_difference = no effect")
 	assert.Contains(t, synthesisSystemPrompt, "When imprecision is absent:")
-	assert.Contains(t, synthesisSystemPrompt, `target "undetermined" means`)
+	assert.Contains(t, synthesisSystemPrompt, `target "uncertain" = the evidence cannot tell`)
+	assert.Contains(t, synthesisSystemPrompt,
+		"When the pooled CI includes no effect, the pipeline does not take a direction")
+	assert.Contains(t, synthesisSystemPrompt, "you may describe the lean")
+	assert.NotContains(t, synthesisSystemPrompt, "undetermined")
 	assert.Contains(t, synthesisSystemPrompt, "AS MEASURED in pooled_estimate.outcome")
 	assert.Contains(t, synthesisSystemPrompt, `"children still in pain" → lower`)
 	assert.Contains(t, synthesisSystemPrompt, "Without a pooled_estimate it is still required")

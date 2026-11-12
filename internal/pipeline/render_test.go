@@ -284,6 +284,26 @@ func TestImprecisionText(t *testing.T) {
 	assert.Equal(t, "rated down 2 levels — r", imprecisionText(&model.Imprecision{Levels: 2, Reason: "r"}))
 }
 
+// An interval that includes no effect reads "no meaningful effect" in the
+// report, and the imprecision line says where the point estimate leans.
+func TestRenderShowsTheLeanOfAnIntervalIncludingNoEffect(t *testing.T) {
+	st := reportState()
+	st.Report.EffectDirection = model.EffectNoEffect
+	st.Report.PooledEstimate = &model.PooledEstimate{
+		Method: model.PoolRandomEffects, Measure: model.MeasureRR, Estimate: 1.29, CILow: 0.99, CIHigh: 1.68, K: 3,
+	}
+	st.Report.Imprecision = &model.Imprecision{
+		Levels: 1, Target: model.TargetLittleOrNoDifference, SizeChecked: true,
+		Reason: "CI 0.99 to 1.68 includes no effect and crosses the 1.25 threshold; " +
+			"the estimate 1.29 leans toward an increase, but the interval includes no effect",
+	}
+
+	md := RenderMarkdown(st)
+	assert.Contains(t, md, "**Effect direction:** no meaningful effect")
+	assert.Contains(t, md, "**Imprecision (computed):** rated down 1 level — CI 0.99 to 1.68 includes no effect")
+	assert.Contains(t, md, "the estimate 1.29 leans toward an increase, but the interval includes no effect")
+}
+
 func TestEffectDirectionLabels(t *testing.T) {
 	assert.Equal(t, "supports the claim", effectDirectionLabel(model.EffectSupports))
 	assert.Equal(t, "no meaningful effect", effectDirectionLabel(model.EffectNoEffect))

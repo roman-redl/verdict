@@ -15,12 +15,13 @@ const (
 	TargetLower ImprecisionTarget = "lower"
 	// TargetHigher means the outcome's value is higher under the intervention.
 	TargetHigher ImprecisionTarget = "higher"
-	// TargetLittleOrNoDifference means little or no difference.
+	// TargetLittleOrNoDifference means little or no difference: the interval
+	// includes no effect and is not too wide to say so (no difference seen).
 	TargetLittleOrNoDifference ImprecisionTarget = "little_or_no_difference"
-	// TargetUndetermined means the computed rating gives no direction: no
-	// threshold for a trivial effect is known, so nothing tells little or no
-	// difference from a small effect.
-	TargetUndetermined ImprecisionTarget = "undetermined"
+	// TargetUncertain means the evidence cannot tell: the interval includes no
+	// effect and is so wide that no direction and no "no difference" can be
+	// stated.
+	TargetUncertain ImprecisionTarget = "uncertain"
 )
 
 // ParseImprecisionTarget parses a target as it is stored in an artifact.
@@ -28,11 +29,11 @@ func ParseImprecisionTarget(s string) (ImprecisionTarget, error) {
 	t := ImprecisionTarget(strings.ToLower(strings.TrimSpace(s)))
 
 	switch t {
-	case TargetLower, TargetHigher, TargetLittleOrNoDifference, TargetUndetermined:
+	case TargetLower, TargetHigher, TargetLittleOrNoDifference, TargetUncertain:
 		return t, nil
 	}
 
-	return "", fmt.Errorf("unknown imprecision target %q (want lower | higher | little_or_no_difference | undetermined)",
+	return "", fmt.Errorf("unknown imprecision target %q (want lower | higher | little_or_no_difference | uncertain)",
 		s)
 }
 
@@ -60,20 +61,26 @@ func ParseClaimChange(s string) (ClaimChange, error) {
 	return "", fmt.Errorf("unknown claim change %q (want lower | higher)", s)
 }
 
+// DependsOnClaim tells whether the direction implied by the target needs the
+// claim's change: only a lower or higher value is read against the claim.
+func (t ImprecisionTarget) DependsOnClaim() bool {
+	return t == TargetLower || t == TargetHigher
+}
+
 // DirectionFor is the effect direction relative to a claim: no effect for a
-// target of little or no difference, supports when the target is the change
-// the claim states, opposite otherwise. A target that is undetermined (or not
-// a target at all) implies no direction: ok is false then.
+// target of little or no difference, unclear for an uncertain target, supports
+// when the target is the change the claim states, opposite otherwise. A value
+// that is not a target at all implies no direction: ok is false then.
 func (t ImprecisionTarget) DirectionFor(c ClaimChange) (d EffectDirection, ok bool) {
 	switch t {
 	case TargetLittleOrNoDifference:
 		return EffectNoEffect, true
+	case TargetUncertain:
+		return EffectUnclear, true
 	case TargetLower:
 		return directionOf(c == ClaimLower), true
 	case TargetHigher:
 		return directionOf(c == ClaimHigher), true
-	case TargetUndetermined:
-		return "", false
 	}
 
 	return "", false

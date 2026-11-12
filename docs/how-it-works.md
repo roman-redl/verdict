@@ -786,13 +786,17 @@ for ratios and 0 for differences. The thresholds are the defaults for when no
 minimal important difference is known: a ratio of 0.75 to 1.25, an SMD of ±0.2,
 an MD of ±0.2 SD (only when the SD is known).
 
-- *The interval includes the null.* The point estimate against the band gives
-  the `target`: inside it is `little_or_no_difference`, below `lower`, above
-  `higher`. An interval entirely inside the band is precise (0 levels);
-  otherwise each band edge strictly inside the interval costs one level, at
-  most two. An MD without an SD has no band: nothing tells little or no
-  difference from a small effect, so it costs one level and the `target` is
-  `undetermined` (no direction is implied).
+- *The interval includes the null.* The point estimate never gives a direction
+  then (strict GRADE would say "may increase" or "may decrease"; the rule
+  follows Cochrane-review practice, "no difference seen"). An interval entirely
+  inside the band is precise (0 levels); otherwise each band edge strictly
+  inside the interval costs one level, at most two. An MD without an SD has no
+  band: nothing tells little or no difference from a small effect, so it costs
+  one level, as if one edge were crossed. With 0 or 1 levels the `target` is
+  `little_or_no_difference`; with 2 levels it is `uncertain` (the evidence
+  cannot tell). From 1 level up, the `reason` also says where the point
+  estimate leans, e.g. "the estimate 1.29 leans toward an increase, but the
+  interval includes no effect"; the report shows it in the imprecision line.
 - *The interval excludes the null.* The `target` is the side of the null, and
   the null is the threshold. For a ratio, an interval whose upper limit is at
   least 3 times the lower (2.5 for an OR) is wide, few data behind a large
@@ -810,16 +814,20 @@ pooled estimate measures it (`pooled_estimate.outcome`, the critics' outcome
 text, because a critic often extracts the complement of the claim's outcome:
 a claim of more pain relief is pooled as "children still in pain", so its
 `claim_change` is `lower`). Go then sets the direction: `no_effect` for the target
-`little_or_no_difference`, `supports` when the target equals `claim_change`,
-`opposite` otherwise. For a converted SMD (`converted: true`, the unified scale
+`little_or_no_difference`, `unclear` for `uncertain` (the eval counts it as not
+proven), `supports` when the target equals `claim_change`, `opposite`
+otherwise. The judge is told not to state a direction from the point estimate
+of an interval that includes no effect; it may describe the lean in the
+rationale. For a converted SMD (`converted: true`, the unified scale
 above) the orientation is already fixed by Go: positive favours the intervention,
 so the target is `higher` when the interval lies above the trivial band and the
 judge is told to read `claim_change` as `higher` when the claim says the
 intervention helps and `lower` when it says it harms; it is never asked to infer
 the sign of the original scales. If that differs from the judge's word, the code wins
-and a report warning records both. Without the rating, with the target
-`undetermined`, or with a missing or invalid `claim_change` (logged), the
-judge's direction stays.
+and a report warning records both. Without the rating, or with a missing or
+invalid `claim_change` when the target is `lower` or `higher` (logged), the
+judge's direction stays; `no_effect` and `unclear` do not depend on the claim
+and are imposed regardless.
 
 Both answers are JSON (machine-readable and checkable); everything is saved
 into stage artifacts. If the LLM is unavailable, the pipeline honestly says

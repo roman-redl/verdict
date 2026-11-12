@@ -2,6 +2,7 @@ package grade
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,38 @@ func TestAssessImprecision(t *testing.T) {
 		{
 			name: "RR includes no effect and crosses the lower threshold", in: ratio(0.77, 0.48, 1.23),
 			levels: 1, target: TargetLittleOrNoDifference, band: []float64{0.75, 1.25}, sizeChecked: true,
-			reason: "CI 0.48 to 1.23 includes no effect and crosses the 0.75 threshold",
+			reason: "CI 0.48 to 1.23 includes no effect and crosses the 0.75 threshold; " +
+				"the estimate 0.77 leans toward a decrease, but the interval includes no effect",
+		},
+		{
+			name: "RR 1.29 includes no effect: no difference seen, the lean is an increase", in: ratio(1.29, 0.99, 1.68),
+			levels: 1, target: TargetLittleOrNoDifference, band: []float64{0.75, 1.25}, sizeChecked: true,
+			reason: "CI 0.99 to 1.68 includes no effect and crosses the 1.25 threshold; " +
+				"the estimate 1.29 leans toward an increase, but the interval includes no effect",
+		},
+		{
+			name: "RR 1.29 with the limits in the wrong order", in: ratio(1.29, 1.68, 0.99),
+			levels: 1, target: TargetLittleOrNoDifference, band: []float64{0.75, 1.25}, sizeChecked: true,
+			reason: "CI 0.99 to 1.68 includes no effect and crosses the 1.25 threshold; " +
+				"the estimate 1.29 leans toward an increase, but the interval includes no effect",
+		},
+		{
+			name: "RR 0.67 with a very wide interval: the evidence cannot tell", in: ratio(0.67, 0.12, 3.84),
+			levels: 2, target: TargetUncertain, band: []float64{0.75, 1.25}, sizeChecked: true,
+			reason: "CI 0.12 to 3.84 includes no effect and crosses the 0.75 and 1.25 thresholds; " +
+				"the estimate 0.67 leans toward a decrease, but the interval includes no effect",
+		},
+		{
+			name: "RR 0.67 very wide, limits in the wrong order", in: ratio(0.67, 3.84, 0.12),
+			levels: 2, target: TargetUncertain, band: []float64{0.75, 1.25}, sizeChecked: true,
+		},
+		{
+			name: "RR 0.35 excludes no effect: the direction stays", in: ratio(0.35, 0.18, 0.67),
+			levels: 1, target: TargetLower, sizeChecked: true,
+		},
+		{
+			name: "RR 0.35 excludes no effect, limits in the wrong order", in: ratio(0.35, 0.67, 0.18),
+			levels: 1, target: TargetLower, sizeChecked: true,
 		},
 		{
 			name: "RR precisely excludes no effect", in: ratio(0.70, 0.55, 0.89),
@@ -48,7 +80,8 @@ func TestAssessImprecision(t *testing.T) {
 		{
 			name: "RR near the upper threshold", in: ratio(1.20, 0.996, 1.449),
 			levels: 1, target: TargetLittleOrNoDifference, band: []float64{0.75, 1.25}, sizeChecked: true,
-			reason: "CI 0.996 to 1.45 includes no effect and crosses the 1.25 threshold",
+			reason: "CI 0.996 to 1.45 includes no effect and crosses the 1.25 threshold; " +
+				"the estimate 1.2 leans toward an increase, but the interval includes no effect",
 		},
 		{
 			name: "RR within the thresholds", in: ratio(0.9, 0.8, 1.1),
@@ -57,16 +90,16 @@ func TestAssessImprecision(t *testing.T) {
 		},
 		{
 			name: "RR reaching past both thresholds", in: ratio(1.0, 0.4, 2.5),
-			levels: 2, target: TargetLittleOrNoDifference, band: []float64{0.75, 1.25}, sizeChecked: true,
+			levels: 2, target: TargetUncertain, band: []float64{0.75, 1.25}, sizeChecked: true,
 			reason: "CI 0.4 to 2.5 includes no effect and crosses the 0.75 and 1.25 thresholds",
 		},
 		{
-			name: "estimate above the band with the interval including no effect", in: ratio(1.4, 0.9, 2.2),
-			levels: 1, target: TargetHigher, band: []float64{0.75, 1.25}, sizeChecked: true,
+			name: "estimate above the band: the interval includes no effect, so no direction", in: ratio(1.4, 0.9, 2.2),
+			levels: 1, target: TargetLittleOrNoDifference, band: []float64{0.75, 1.25}, sizeChecked: true,
 		},
 		{
-			name: "estimate below the band with the interval including no effect", in: ratio(0.6, 0.4, 1.1),
-			levels: 1, target: TargetLower, band: []float64{0.75, 1.25}, sizeChecked: true,
+			name: "estimate below the band: the interval includes no effect, so no direction", in: ratio(0.6, 0.4, 1.1),
+			levels: 1, target: TargetLittleOrNoDifference, band: []float64{0.75, 1.25}, sizeChecked: true,
 		},
 		{
 			name:   "OR uses the lower cutoff for a wide interval",
@@ -78,7 +111,24 @@ func TestAssessImprecision(t *testing.T) {
 			name:   "SMD includes no effect and crosses one threshold",
 			in:     Input{Measure: MeasureSMD, Estimate: 0.1, CILow: -0.1, CIHigh: 0.3},
 			levels: 1, target: TargetLittleOrNoDifference, band: []float64{-0.2, 0.2}, sizeChecked: true,
-			reason: "CI -0.1 to 0.3 includes no effect and crosses the 0.2 threshold",
+			reason: "CI -0.1 to 0.3 includes no effect and crosses the 0.2 threshold; " +
+				"the estimate 0.1 leans toward an increase, but the interval includes no effect",
+		},
+		{
+			name:   "SMD reaching past both thresholds: the evidence cannot tell",
+			in:     Input{Measure: MeasureSMD, Estimate: -0.1, CILow: -0.6, CIHigh: 0.5},
+			levels: 2, target: TargetUncertain, band: []float64{-0.2, 0.2}, sizeChecked: true,
+		},
+		{
+			name:   "SMD reaching past both thresholds, limits in the wrong order",
+			in:     Input{Measure: MeasureSMD, Estimate: -0.1, CILow: 0.5, CIHigh: -0.6},
+			levels: 2, target: TargetUncertain, band: []float64{-0.2, 0.2}, sizeChecked: true,
+		},
+		{
+			name:   "SMD within the thresholds is little or no difference with no lean",
+			in:     Input{Measure: MeasureSMD, Estimate: 0.05, CILow: -0.1, CIHigh: 0.15},
+			levels: 0, target: TargetLittleOrNoDifference, band: []float64{-0.2, 0.2}, sizeChecked: true,
+			reason: "CI -0.1 to 0.15 includes no effect and lies within the -0.2 to 0.2 thresholds",
 		},
 		{
 			name:   "SMD excludes no effect with few participants",
@@ -119,16 +169,40 @@ func TestAssessImprecision(t *testing.T) {
 				"so the information size was not checked",
 		},
 		{
-			name:   "MD without an SD has no threshold",
+			name:   "MD without an SD has no threshold: one level, no difference seen",
 			in:     Input{Measure: MeasureMD, Estimate: 0.87, CILow: -1.58, CIHigh: 3.32},
-			levels: 1, target: TargetUndetermined, sizeChecked: true,
+			levels: 1, target: TargetLittleOrNoDifference, sizeChecked: true,
 			reason: "CI -1.58 to 3.32 includes no effect and no threshold for a trivial effect is known " +
+				"(the outcome's SD is missing); " +
+				"the estimate 0.87 leans toward an increase, but the interval includes no effect",
+		},
+		{
+			name:   "MD without an SD, CI -1 to 3",
+			in:     Input{Measure: MeasureMD, Estimate: 1, CILow: -1, CIHigh: 3},
+			levels: 1, target: TargetLittleOrNoDifference, sizeChecked: true,
+			reason: "CI -1 to 3 includes no effect and no threshold for a trivial effect is known " +
+				"(the outcome's SD is missing); " +
+				"the estimate 1 leans toward an increase, but the interval includes no effect",
+		},
+		{
+			name:   "MD without an SD, CI -1 to 3, limits in the wrong order and a negative lean",
+			in:     Input{Measure: MeasureMD, Estimate: -0.5, CILow: 3, CIHigh: -1},
+			levels: 1, target: TargetLittleOrNoDifference, sizeChecked: true,
+			reason: "CI -1 to 3 includes no effect and no threshold for a trivial effect is known " +
+				"(the outcome's SD is missing); " +
+				"the estimate -0.5 leans toward a decrease, but the interval includes no effect",
+		},
+		{
+			name:   "MD without an SD and exactly no effect names no lean",
+			in:     Input{Measure: MeasureMD, Estimate: 0, CILow: -1, CIHigh: 1},
+			levels: 1, target: TargetLittleOrNoDifference, sizeChecked: true,
+			reason: "CI -1 to 1 includes no effect and no threshold for a trivial effect is known " +
 				"(the outcome's SD is missing)",
 		},
 		{
-			name:   "MD without an SD and exactly no effect is still undetermined",
-			in:     Input{Measure: MeasureMD, Estimate: 0, CILow: -1, CIHigh: 1},
-			levels: 1, target: TargetUndetermined, sizeChecked: true,
+			name:   "MD with an SD reaching past both thresholds: the evidence cannot tell",
+			in:     Input{Measure: MeasureMD, Estimate: 0.5, CILow: -5, CIHigh: 6, SD: 10},
+			levels: 2, target: TargetUncertain, band: []float64{-2, 2}, sizeChecked: true,
 		},
 		{
 			name:   "MD with an SD has a band of 0.2 SD",
@@ -248,16 +322,16 @@ func FuzzAssessImprecision(f *testing.F) {
 
 		assert.GreaterOrEqual(t, got.Levels, 0)
 		assert.LessOrEqual(t, got.Levels, maxLevels)
-		assert.Contains(t, []Target{TargetLower, TargetHigher, TargetLittleOrNoDifference, TargetUndetermined}, got.Target)
+		assert.Contains(t, []Target{TargetLower, TargetHigher, TargetLittleOrNoDifference, TargetUncertain}, got.Target)
 
 		assert.NotEmpty(t, got.Reason)
 		assert.Equal(t, got.BandLow == nil, got.BandHigh == nil)
 
-		if got.Target == TargetUndetermined {
-			// only an interval that includes no effect with no band known
-			assert.Nil(t, got.BandLow)
-			assert.Equal(t, 1, got.Levels)
-			assert.Contains(t, got.Reason, "includes no effect")
+		// an interval that includes no effect never gives a direction: it is
+		// little or no difference, or uncertain when two thresholds are crossed
+		if strings.Contains(got.Reason, "includes no effect") {
+			assert.Contains(t, []Target{TargetLittleOrNoDifference, TargetUncertain}, got.Target)
+			assert.Equal(t, got.Levels == maxLevels, got.Target == TargetUncertain)
 		}
 	})
 }
