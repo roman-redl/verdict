@@ -65,7 +65,7 @@ func pivotalStudies(st *State, maxStudies int) []int {
 		out = append(out, candidate{
 			idx: i, indirect: relevance == relevanceIndirect,
 			rank: qualityRank[st.Critiques[i].DesignQuality],
-			size: cmp.Or(st.Enriched[i].SampleSize, st.Critiques[i].SampleSizeReported),
+			size: cmp.Or(st.Critiques[i].SampleSizeReported, st.Enriched[i].SampleSize),
 		})
 	}
 

@@ -200,10 +200,7 @@ func buildMatrix(st *State, notes map[string]string) []model.MatrixRow {
 			row.TotalCitations = e.CitedByCount
 		}
 
-		row.SampleSize = e.SampleSize
-		if row.SampleSize == 0 {
-			row.SampleSize = c.SampleSizeReported
-		}
+		row.SampleSize = cmp.Or(c.SampleSizeReported, e.SampleSize)
 
 		rows[i] = row
 	}
@@ -267,7 +264,7 @@ func synthesisUserPrompt(st *State) (string, error) {
 			Year:                 e.Year,
 			Authors:              cappedAuthors(e.Authors, 15),
 			Design:               displayDesign(e, crits[i]),
-			SampleSize:           e.SampleSize,
+			SampleSize:           cmp.Or(crits[i].SampleSizeReported, e.SampleSize),
 			TrialRegistrations:   e.TrialIDs(),
 			CitedBy:              e.CitedByCount,
 			TLDR:                 e.TLDR,

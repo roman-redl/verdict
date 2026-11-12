@@ -210,8 +210,11 @@ func (p *Pipeline) studyEffect(
 		p.log.Info("reported estimate reversed to intervention vs control", "doi", e.DOI, "flipped", ps.flipped)
 	}
 
+	// the critic's count comes first: it is the number randomized into the
+	// compared arms, while the metadata size (Consensus) may include
+	// non-randomized arms — REFLUX: 810 against 357 randomized
 	if ps.n == 0 {
-		ps.n = cmp.Or(e.SampleSize, c.SampleSizeReported)
+		ps.n = cmp.Or(c.SampleSizeReported, e.SampleSize)
 	}
 
 	return ps, nil, true

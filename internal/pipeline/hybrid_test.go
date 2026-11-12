@@ -269,7 +269,8 @@ func TestPivotalStudiesOrdersBySampleSize(t *testing.T) {
 	for _, s := range []spec{
 		{doi: "10.1/no-size", quality: qualityHigh, relevance: relevanceDirect},
 		{doi: "10.1/reported-200", quality: qualityHigh, relevance: relevanceDirect, reportedSize: 200},
-		{doi: "10.1/paper-500", quality: qualityHigh, relevance: relevanceDirect, paperSize: 500, reportedSize: 9},
+		// the critic's randomized count wins over the metadata size
+		{doi: "10.1/reported-500", quality: qualityHigh, relevance: relevanceDirect, paperSize: 9, reportedSize: 500},
 		{doi: "10.1/tie-1", quality: qualityHigh, relevance: relevanceDirect, paperSize: 200},
 		{doi: "10.1/tie-2", quality: qualityHigh, relevance: relevanceDirect, paperSize: 200},
 		{doi: "10.1/popular-50", quality: qualityHigh, relevance: relevanceDirect, paperSize: 50, cites: 10000},
@@ -298,7 +299,7 @@ func TestPivotalStudiesOrdersBySampleSize(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{
-		"10.1/paper-500", "10.1/reported-200", "10.1/tie-1", "10.1/tie-2", "10.1/popular-50", "10.1/no-size",
+		"10.1/reported-500", "10.1/reported-200", "10.1/tie-1", "10.1/tie-2", "10.1/popular-50", "10.1/no-size",
 		"10.1/mod-big", "10.1/ind-big",
 	}, got)
 }
