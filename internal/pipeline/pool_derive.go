@@ -239,6 +239,8 @@ func deriveReported(ef *model.Effect) (pooledStudy, error) {
 		}
 	}
 
+	ps.estimate = &reportedEstimate{value: value, low: low, high: high}
+
 	return ps, nil
 }
 

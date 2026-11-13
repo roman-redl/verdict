@@ -21,7 +21,9 @@ type poolStudy struct {
 	relevance string // direct when empty
 	pubTypes  []string
 	retracted bool
-	size      int
+	size      int // the metadata sample size
+	// sizeReported is the sample size the critic recorded; it wins over size
+	sizeReported int
 }
 
 // poolCorpus is a corpus of such studies in the order given; no discovery tag,
@@ -38,7 +40,7 @@ func poolCorpus(studies ...poolStudy) *State {
 
 		c := model.Critique{
 			DOI: s.doi, Relevance: cmp.Or(s.relevance, relevanceDirect), ResultDirection: directionPositive,
-			StudyDesign: s.design, Effect: s.effect,
+			StudyDesign: s.design, Effect: s.effect, SampleSizeReported: s.sizeReported,
 		}
 
 		st.Enriched = append(st.Enriched, e)

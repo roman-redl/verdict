@@ -90,3 +90,21 @@ func NonStudyKind(types []string) string {
 
 	return kind
 }
+
+// meetingAbstractTypes are the publication types that mark a conference
+// abstract or a paper of conference proceedings, as PubMed (Congress) and
+// Crossref (proceedings-article) spell them in lower case. A meeting abstract
+// is a study report, so it is not a NonStudyKind: it is pooled, but a full
+// article of the same trial is kept over it.
+var meetingAbstractTypes = []string{
+	"congress", "congresses", "meeting abstract", "meeting abstracts", "conference abstract",
+	"conference abstracts", "proceedings-article",
+}
+
+// IsMeetingAbstract reports whether the publication types say the paper is a
+// conference abstract; false when they say nothing of the kind.
+func IsMeetingAbstract(types []string) bool {
+	return slices.ContainsFunc(NormalizePublicationTypes(types), func(t string) bool {
+		return slices.Contains(meetingAbstractTypes, t)
+	})
+}

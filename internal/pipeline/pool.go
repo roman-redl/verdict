@@ -76,8 +76,17 @@ type pooledStudy struct {
 	rank  reportRank
 
 	// results is the study's extracted arm data as one text (resultsKey), the
-	// key of the exact-duplicate check; empty without arm data.
+	// key of the same-results check for studies with arm data; empty without it.
 	results string
+
+	// estimate is the reported estimate the study's numbers come from, on the
+	// scale it is pooled on (after a reversal); nil when the numbers are arm
+	// data. A study without arm data is compared to another by it.
+	estimate *reportedEstimate
+
+	// abstract is set when the publication types say the study is a conference
+	// abstract: among reports of the same results a full article is kept over it.
+	abstract bool
 }
 
 var errNoNumbers = errors.New("no usable numbers")
@@ -98,8 +107,10 @@ func (p *Pipeline) poolEffects(st *State) *model.PooledEstimate { return p.pool(
 // primary studies. Reviews and meta-analyses, and papers that are not study
 // reports, are left out. The order of the rules is fixed: the design stratum,
 // the outcome and the time point, the cluster adjustment; then one report per
-// trial; then exact duplicates; then the measure. Numbers that cannot be an
-// effect are ignored with a warning.
+// trial; then the studies that report the same results (identical arm data, or
+// the same reported estimate of the same number of participants), one of each
+// group; then the measure. Numbers that cannot be an effect are ignored with a
+// warning.
 func (p *Pipeline) pool(st *State) poolResult {
 	crits := critiquesFor(st)
 	trials := trialGroups(trialInputs(st, crits))
@@ -123,6 +134,7 @@ func (p *Pipeline) pool(st *State) poolResult {
 		}
 
 		ps.trial, ps.regs, ps.year = trials[i]+1, e.TrialIDs(), e.Year
+		ps.abstract = model.IsMeetingAbstract(e.PublicationTypes)
 		ps.rank = rankOf(ps.doi, ps.year, crits[i].Effect)
 		items = append(items, ps)
 	}

@@ -648,7 +648,8 @@ pooled estimate the reasons go to a report warning instead).
    effect that is adjusted for clustering, or a reported estimate, is used as
    reported; a design other than `cluster_rct` is never divided.
 4. **One report per trial** and **one study, once** (below): the report that
-   matches the question is chosen, then exact duplicates are dropped.
+   matches the question is chosen, then one paper of every group that reports
+   the same results is kept.
 5. **Measure.** Counts give an odds ratio as well as a risk
    ratio (`meta.LogOR` and `meta.LogRR` share the zero-cell rule), so a study
    from counts is a candidate for both an RR pool and an OR pool; a study that
@@ -762,9 +763,34 @@ OpenAlex files as an `article` is caught by the next rule instead.
 
 **One study, once.** Two primary papers whose extracted arm data are identical
 — both arms' events and totals, or both arms' mean, SD and n — report the same
-results. One is pooled (the one published first, then the lower DOI) and the
-other goes to `left_out` as `doi (same results as <kept doi>)`. Only exact
-equality counts, and an estimate with no arm data has nothing to compare.
+results. One is pooled and the other goes to `left_out` as
+`doi (same results as <kept doi>)`. The one pooled is a full article rather than
+a conference abstract (when the publication types say a paper is one: PubMed's
+`Congress`, `Meeting Abstracts`, Crossref's `proceedings-article`), then the one
+published first, then the lower DOI. Arm data must
+match exactly. Two papers that give only a reported estimate (no arm data) are
+the same results when the measure and the point value are the same, both
+interval bounds differ by at most 0.01 (the same report rounded differently:
+1.28 and 1.27) and the number of participants is known and equal; the number
+is the one the pool uses (the critic's count first, then the metadata's). This
+catches a trial reported as a journal paper, a reprint of its abstract and a
+conference abstract with no registration number to link them (STAR: three
+reports of RR 1.02, 19747 participants, were pooled as three studies). An
+unknown number of participants on either side means no merge. A reported
+estimate is compared in the form it is pooled in: a reversed one (control
+against intervention) is turned first, so two reversed reports of the same
+numbers merge, while a reversed 0.98 (1.0204 once turned) is not merged with a
+directly reported 1.02. An estimate is never compared with arm data.
+
+The bounds' tolerance is not transitive (A matches B and B matches C, while A
+does not match C), so the papers are grouped by an explicit rule that gives the
+same groups for any order of the corpus. The papers are put in the order of the
+preference above (an article before an abstract, the earlier year, the lower
+DOI); each joins the first group whose first paper it matches, or starts a
+group of its own. The first paper of a group is therefore the one that is kept,
+and every other paper of the group matches it directly. For papers A (2005),
+B (2006) and C (2007) with upper bounds 1.000, 1.008 and 1.016, A and C are two
+studies and B joins A, whatever the order they come in.
 
 The sample size the pool and the matrix use follows from the same concern: the
 critic records, for a randomized trial, the number randomized into the compared

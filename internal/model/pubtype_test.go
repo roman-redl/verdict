@@ -78,3 +78,22 @@ func TestWorkToPaperCarriesTheTypes(t *testing.T) {
 
 	assert.Equal(t, []string{typeErratum, typeJournalArticle}, w.ToPaper("").PublicationTypes)
 }
+
+func TestIsMeetingAbstract(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		types []string
+		want  bool
+	}{
+		{"nothing known", nil, false},
+		{"an article", []string{typeArticle, typeJournalArticle}, false},
+		{"PubMed congress", []string{"Congress", typeArticle}, true},
+		{"Crossref proceedings article", []string{"proceedings-article"}, true},
+		{"meeting abstracts, spaces and case", []string{"  MEETING   Abstracts "}, true},
+		{"a trial report", []string{typeTrial}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsMeetingAbstract(tc.types))
+		})
+	}
+}
