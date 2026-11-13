@@ -188,7 +188,7 @@ func mergeReferences(pool []Candidate, refs []reviewRefs, excl *doiExclusion) (m
 
 		for i := range r.works {
 			doi := model.NormalizeDOI(r.works[i].DOI)
-			if doi == "" || seen[doi] || excl.drop(doi) {
+			if doi == "" || seen[doi] || excl.drop(doi, r.works[i].Title) {
 				continue
 			}
 

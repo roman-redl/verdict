@@ -62,7 +62,8 @@ func TestNilExclusionExcludesNothing(t *testing.T) {
 	var e *doiExclusion
 
 	assert.False(t, e.matches(doiA))
-	assert.False(t, e.drop(doiA))
+	assert.False(t, e.drop(doiA, "A title"))
+	assert.False(t, e.matchesTitle("A title"))
 
 	var info DiscoveryInfo
 
@@ -101,10 +102,10 @@ func TestNewDOIExclusionParsesTheFlagValues(t *testing.T) {
 func TestDOIExclusionRecordsDistinctDrops(t *testing.T) {
 	e := newDOIExclusion([]string{cochranePub2})
 
-	assert.True(t, e.drop(cochranePub3))
-	assert.True(t, e.drop("https://doi.org/"+strings.ToUpper(cochranePub3)), "the same DOI again")
-	assert.True(t, e.drop(cochraneNoPub))
-	assert.False(t, e.drop(doiA))
+	assert.True(t, e.drop(cochranePub3, ""))
+	assert.True(t, e.drop("https://doi.org/"+strings.ToUpper(cochranePub3), ""), "the same DOI again")
+	assert.True(t, e.drop(cochraneNoPub, ""))
+	assert.False(t, e.drop(doiA, ""))
 
 	var info DiscoveryInfo
 
@@ -187,7 +188,8 @@ func TestExcludedReviewIsNeverMined(t *testing.T) {
 			}
 
 			assert.Zero(t, works.calls.get("ByDOI:"+cochranePub3), "the excluded review's references are never read")
-			assert.Zero(t, works.calls.total(), "no review is left to mine")
+			assert.Equal(t, 1, works.calls.get("ByDOI:"+cochranePub2), "the excluded DOI's title is looked up once")
+			assert.Equal(t, 1, works.calls.total(), "no review is left to mine")
 			assert.Zero(t, d.ReviewsMined)
 			assert.Zero(t, d.RefsAdded)
 			assert.Equal(t, []string{consTrialDOI}, poolDOIs(d.Pool))

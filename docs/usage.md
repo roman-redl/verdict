@@ -278,7 +278,13 @@ run from the last completed stage without paying twice.
 --pubmed-query "<q>"     # a ready PubMed topic query: skips the query-writing call
 --exclude-dois <d1>,<d2> # DOIs the run must not see (repeatable, comma-separated): dropped from
                          #   every channel before the review mining, and from --dois; a Cochrane
-                         #   DOI excludes all .pubN versions — for recall against a review
+                         #   DOI excludes all .pubN versions — for recall against a review.
+                         #   Also excludes reprints, summaries and commentaries of an excluded
+                         #   DOI's paper: a candidate whose title contains that title (looked up
+                         #   in OpenAlex, at least 4 words) and has a reprint marker — the title
+                         #   in quotes, or the word "cochrane", "summary of" or "commentar…".
+                         #   A trial that merely contains the title is kept. A failed lookup
+                         #   warns and leaves exclusion by DOI. Not applied to --dois lists
 --max-papers 40          # papers sent to the critic after discovery's screening
                          #   and selection / DOI-list cap (defaults to MAX_PAPERS, 40)
 --text-mode lean         # what the critic reads: lean | hybrid | full
@@ -485,7 +491,13 @@ through the normal semantic discovery (mode B), as a user's run would:
   passed as the run's exclude DOIs (the same mechanism as
   `verdict run --exclude-dois`; a Cochrane DOI excludes every version of its CD
   number). Without it, mining the review's own reference list would hand the
-  answer back. Every question of the set needs a `review_doi`.
+  answer back. Reprints, summaries and commentaries of the review under other
+  DOIs (such as the Evidence-Based Child Health copies of a Cochrane review) are
+  excluded too: a candidate whose title contains the review's title (looked up
+  by its DOI in OpenAlex) and carries a reprint marker (the title in quotes, or
+  the word "cochrane", "summary of" or "commentar…") is dropped; a trial that
+  only contains the title is kept. Every question of the set needs a
+  `review_doi`.
 - Everything else is as in a default `verdict run`: Consensus, the mining of
   review reference lists, PubMed on `auto`, the screening, the `MAX_PAPERS`
   selection, the text mode of the eval flag. The scoring of outcome and

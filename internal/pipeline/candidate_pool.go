@@ -174,7 +174,7 @@ func (c *Candidate) key() string {
 // the corpus paper (channels run richest first).
 func (cp *candidatePool) add(c Candidate) {
 	key := c.key()
-	if key == "" || cp.excl.drop(c.DOI) {
+	if key == "" || cp.excl.drop(c.DOI, c.Title) {
 		return
 	}
 

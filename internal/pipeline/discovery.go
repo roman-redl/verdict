@@ -92,8 +92,8 @@ func (p *Pipeline) discoverOpenAlex(ctx context.Context, opts Options, st *State
 		return fmt.Errorf("searching OpenAlex: %w", err)
 	}
 
-	excl := newDOIExclusion(opts.ExcludeDOIs)
-	papers = slices.DeleteFunc(papers, func(pp model.Paper) bool { return excl.drop(pp.DOI) })
+	excl := p.newExclusion(ctx, opts.ExcludeDOIs)
+	papers = slices.DeleteFunc(papers, func(pp model.Paper) bool { return excl.drop(pp.DOI, pp.Title) })
 
 	st.Discovery = &DiscoveryInfo{Engine: EngineOpenAlex, Queries: queries}
 	p.recordExclusion(st.Discovery, excl)
@@ -118,6 +118,8 @@ func (p *Pipeline) discoverByDOIs(ctx context.Context, opts Options, st *State) 
 		return &UserError{Msg: "no DOIs found in the input list"}
 	}
 
+	// the list is the user's own corpus: its DOIs have no titles to match, so
+	// the exclusion is by DOI alone and needs no lookup
 	excl := newDOIExclusion(opts.ExcludeDOIs)
 
 	if dois = p.dropExcludedDOIs(dois, excl); len(dois) == 0 {

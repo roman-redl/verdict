@@ -52,7 +52,7 @@ func (p *Pipeline) discoverPooled(ctx context.Context, opts Options, st *State, 
 
 	lim := orDefault(opts.MaxPapers, p.set.MaxPapers)
 	noScreen := opts.NoScreen || p.set.NoScreen
-	excl := newDOIExclusion(opts.ExcludeDOIs)
+	excl := p.newExclusion(ctx, opts.ExcludeDOIs)
 	w := newConsensusWalk(queries, excl)
 	info := w.info
 	info.NoScreen = noScreen

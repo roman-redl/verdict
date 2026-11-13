@@ -347,6 +347,33 @@ Discovery keeps a *pool* and chooses the corpus in four steps:
    read into it). `--discovery-sources` (or `DISCOVERY_SOURCES`) runs any
    subset of `consensus,pubmed,review_refs`, taken literally.
 
+   **Excluded papers.** `run --exclude-dois` (and `verdict eval --search`,
+   which passes the source review's DOI) keeps papers out of every channel
+   and out of the review-reference mining, so that a recall measurement
+   against a review does not find the review's own studies through it. A paper
+   is excluded by DOI (a Cochrane DOI covers every `.pubN` version) and by
+   title: journals reprint, summarize and comment on a review under other DOIs
+   (the Evidence-Based Child Health reprints of a Cochrane review), and such a
+   copy carries the review's own results. Before the discovery the title of
+   each excluded DOI is read once through the metadata source (OpenAlex); a
+   candidate is excluded too when its title contains that title as whole words
+   (HTML tags stripped, entities unescaped, lower-cased, punctuation and quotes
+   turned into spaces) **and** carries a reprint marker: the excluded title
+   stands in quotes in the candidate's title (straight or typographic single or
+   double quotes; an apostrophe inside a word is not a quote), or the candidate
+   title has the word "cochrane", or "summary of", or a word that starts with
+   "commentar". The marker is needed because a Cochrane title is "intervention
+   for condition" and a real trial can contain it whole ("Adjunctive
+   corticosteroids for acute bacterial meningitis in adults: a randomized
+   controlled trial" is not a copy of "Corticosteroids for acute bacterial
+   meningitis"). A candidate whose title equals the excluded one is a copy as
+   well. A title of fewer than four words is never used this way, so a short
+   generic title cannot match unrelated papers, and a candidate without a DOI
+   is not dropped by title. When the lookup fails or finds no title, the run goes on
+   with a warning and excludes that DOI by DOI alone. Papers dropped by title
+   are listed in `excluded_dois` of `1-discovery.json` with the ones dropped by
+   DOI. The `--dois` list is the user's own corpus and is excluded by DOI only.
+
    **Which channels run by default.** Consensus and the review references
    always; PubMed only when needed. Measured on the same 81 studies: Consensus
    page 1 found 63, the review references 62, PubMed's trial filter 43, all
