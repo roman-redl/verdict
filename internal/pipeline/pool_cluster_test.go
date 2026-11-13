@@ -230,3 +230,58 @@ func TestPoolClusterEffectiveSampleReachesTheImprecisionRule(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 20, in.Participants)
 }
+
+// The events of a cluster trial are divided by the design effect like its
+// participants (Handbook 23.1.4: both by the same one): 350 events in 2000
+// people with a design effect of 3.45 are about 101 effective events.
+func TestPoolClusterEventsAreDividedByTheDesignEffect(t *testing.T) {
+	p, _ := poolPipeline(t)
+
+	// m = 50 and the default ICC give a design effect of 1 + 49 x 0.05 = 3.45
+	pe := p.poolEffects(poolCorpus(clusterTrial(counts(100, 1000, 250, 1000), &model.Cluster{MeanSize: new(50.0)})))
+
+	require.NotNil(t, pe)
+	assert.Equal(t, 580, pe.Participants)
+	assert.Equal(t, 101, pe.Events, "350 events over 3.45")
+
+	// the same trial analysed as individuals keeps its 350 events
+	plain := p.poolEffects(poolCorpus(asParallel(clusterTrial(counts(100, 1000, 250, 1000),
+		&model.Cluster{MeanSize: new(50.0)}))))
+	require.NotNil(t, plain)
+	assert.Equal(t, 350, plain.Events)
+
+	// an analysis that accounts for clustering is taken as reported, events too
+	adj := p.poolEffects(poolCorpus(clusterTrial(counts(100, 1000, 250, 1000),
+		&model.Cluster{MeanSize: new(50.0), AdjustedForClustering: true})))
+	require.NotNil(t, adj)
+	assert.Equal(t, 350, adj.Events)
+}
+
+// A cluster trial that gives only a reported ratio has its participants taken
+// as reported (clusterAdjusted leaves a reported estimate alone), so the events
+// total the critic copied is taken as reported too, whatever the cluster data:
+// both stay on the same scale.
+func TestPoolClusterEventsTotalOfAReportedRatio(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		cluster *model.Cluster
+	}{
+		{"design effect computable", &model.Cluster{MeanSize: new(50.0)}},
+		{"the reported ICC", &model.Cluster{MeanSize: new(50.0), ICC: new(0.02)}},
+		{"the analysis accounts for clustering", &model.Cluster{AdjustedForClustering: true}},
+		{"no design effect", &model.Cluster{Unit: "school"}},
+		{"no cluster object", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _ := poolPipeline(t)
+
+			trial := clusterTrial(withEvents(reported("HR", 0.8, 0.6, 1.1), 600), tc.cluster)
+
+			pe := p.poolEffects(poolCorpus(ofSize(trial, 2000)))
+
+			require.NotNil(t, pe)
+			assert.Equal(t, 600, pe.Events, "as reported")
+			assert.Equal(t, 2000, pe.Participants, "the participants are as reported too")
+		})
+	}
+}

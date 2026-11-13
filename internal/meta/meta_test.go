@@ -106,6 +106,33 @@ func TestPoolHomogeneousStudiesHaveNoBetweenVariance(t *testing.T) {
 	assert.InDelta(t, 0.2/math.Sqrt(3), res.SE, 1e-12)
 }
 
+// The weights are the random-effects shares 1 / (se^2 + tau^2), summing to 1,
+// in the order of the studies; a single study carries all of it.
+func TestPoolWeights(t *testing.T) {
+	// equal effects: tau^2 is 0, the weights are the inverse variances
+	res, err := Pool([]Study{{Y: 0.5, SE: 0.1}, {Y: 0.5, SE: 0.2}})
+	require.NoError(t, err)
+	require.Len(t, res.Weights, 2)
+	assert.InDelta(t, 100.0/125.0, res.Weights[0], 1e-12)
+	assert.InDelta(t, 25.0/125.0, res.Weights[1], 1e-12)
+
+	// heterogeneity evens the weights out
+	res, err = Pool(bcgStudies(t))
+	require.NoError(t, err)
+	require.Len(t, res.Weights, 13)
+
+	var sum float64
+	for _, w := range res.Weights {
+		sum += w
+	}
+
+	assert.InDelta(t, 1, sum, 1e-12)
+
+	one, err := Single(Study{Y: 0.5, SE: 0.1})
+	require.NoError(t, err)
+	assert.Equal(t, []float64{1}, one.Weights)
+}
+
 func TestPoolRejectsBadInput(t *testing.T) {
 	_, err := Pool(nil)
 	require.ErrorIs(t, err, ErrNoStudies)

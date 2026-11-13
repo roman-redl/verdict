@@ -555,7 +555,15 @@ two jobs:
   `nonrandomized_trial`, `cohort`, `case_control`, `cross_sectional`,
   `case_series`, `systematic_review`, `meta_analysis`, `narrative_review`,
   `guideline`, `other`, `unclear`; a meta-analysis of RCTs is `meta_analysis`,
-  not `rct`). An unknown word becomes `unclear` with a warning.
+  not `rct`). An unknown word becomes `unclear` with a warning. For a
+  randomized trial it also gives `blinding` as the text states it
+  (`double_blind`, `single_blind` — for example assessor-blinded —, `open`,
+  `unclear` when the text does not say); it leaves the field out for any other
+  design. The usual variants are read as the value they mean (`open-label`,
+  `unblinded`, `non_blinded` are `open`; `triple_blind`, `quadruple_blind` are
+  `double_blind`; `assessor_blinded`, `assessor_blind` are `single_blind`);
+  any other unknown word becomes `unclear` with a warning; a missing value
+  reads as unknown, like `unclear`.
 - **Judge** — a single final call: all the data + the GRADE rubric → the
   evidence matrix, the verdict, the rationale with concrete paper
   references, the consensus with its status, the contradictions and gaps.
@@ -593,6 +601,15 @@ definition; `different`), `timepoint_weeks` (the follow-up in weeks, omitted
 when not stated) with `timepoint_match` (`yes` — the question's time frame, or
 the question has none; `no`; `unclear`), and for a cluster trial a `cluster`
 object (`unit`, `clusters`, `mean_size`, `icc`, `adjusted_for_clustering`).
+Two more optional labels feed the rules below, each omitted when the text
+leaves it open: `outcome_objective` (`true` for all-cause death, survival, a
+laboratory value, a hospital admission or a quantity a device reads; `false`
+for a symptom score, pain, quality of life, a questionnaire, a clinician-rated
+scale or an event the participant reports) and `events_total` (only for a
+binary or time-to-event outcome: the number of participants with the event in
+both compared arms together, also for a study that reports only a ratio; never
+derived from percentages without the arms' sizes; a value that cannot be a
+count is dropped with a warning).
 For the unified scale (below) it also labels the direction of the outcome, each
 label omitted when the text leaves it unclear: `higher_is_better` and `metric`
 (`final` values or `change` from baseline) for a continuous outcome,
@@ -765,7 +782,8 @@ number>)` and the log (a report at another time point or outcome is named for
 that instead). The same rule applies where trials are counted: the hybrid
 full-text walk skips a candidate whose trial already has a text, and the
 direction tally of the direct studies counts each trial once, with the
-direction of the report that ranks first. The synthesis input carries each
+direction of the report that ranks first (a retracted paper is not counted,
+as in the pool and the evidence base). The synthesis input carries each
 study's `trial_registrations`, and the judge is told that reports sharing a
 number are one trial, not replications.
 
@@ -853,9 +871,43 @@ an MD of ±0.2 SD (only when the SD is known).
 - *The interval excludes the null.* The `target` is the side of the null, and
   the null is the threshold. For a ratio, an interval whose upper limit is at
   least 3 times the lower (2.5 for an OR) is wide, few data behind a large
-  effect: one level. For a mean difference the optimal information size of
-  about 800 participants applies: under 240 two levels, under 800 one; with
-  unknown participants no level, and `size_checked` is false.
+  effect: one level. The pooled events do not rate imprecision: on a check of
+  32 questions the experts did not rate down clear effects with 100-140
+  events (a rule "under 300 events, one level" fired 4 times, 1 agreed with the
+  experts), so the events are only extracted and shown. They are the sum over
+  the pooled studies of the arms' counts of both arms (counts derived from
+  percentages of the arms included), or, for a study that reports only a
+  ratio, the `events_total` the critic copied; the arms win when a study has
+  both. The events of a cluster trial follow its participants (Handbook
+  23.1.4: both are divided by the same design effect): the arms' counts are
+  divided by the adjustment of the cluster rule above, while an
+  `events_total` belongs to a study with a reported estimate, whose
+  participants are not divided either (the estimate is used as reported), so
+  the `events_total` is taken as reported too. The events are `pooled_estimate.events`, and only a ratio pool has them (a
+  pool of mean differences or of the unified standardized scale shows none,
+  whatever the critic copied); they are absent as soon as any pooled study
+  gives neither. For a mean difference the optimal information size of about
+  800 participants applies: under 240 two levels, under 800 one; with unknown
+  participants no level, and `size_checked` is false.
+
+**Risk of bias from lack of blinding.** Cochrane experts rate risk of bias down
+for lack of blinding when the outcome is subjective or self-reported, and never
+for an objective one such as death. Go applies this to the pooled studies
+(`pool_blinding.go`) from the critic's labels and the pool's own weights (the
+random-effects shares that `meta.Pool` computes). The rule fires when studies
+that are both `blinding` = `open` and `outcome_objective` explicitly `false`
+carry more than half of the weight; an open trial of death or a blinded trial
+of pain does not count. An `unclear` or missing
+blinding counts as not open and an unknown objectivity as not subjective, so a
+critique without the new fields never fires it. Blinding of a study whose design
+is known not to be randomized is not counted. Nothing fires without a pooled
+estimate. The result is `blinding_bias` (`levels` 1, a `reason` with that
+share), next to `imprecision` in the judge's input and in the report ("Risk of
+bias from lack of blinding (computed)"). The judge's prompt tells it that the
+risk-of-bias domain then includes it: it lowers at least that one level for
+risk of bias, does not lower again for blinding, and other flaws shown by the
+text can still make risk of bias very serious (two levels). Without
+`blinding_bias` the prompt reads as before.
 
 **Inconsistency needs more than one study.** GRADE judges inconsistency across
 studies: one study cannot be inconsistent, and neither can studies that report
@@ -978,10 +1030,72 @@ question ──> [Consensus API] | [OpenAlex search] | [you + the free Consensus
 
 **In the report:** the Verdict + the effect direction + the pooled estimate
 and its computed imprecision when direct studies reported numbers (rendered
-by Go) + Consensus (the
+by Go) + the evidence base (below) + Consensus (the
 field's position and its status); the Rationale (which DOIs drive the conclusion); the matrix
 (the Sup/Contra column = supported/refuted); Contradictions (empty ≠
 "everyone agrees"); Gaps; Data warnings (what could not be collected).
+
+**The evidence base.** Right after the verdict block the report carries one
+paragraph, computed in Go from the stage data (the model writes none of it), so
+that a strong or a weak verdict is understood at a glance: "40 papers reviewed;
+12 answer the question directly: 5 randomized trials (3 double-blind, 1
+open-label, 1 blinding not stated; 2310 participants, median 380, largest
+1105 — a short title), 4 observational studies (…), 3 systematic reviews or
+meta-analyses (1 Cochrane). Pooled: 4 trials, 2010 participants, 310 events.
+Indirect or off-topic: 28." Numbers are plain digits, as in the pooled line
+above it. The same numbers are the structured field
+`evidence_base` of the report artifact (`4-synthesis.json`), with the paragraph
+in `evidence_base.summary`; a report without the field renders as before.
+The rules (`evidence_base.go`, `evidence_text.go`):
+
+- *Which papers.* Only papers the critic marked `direct` are broken down; the
+  indirect, tangential and unknown ones, and papers that are not study reports
+  (an erratum, a comment), are one number, "indirect or off-topic". A retracted
+  direct paper is left out of the breakdown and named ("Retracted, left out").
+  A paper whose critique failed (the critique carries an `error`) or that has
+  no critique is not assessed: nothing is known about it, so it is neither
+  direct nor indirect. It is counted apart (`not_assessed`, "Not assessed
+  (critique failed): N", shown only when above zero) and is not in the
+  reviewed number. The invariant: `reviewed` = `direct` + `repeat_reports` +
+  `retracted` + `indirect`.
+- *Design groups* come from the design the pipeline uses everywhere
+  (`resolveDesign`: the critic, then the discovery tag, then the title):
+  randomized trials (parallel, cluster, crossover), observational studies
+  (cohort, case-control, cross-sectional, case series, and non-randomized
+  trials, which GRADE starts at the same low level), systematic reviews and
+  meta-analyses (with the Cochrane ones counted by the DOI prefix
+  `10.1002/14651858.`), and "other" (narrative reviews, guidelines, laboratory
+  studies, an unclear design), shown only when it is not empty.
+- *One trial counts once.* The grouping is the registration-number grouping of
+  the direction tally (`trialGroups`): reports that share a registration number
+  are one trial, and the report that best matches the question (`reportRank`)
+  gives the trial's size, with its design, blinding and size taken from the
+  other reports when it states none. The pool's finer dedup (the same results
+  under two registrations) needs the effect numbers and is not applied, so a
+  repeat report without a shared registration number counts as a study of its
+  own; the number of folded reports is shown ("N repeat reports of the same
+  trials counted once"). A review is never merged into a trial.
+- *Blinding* is counted for randomized trials only, from the critic's
+  `blinding`: double-blind, single-blind, open-label, "blinding not stated"
+  for `unclear`, and "blinding not assessed" for a missing value (shown only
+  when above zero). A critique written before the field existed, for instance
+  one served from the critique cache, has no blinding, so it counts as not
+  assessed and the lack-of-blinding rule cannot fire for it (an unknown value
+  never makes a rule fire); re-critiquing the paper (a changed abstract or
+  text misses the cache) fills the field in. For a trial reported several
+  times a stated value wins, then `unclear`, then missing.
+- *Participants* are the participant number of the matrix and the pool: the
+  critic's `sample_size_reported`, else the metadata's. Each group of primary
+  studies shows the sum, the median and the largest study (its short title, at
+  most 60 characters, else the first author and the year); studies without a
+  size are named ("size not stated for 2"), and the sum, median and largest are
+  over the known ones. Reviews show no participants: they recount those of the
+  trials they cover.
+- *The pool* is the report's pooled estimate: its studies, participants and
+  events where known; one study reads "Not pooled: one study with numbers",
+  worded as the report's pooled line ("Effect of the one direct study with
+  numbers (not pooled)"); without an estimate the line reads "Not pooled: no
+  direct study with usable numbers on the outcome".
 
 **What the tool honestly cannot do:**
 - full texts only where a legal copy exists: `--text-mode lean` runs on

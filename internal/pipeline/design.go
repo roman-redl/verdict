@@ -114,6 +114,24 @@ func designFromTitle(title string) model.StudyDesign {
 	return model.DesignUnclear
 }
 
+// normalizeBlinding makes the critic's blinding a valid enum value. A missing
+// one stays missing (the critic leaves it out for a non-randomized design, and
+// an artifact written before the field has none); an unknown one is "unclear"
+// with a warning, which the blinding rule reads as not open.
+func normalizeBlinding(raw model.Blinding, doi string, log *slog.Logger) model.Blinding {
+	if strings.TrimSpace(string(raw)) == "" {
+		return ""
+	}
+
+	b, err := model.ParseBlinding(string(raw))
+	if err != nil {
+		log.Warn("critic returned an unknown blinding: using unclear", "doi", doi, "err", err)
+		return model.BlindingUnclear
+	}
+
+	return b
+}
+
 // normalizeDesign makes the critic's design a valid enum value. A missing one
 // is "unclear" (the model left the field out); an unknown one is "unclear"
 // with a warning, because the pipeline then falls back to the other sources

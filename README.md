@@ -208,7 +208,7 @@ paying twice.
 | `1-discovery.json` | Consensus API / paste resolved to DOIs (or OpenAlex) | papers: DOIs, abstracts, design tags; the `discovery` block: engine, queries, pages spent, truncation |
 | `2-enrichment.json` | Scite tallies + OpenAlex + Crossref (in parallel), then Europe PMC for the abstracts still missing | supporting/contradicting/mentioning, retraction flags (two sources), OA links, abstracts (`abstract_source` marks the Europe PMC ones), contradicting DOIs (Scite key) |
 | `3-critique.json` | LLM, fan-out per paper | design quality, sample adequacy, N from the abstract, direction of findings, the extracted effect numbers (`effect`), concerns |
-| `4-synthesis.json` + `report.md` + `matrix.csv` | pooling in Go, then LLM + deterministic assembly | the pooled estimate (`pooled_estimate`), evidence matrix, verdict + effect direction + consensus + direction tally, contradictions, gaps |
+| `4-synthesis.json` + `report.md` + `matrix.csv` | pooling in Go, then LLM + deterministic assembly | the pooled estimate (`pooled_estimate`), the evidence base (`evidence_base`) and the blinding rating (`blinding_bias`), evidence matrix, verdict + effect direction + consensus + direction tally, contradictions, gaps |
 | `context.md` | always | compact digest for `ask` and interactive agents |
 
 Failure isolation: one source failing for one paper does not kill the run —

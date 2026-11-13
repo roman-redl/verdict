@@ -62,7 +62,10 @@ Verdict definitions — the certainty that the stated direction (supports the cl
   - risk of bias: a flaw that could plausibly change this outcome's result (allocation, missing data, ` +
 	`selective or post hoc analysis). The flaw must be shown by the text; a detail the abstract does not ` +
 	`report (dropouts, concealment) is a gap, not a flaw. Lack of blinding does not lower an objective outcome ` +
-	`(death, survival, hospital admission, laboratory values);
+	`(death, survival, hospital admission, laboratory values). When the input has blinding_bias, the pipeline ` +
+	`computed it (most of the pooled weight is open-label studies with a subjective or self-reported outcome): ` +
+	`the risk-of-bias domain includes it, so lower at least that one level for risk of bias and do not lower ` +
+	`again for blinding; other flaws shown by the text can still make risk of bias very serious (2 levels);
   - inconsistency: the direct studies disagree in direction or in size beyond chance; variation between ` +
 	`time points or subgroups of one study is not inconsistency;
   - indirectness: the population, intervention, comparator or outcome differ from the question enough to ` +
@@ -305,6 +308,10 @@ func synthesisUserPrompt(st *State) (string, error) {
 
 	if st.Imprecision != nil {
 		data["imprecision"] = st.Imprecision
+	}
+
+	if st.BlindingBias != nil {
+		data["blinding_bias"] = st.BlindingBias
 	}
 
 	b, err := json.Marshal(data)

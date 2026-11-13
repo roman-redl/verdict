@@ -48,6 +48,11 @@ func normalizeEffect(ef *model.Effect, doi string, log *slog.Logger) {
 		ef.TimepointWeeks = nil
 	}
 
+	if ef.EventsTotal != nil && !positiveNumber(ef.EventsTotal) {
+		log.Warn("critic returned an unusable events total: ignored", "doi", doi, "events_total", *ef.EventsTotal)
+		ef.EventsTotal = nil
+	}
+
 	normalizeCluster(ef.Cluster, doi, log)
 }
 

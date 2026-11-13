@@ -87,6 +87,17 @@ type pooledStudy struct {
 	// abstract is set when the publication types say the study is a conference
 	// abstract: among reports of the same results a full article is kept over it.
 	abstract bool
+
+	// events is the number of participants with the event in both arms, valid
+	// when eventsKnown (a study may not give it); like the participants, the
+	// count of a cluster trial is divided by the design effect.
+	events      float64
+	eventsKnown bool
+
+	// blinding and objective are the critic's labels for the blinding rule:
+	// empty and nil are unknown.
+	blinding  model.Blinding
+	objective *bool
 }
 
 var errNoNumbers = errors.New("no usable numbers")
@@ -96,8 +107,11 @@ var errNoNumbers = errors.New("no usable numbers")
 // the reason (the estimate's left_out lists them; without an estimate they are
 // only logged and warned about).
 type poolResult struct {
-	est     *model.PooledEstimate
-	leftOut []leftOut
+	est *model.PooledEstimate
+	// blinding is the lack-of-blinding rating of the pooled studies; nil when
+	// the rule did not fire and without an estimate.
+	blinding *model.BlindingBias
+	leftOut  []leftOut
 }
 
 // poolEffects is the pooled estimate of the corpus; see pool.
@@ -145,12 +159,15 @@ func (p *Pipeline) pool(st *State) poolResult {
 	items, dropped = dropDuplicates(items)
 	out = append(out, dropped...)
 
-	var est *model.PooledEstimate
+	var (
+		est      *model.PooledEstimate
+		blinding *model.BlindingBias
+	)
 
 	if len(items) > 0 {
 		var measureLeft []leftOut
 
-		est, measureLeft = p.poolBest(settleContinuous(items))
+		est, blinding, measureLeft = p.poolBest(settleContinuous(items))
 		out = append(out, measureLeft...)
 	}
 
@@ -160,7 +177,7 @@ func (p *Pipeline) pool(st *State) poolResult {
 		est.Stratum, est.LeftOut = stratum, leftOutTexts(out)
 	}
 
-	return poolResult{est: est, leftOut: out}
+	return poolResult{est: est, blinding: blinding, leftOut: out}
 }
 
 // studyEffect puts one study's effect on its analysis scale. ok is false when
@@ -228,6 +245,8 @@ func (p *Pipeline) studyEffect(
 	if ps.n == 0 {
 		ps.n = cmp.Or(c.SampleSizeReported, e.SampleSize)
 	}
+
+	ps.withSource(c, ef, design)
 
 	return ps, nil, true
 }
@@ -308,7 +327,7 @@ func settleContinuous(items []pooledStudy) []pooledStudy {
 // counts), then the unit. The studies outside the winner come back as left out
 // for their measure. When some studies stay outside the winner, the unified SMD
 // pool (pool_unify.go) replaces it if it holds more participants.
-func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, []leftOut) {
+func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, *model.BlindingBias, []leftOut) {
 	groups := candidateGroups(items)
 	best := groups[0]
 
@@ -320,11 +339,13 @@ func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, []leftO
 
 	best, reasons := p.preferUnified(items, best)
 
-	pe, err := pooledFrom(best)
+	pe, weights, err := pooledFrom(best)
 	if err != nil {
 		p.log.Warn("effects not pooled", "measure", best.measure, "err", err)
-		return nil, nil
+		return nil, nil, nil
 	}
+
+	blinding := p.ratedBlinding(best.items, weights)
 
 	var left []leftOut
 
@@ -349,12 +370,13 @@ func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, []leftO
 			"measure", best.measure, "studies", len(best.items), "left_out", len(left))
 	}
 
-	return pe, left
+	return pe, blinding, left
 }
 
 // pooledFrom runs the arithmetic and brings the result back to the natural
-// scale (ratios are pooled as logs).
-func pooledFrom(g *poolGroup) (*model.PooledEstimate, error) {
+// scale (ratios are pooled as logs). The second result is the studies' weights
+// in the pool, in the order of the group's items.
+func pooledFrom(g *poolGroup) (*model.PooledEstimate, []float64, error) {
 	studies := make([]meta.Study, len(g.items))
 	dois := make([]string, len(g.items))
 
@@ -376,7 +398,7 @@ func pooledFrom(g *poolGroup) (*model.PooledEstimate, error) {
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("pooling: %w", err)
+		return nil, nil, fmt.Errorf("pooling: %w", err)
 	}
 
 	back := func(v float64) float64 { return v }
@@ -403,6 +425,13 @@ func pooledFrom(g *poolGroup) (*model.PooledEstimate, error) {
 		}
 	}
 
+	// only a ratio pool has events: a mean difference or an SMD (also the
+	// unified pool of counts and means) is not a count of anything; the events
+	// are shown in the report and do not rate imprecision
+	if g.measure.IsRatio() {
+		pe.Events = g.events()
+	}
+
 	if g.measure == model.MeasureMD {
 		pe.SD = g.meanSD()
 	}
@@ -411,7 +440,7 @@ func pooledFrom(g *poolGroup) (*model.PooledEstimate, error) {
 		pe.Converted, pe.Outcome = true, standardizedOutcome(pe.Outcome)
 	}
 
-	return pe, nil
+	return pe, res.Weights, nil
 }
 
 // meanSD is the participant-weighted mean of the studies' SDs, the scale the

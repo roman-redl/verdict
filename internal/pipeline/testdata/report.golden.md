@@ -10,6 +10,10 @@
 
 **Imprecision (computed):** not rated down — CI -0.4 to -0.03 excludes no effect; 1234 participants, reaching the optimal information size of about 800
 
+**Risk of bias from lack of blinding (computed):** serious, rated down 1 level — open-label studies with a subjective or self-reported outcome carry 62% of the pool weight
+
+**Evidence base:** 3 papers reviewed; 2 answer the question directly: 2 randomized trials (2 blinding not assessed; 118 participants — Creatine and memory: a randomized trial; size not stated for 1). Pooled: 3 trials, 1234 participants. Indirect or off-topic: 1.
+
 ### Scientific consensus: contested
 
 Most direct studies lean positive (10.1000/a), one is mixed (10.1000/c).

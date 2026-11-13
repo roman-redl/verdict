@@ -96,12 +96,19 @@ modes A/B/C are a different thing — see docs/usage.md.)
      --dois dois.txt -q "<full question>"` over the merged corpus (one
      topic for the whole problem).
 7. **Explain**: read `report.md` and `context.md`, then tell the user the
-   verdict and consensus in plain words — which DOIs and designs carry
-   them, where the direct studies' findings point (the direction tally:
-   how many positive / null / negative), every term explained on first
-   use, every claim labeled by evidence kind (a clinician survey shows
-   what doctors prescribe, not what works), contradictions and gaps
-   stated honestly.
+   verdict and consensus in plain words. Put the **Evidence base** line of
+   `report.md` (written by Go, right under the verdict block) next to the
+   verdict in every answer, translated into the user's language with its
+   numbers unchanged: it shows at a glance what a strong or a weak verdict
+   stands on (how many papers answer the question directly, what kind of
+   studies, how many participants, what was pooled). Do not recompute it
+   or drop parts of it; when a report has no such line, answer without
+   it. Then say which DOIs and designs carry the verdict and consensus,
+   where the direct studies' findings point (the direction tally: how
+   many positive / null / negative), every term explained on first use,
+   every claim labeled by evidence kind (a clinician survey shows what
+   doctors prescribe, not what works), contradictions and gaps stated
+   honestly.
 8. **Deep mode — extra depth beyond the default run.** The default
    `--text-mode hybrid` already reads full texts for the pivotal studies
    (direct studies first by design quality then sample size, indirect ones in

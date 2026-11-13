@@ -56,6 +56,9 @@ type Result struct {
 	// Tau2, Q and I2 describe the heterogeneity (I2 in percent); they are zero
 	// for a single study.
 	Tau2, Q, I2 float64
+	// Weights are the studies' shares of the pooled estimate (random-effects
+	// weights, summing to 1), in the order the studies were given.
+	Weights []float64
 }
 
 func invalid(format string, args ...any) error {
@@ -229,7 +232,10 @@ func Single(s Study) (Result, error) {
 		return Result{}, err
 	}
 
-	return Result{Estimate: s.Y, SE: s.SE, CILow: s.Y - zInterval*s.SE, CIHigh: s.Y + zInterval*s.SE, K: 1}, nil
+	return Result{
+		Estimate: s.Y, SE: s.SE, CILow: s.Y - zInterval*s.SE, CIHigh: s.Y + zInterval*s.SE, K: 1,
+		Weights: []float64{1},
+	}, nil
 }
 
 // Pool combines two or more studies with the DerSimonian-Laird random-effects
@@ -267,10 +273,17 @@ func Pool(studies []Study) (Result, error) {
 
 	var sumWr, sumWrY float64
 
-	for _, s := range studies {
+	weights := make([]float64, len(studies))
+
+	for i, s := range studies {
 		w := 1 / (s.SE*s.SE + tau2)
+		weights[i] = w
 		sumWr += w
 		sumWrY += w * s.Y
+	}
+
+	for i := range weights {
+		weights[i] /= sumWr
 	}
 
 	est, se := sumWrY/sumWr, math.Sqrt(1/sumWr)
@@ -282,6 +295,6 @@ func Pool(studies []Study) (Result, error) {
 
 	return Result{
 		Estimate: est, SE: se, CILow: est - zInterval*se, CIHigh: est + zInterval*se,
-		K: len(studies), Tau2: tau2, Q: q, I2: i2,
+		K: len(studies), Tau2: tau2, Q: q, I2: i2, Weights: weights,
 	}, nil
 }

@@ -208,6 +208,10 @@ type Critique struct {
 	// critiques written before the field existed; the pipeline then falls back
 	// to the discovery tag and the title (pipeline.resolveDesign).
 	StudyDesign StudyDesign `json:"study_design,omitempty"`
+	// Blinding is the masking of a randomized trial as its text states it;
+	// empty for another design and in critiques written before the field
+	// existed (both read as unknown).
+	Blinding Blinding `json:"blinding,omitempty"`
 	// ResultDirection is where the study's OWN findings point relative to the
 	// question: positive | null | negative | mixed | unclear.
 	ResultDirection string   `json:"result_direction,omitempty"`
@@ -268,14 +272,20 @@ type Report struct {
 	// Imprecision is the GRADE imprecision rating computed from the pooled
 	// estimate; nil when there is none or in reports written before the field.
 	Imprecision *Imprecision `json:"imprecision,omitempty"`
+	// BlindingBias is the risk-of-bias rating for lack of blinding; nil when
+	// the rule did not fire (and in reports written before the field).
+	BlindingBias *BlindingBias `json:"blinding_bias,omitempty"`
 	// ComparableStudies is the number of distinct direct studies with usable
 	// numbers on the question's outcome, the basis of the inconsistency
 	// judgment; nil in reports written before the field.
-	ComparableStudies *int        `json:"comparable_studies,omitempty"`
-	Matrix            []MatrixRow `json:"evidence_matrix"`
-	Contradictions    []string    `json:"contradictions,omitempty"`
-	Gaps              []string    `json:"gaps,omitempty"`
-	Warnings          []string    `json:"warnings,omitempty"`
+	ComparableStudies *int `json:"comparable_studies,omitempty"`
+	// EvidenceBase is the pipeline's summary of the studies behind the
+	// verdict; nil in reports written before the field.
+	EvidenceBase   *EvidenceBase `json:"evidence_base,omitempty"`
+	Matrix         []MatrixRow   `json:"evidence_matrix"`
+	Contradictions []string      `json:"contradictions,omitempty"`
+	Gaps           []string      `json:"gaps,omitempty"`
+	Warnings       []string      `json:"warnings,omitempty"`
 }
 
 var doiPrefixes = [...]string{"https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "doi.org/", "doi:"}

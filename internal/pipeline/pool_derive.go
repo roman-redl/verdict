@@ -101,9 +101,16 @@ func deriveCounts(a, b countedArm) (pooledStudy, error) {
 		return pooledStudy{}, fmt.Errorf("counts: %w", err)
 	}
 
+	// events: the sum of both arms; after the cluster adjustment (adjustCluster
+	// derives the effect again from the divided arms) it is the effective count.
+	// Zero events in both arms is not a count the rules can use: unknown, like
+	// a study without arm counts.
+	events := a.events + b.events
+
 	return pooledStudy{
 		// rounded: the totals of a cluster trial are divided by its design effect
 		measure: model.MeasureRR, study: rr, fromCounts: true, or: or, n: int(math.Round(a.total + b.total)),
+		events: events, eventsKnown: events > 0,
 		converted: strings.Join(slices.DeleteFunc([]string{a.derived, b.derived},
 			func(s string) bool { return s == "" }), "; "),
 	}, nil

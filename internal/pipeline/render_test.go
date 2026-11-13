@@ -51,7 +51,7 @@ const (
 // retracted paper, a full text, a contradicted study with Scite details,
 // critique concerns with markdown-hostile characters, a data warning, usage.
 func reportState() *State {
-	return &State{
+	st := &State{
 		Question: reportQuestion,
 		Warnings: []string{"Scite unavailable, citation analytics incomplete: HTTP 503"},
 		Papers:   []model.Paper{{DOI: doiTrial}, {DOI: doiCohort}, {DOI: doiElderly}},
@@ -107,6 +107,10 @@ func reportState() *State {
 				Reason: "CI -0.4 to -0.03 excludes no effect; 1234 participants, " +
 					"reaching the optimal information size of about 800",
 			},
+			BlindingBias: &model.BlindingBias{
+				Levels: 1,
+				Reason: "open-label studies with a subjective or self-reported outcome carry 62% of the pool weight",
+			},
 			Matrix: []model.MatrixRow{
 				{
 					DOI: doiTrial, Title: titleTrial, Year: 2021, Design: designRCT,
@@ -131,6 +135,9 @@ func reportState() *State {
 			Synthesis: &StageCost{Calls: 1, InputTokens: 4000, OutputTokens: 500},
 		},
 	}
+	st.Report.EvidenceBase = buildEvidenceBase(st, st.Report.PooledEstimate)
+
+	return st
 }
 
 func TestRenderMarkdownGolden(t *testing.T) {
@@ -269,13 +276,31 @@ func TestPooledText(t *testing.T) {
 func TestRenderWithoutEffectFields(t *testing.T) {
 	st := reportState()
 	st.Report.EffectDirection, st.Report.PooledEstimate, st.Report.Imprecision = "", nil, nil
+	st.Report.BlindingBias, st.Report.EvidenceBase = nil, nil
 
 	md := RenderMarkdown(st)
 	assert.NotContains(t, md, "Effect direction")
 	assert.NotContains(t, md, "Pooled effect")
 	assert.NotContains(t, md, "Imprecision")
+	assert.NotContains(t, md, "blinding")
 	assert.NotContains(t, RenderContext(st), "Effect direction")
 	assert.NotContains(t, RenderContext(st), "Pooled")
+}
+
+func TestBlindingBiasText(t *testing.T) {
+	assert.Equal(t, "serious, rated down 1 level — r", blindingBiasText(&model.BlindingBias{Levels: 1, Reason: "r"}))
+}
+
+// The pooled line shows the events when the pool knows them, and only then.
+func TestPooledTextShowsTheEvents(t *testing.T) {
+	pe := &model.PooledEstimate{
+		Method: model.PoolRandomEffects, Measure: model.MeasureRR, Estimate: 0.7, CILow: 0.6, CIHigh: 0.8,
+		K: 2, Participants: 900,
+	}
+	assert.NotContains(t, pooledText(pe), "events")
+
+	pe.Events = 212
+	assert.Contains(t, pooledText(pe), "900 participants, 212 events")
 }
 
 func TestImprecisionText(t *testing.T) {

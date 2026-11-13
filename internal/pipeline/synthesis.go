@@ -31,6 +31,7 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 	res := p.pool(st)
 	st.Pooled = res.est
 	st.Imprecision = p.assessImprecision(st.Pooled)
+	st.BlindingBias = res.blinding
 
 	if w := noPoolWarning(res); w != "" {
 		st.Warnings = append(st.Warnings, w)
@@ -72,7 +73,9 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 		EffectDirection:   direction,
 		PooledEstimate:    st.Pooled,
 		Imprecision:       st.Imprecision,
+		BlindingBias:      st.BlindingBias,
 		ComparableStudies: &withNumbers,
+		EvidenceBase:      buildEvidenceBase(st, st.Pooled),
 		Contradictions:    jr.Contradictions,
 		Gaps:              jr.Gaps,
 		Matrix:            buildMatrix(st, jr.Notes),

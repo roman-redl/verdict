@@ -30,7 +30,11 @@ type State struct {
 	// Imprecision is the GRADE rating computed from Pooled in the same step;
 	// nil when there is no pooled estimate and in artifacts written before it.
 	Imprecision *model.Imprecision `json:"imprecision,omitempty"`
-	Report      *model.Report      `json:"report,omitempty"`
+	// BlindingBias is the risk-of-bias rating for lack of blinding computed
+	// from the pooled studies in the same step; nil when the rule did not
+	// fire and in artifacts written before it.
+	BlindingBias *model.BlindingBias `json:"blinding_bias,omitempty"`
+	Report       *model.Report       `json:"report,omitempty"`
 	// TextMode is the text mode of the run that produced the report; the
 	// report lists the full texts not obtained only where full texts were
 	// asked for. Empty in artifacts written before the field existed.

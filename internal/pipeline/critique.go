@@ -41,6 +41,15 @@ const critiqueDesignField = `study_design: "rct" | "cluster_rct" | "crossover_rc
 	`text (a meta-analysis of RCTs is "meta_analysis", not "rct"; a pooled analysis of several trials is ` +
 	`"meta_analysis"; an animal, in-vitro or modelling study is "other"; "unclear" when the text does not say),`
 
+// critiqueBlindingField documents the blinding field in the field list of both
+// critique prompts. The pipeline rates risk of bias for lack of blinding from
+// it (pool_blinding.go) together with the effect's outcome_objective.
+const critiqueBlindingField = `blinding (only for a randomized trial; omit for any other design): ` +
+	`"double_blind" | "single_blind" | "open" | "unclear" — the masking as the text states it: ` +
+	`"double-blind" or "double-masked" is double_blind; "assessor-blinded", "single-blind" or ` +
+	`"masked outcome assessment" is single_blind; "open-label" or "unblinded" is open; ` +
+	`"unclear" when the text does not say,`
+
 // critiqueEffectField documents the optional effect object in the field list
 // of both critique prompts. The numbers are only extracted here: the pipeline
 // pools them in Go (pool.go), the model never computes.
@@ -59,6 +68,14 @@ const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the 
 	`clusters (number of clusters randomized), mean_size (participants per cluster, only if stated), ` +
 	`icc (intracluster correlation, only if reported), adjusted_for_clustering (true when the reported ` +
 	`estimate and interval already account for clustering)},
+  outcome_objective (true when the outcome is objective: all-cause death, survival, a laboratory value, ` +
+	`a hospital admission, a physical quantity read by a device; false when it is subjective or self-reported: ` +
+	`a symptom score, pain, quality of life, a questionnaire, a clinician-rated scale, an event the participant ` +
+	`reports; omit when unsure),
+  events_total (number: participants with the event in both compared arms together, only for a binary or ` +
+	`time-to-event outcome, when the text states the total or each arm's count; also when the effect is only a ` +
+	`ratio (RR, OR, HR); omit for a continuous outcome (means, scores), when not stated, and never derive it ` +
+	`from percentages without the arms' sizes),
   and ONE of these:
   - binary outcome: intervention {events, total} and control {events, total}; when the text gives only a ` +
 	`percentage of each arm, {percent, total} instead of events (percent copied as printed, 0-100); also ` +
@@ -149,6 +166,7 @@ sample_adequacy: "adequate" | "small" | "very_small" | "unclear" | "na",
 sample_size_reported (integer, 0 if not stated),
 relevance: "direct" | "indirect" | "tangential" | "unknown",
 ` + critiqueDesignField + `
+` + critiqueBlindingField + `
 result_direction: "positive" | "null" | "negative" | "mixed" | "unclear" — ` +
 	`the direction of THIS study's own findings relative to the research question ` +
 	`(positive = supports the claim, null = no effect found, negative = opposite effect, mixed = inconsistent outcomes, ` +
@@ -198,6 +216,7 @@ sample_adequacy: "adequate" | "small" | "very_small" | "unclear" | "na",
 sample_size_reported (integer, 0 if not stated),
 relevance: "direct" | "indirect" | "tangential" | "unknown",
 ` + critiqueDesignField + `
+` + critiqueBlindingField + `
 result_direction: "positive" | "null" | "negative" | "mixed" | "unclear" — ` +
 	`the direction of THIS study's own findings relative to the research question ` +
 	`(positive = supports the claim, null = no effect found, negative = opposite effect, mixed = inconsistent outcomes, ` +
@@ -253,6 +272,7 @@ func critiqueInput(e model.EnrichedPaper) map[string]any {
 func normalizeCritique(c model.Critique, e model.EnrichedPaper, log *slog.Logger) model.Critique {
 	c.DOI = cmp.Or(c.DOI, e.DOI)
 	c.StudyDesign = normalizeDesign(c.StudyDesign, c.DOI, log)
+	c.Blinding = normalizeBlinding(c.Blinding, c.DOI, log)
 	c.Title = cmp.Or(c.Title, e.Title)
 	c.DesignQuality = cmp.Or(c.DesignQuality, valueUnknown)
 	c.SampleAdequacy = cmp.Or(c.SampleAdequacy, valueUnclear)

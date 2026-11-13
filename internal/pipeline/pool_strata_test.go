@@ -17,6 +17,7 @@ type poolStudy struct {
 	year      int
 	ids       []string
 	design    model.StudyDesign
+	blinding  model.Blinding // empty when the critic gave none
 	effect    *model.Effect
 	relevance string // direct when empty
 	pubTypes  []string
@@ -40,7 +41,7 @@ func poolCorpus(studies ...poolStudy) *State {
 
 		c := model.Critique{
 			DOI: s.doi, Relevance: cmp.Or(s.relevance, relevanceDirect), ResultDirection: directionPositive,
-			StudyDesign: s.design, Effect: s.effect, SampleSizeReported: s.sizeReported,
+			StudyDesign: s.design, Effect: s.effect, SampleSizeReported: s.sizeReported, Blinding: s.blinding,
 		}
 
 		st.Enriched = append(st.Enriched, e)

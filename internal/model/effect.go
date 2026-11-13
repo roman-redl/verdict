@@ -108,6 +108,18 @@ type Effect struct {
 	Adjusted bool `json:"adjusted,omitempty"`
 	// Cluster is set for a cluster-randomized trial.
 	Cluster *Cluster `json:"cluster,omitempty"`
+	// OutcomeObjective is true when the outcome is objective (all-cause death,
+	// survival, a laboratory value, a hospital admission, a quantity a device
+	// reads) and false when it is subjective or self-reported (symptom scores,
+	// pain, questionnaires, clinician-rated scales); nil when the critic could
+	// not tell, and in artifacts written before the field existed.
+	OutcomeObjective *bool `json:"outcome_objective,omitempty"`
+	// EventsTotal is the number of participants with the event in both
+	// compared arms together, as the text states it, also for a study that
+	// reports only a ratio; nil when not stated. Where there are no arm counts
+	// the events shown in the pooled line and the evidence base come from it;
+	// they rate nothing.
+	EventsTotal *float64 `json:"events_total,omitempty"`
 
 	Intervention *Arm `json:"intervention,omitempty"`
 	Control      *Arm `json:"control,omitempty"`
@@ -178,6 +190,10 @@ type PooledEstimate struct {
 	// Participants is the total across the pooled studies; zero when any
 	// study's size is unknown.
 	Participants int `json:"participants,omitempty"`
+	// Events is the total number of participants with the event across the
+	// pooled studies; zero when any study's count is unknown (or the outcome
+	// is not a count), and in artifacts written before the field existed.
+	Events int `json:"events,omitempty"`
 	// I2 is the heterogeneity in percent (0-100); nil for a single study.
 	I2 *float64 `json:"i2,omitempty"`
 	// Unit is the outcome's unit of a pooled MD.
