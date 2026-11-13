@@ -300,8 +300,9 @@ type tallyPaper struct {
 	design    model.StudyDesign
 	// effect carries the matches that rank the reports of one trial; pubTypes
 	// are the paper's publication types
-	effect   *model.Effect
-	pubTypes []string
+	effect    *model.Effect
+	pubTypes  []string
+	retracted bool
 }
 
 func tallyState(papers ...tallyPaper) *State {
@@ -311,7 +312,7 @@ func tallyState(papers ...tallyPaper) *State {
 		tp := &papers[i]
 		e := ep(tp.doi)
 		e.Year, e.SampleSize, e.TrialRegistrations = tp.year, tp.n, tp.ids
-		e.PublicationTypes = tp.pubTypes
+		e.PublicationTypes, e.Flags.Retracted = tp.pubTypes, tp.retracted
 		e.Abstract = "An abstract with no number."
 
 		c := crit(tp.doi, qualityHigh, tp.relevance, tp.direction)
@@ -400,6 +401,15 @@ func TestDirectionTallyCountsATrialOnce(t *testing.T) {
 				},
 			},
 			want: onePositive,
+		},
+		{
+			name: "a retracted trial is never counted, as in the pool and the evidence base",
+			papers: []tallyPaper{
+				{doi: doiA, relevance: relevanceDirect, direction: directionPositive},
+				{doi: doiB, relevance: relevanceDirect, direction: directionNegative, retracted: true},
+				{doi: doiC, relevance: relevanceDirect, direction: directionPositive},
+			},
+			want: "2 positive",
 		},
 		{
 			name: "papers without registration numbers count as they did",

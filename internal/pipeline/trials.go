@@ -181,8 +181,9 @@ func sharedRegistration(dropped, kept []string) string {
 
 // tallyIndexes lists the critiques the direction tally counts: every direct
 // primary study, with the reports of one trial reduced to the one report of the
-// trial that ranks first (reportRank). A review or meta-analysis and a paper
-// that is not a study report are never counted. Without the enriched papers
+// trial that ranks first (reportRank). A review or meta-analysis, a paper that
+// is not a study report and a retracted paper (as in the pool and the evidence
+// base) are never counted. Without the enriched papers
 // (the stage before the enrichment) there is no registration number to group
 // by, and only the critic's own design tells a review.
 func tallyIndexes(st *State, crits []model.Critique) []int {
@@ -190,7 +191,7 @@ func tallyIndexes(st *State, crits []model.Critique) []int {
 
 	countable := func(i int) bool {
 		if enriched {
-			return isStudyReport(&st.Enriched[i], crits[i])
+			return !st.Enriched[i].Flags.Retracted && isStudyReport(&st.Enriched[i], crits[i])
 		}
 
 		return !crits[i].StudyDesign.IsSecondary()
