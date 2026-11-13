@@ -135,7 +135,7 @@ func reportState() *State {
 			Synthesis: &StageCost{Calls: 1, InputTokens: 4000, OutputTokens: 500},
 		},
 	}
-	st.Report.EvidenceBase = buildEvidenceBase(st, st.Report.PooledEstimate)
+	st.Report.EvidenceBase = evidenceBaseEN(st, st.Report.PooledEstimate)
 
 	return st
 }
@@ -190,6 +190,7 @@ func TestRenderBriefGolden(t *testing.T) {
 func TestMarkdownCellEscapes(t *testing.T) {
 	assert.Equal(t, `a\|b c`, mdCell("a|b\nc"))
 	assert.Equal(t, "a/b c", shortTitle("a|b\nc", 10))
+	assert.Equal(t, "a b c", shortTitle("a\rb\tc", 10), "a carriage return or a tab breaks a line of the list")
 	assert.Equal(t, "abcd…", shortTitle("abcdefghij", 5))
 	assert.Equal(t, "—", numOrDash(0))
 	assert.Equal(t, "12", numOrDash(12))

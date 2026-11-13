@@ -225,6 +225,33 @@ func TestDiscoveryEnv(t *testing.T) {
 	require.ErrorContains(t, err, "unknown PubMed mode")
 }
 
+// REPORT_LANG is parsed at startup: unset leaves the pipeline's English
+// default, a language is read ignoring case, an unknown one is an error.
+func TestReportLangEnv(t *testing.T) {
+	t.Parallel()
+
+	parse := func(environment map[string]string) (Config, error) {
+		var c Config
+
+		if err := env.ParseWithOptions(&c, env.Options{Environment: environment}); err != nil {
+			return c, fmt.Errorf("parsing the environment: %w", err)
+		}
+
+		return c, nil
+	}
+
+	c, err := parse(map[string]string{})
+	require.NoError(t, err)
+	require.Empty(t, c.ReportLang)
+
+	c, err = parse(map[string]string{"REPORT_LANG": "RU"})
+	require.NoError(t, err)
+	require.Equal(t, model.LangRU, c.ReportLang)
+
+	_, err = parse(map[string]string{"REPORT_LANG": "klingon"})
+	require.ErrorContains(t, err, "unknown report language")
+}
+
 // The proxy URL carries credentials: an invalid one is never echoed.
 func TestValidateDoesNotLeakTheProxy(t *testing.T) {
 	t.Parallel()

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/roman-redl/verdict/internal/llm"
+	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -94,6 +95,10 @@ type Config struct {
 	// (abstracts first, then OA full texts for the pivotal studies — the
 	// default), full (OA full texts for every paper).
 	TextMode pipeline.TextMode `env:"TEXT_MODE" envDefault:"hybrid"`
+	// ReportLang is the language of the report (en | ru; empty = en): the
+	// synthesis writes its text in it and report.md is labelled in it. The
+	// run's --lang overrides it.
+	ReportLang model.Language `env:"REPORT_LANG"`
 	// HybridPivotalMax caps how many pivotal studies the hybrid mode deepens
 	// with full texts (the tail of the critique stage, before the synthesis).
 	HybridPivotalMax int `env:"HYBRID_PIVOTAL_MAX" envDefault:"7"`

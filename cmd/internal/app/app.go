@@ -51,6 +51,7 @@ func PipelineSettings(cfg *config.Config) pipeline.Settings {
 		PubMed:           cfg.PubMed,
 		NoScreen:         cfg.NoScreen,
 		TextMode:         cfg.TextMode,
+		Language:         cfg.ReportLang,
 		HybridPivotalMax: cfg.HybridPivotalMax,
 		EnrichCacheTTL:   time.Duration(cfg.EnrichCacheTTLDays) * day,
 		CritiqueCacheTTL: time.Duration(cfg.CritiqueCacheTTLDays) * day,

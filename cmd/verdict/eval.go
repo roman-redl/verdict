@@ -10,6 +10,7 @@ import (
 
 	"github.com/roman-redl/verdict/cmd/internal/app"
 	"github.com/roman-redl/verdict/internal/eval"
+	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -85,6 +86,9 @@ func (c *cli) evaluate(ctx context.Context, f *evalFlags) error {
 	}
 
 	f.opts.TextMode = cmp.Or(mode, pipeline.TextHybrid)
+	// the scoring parses the report's fields and the eval compares runs: always
+	// English, whatever REPORT_LANG says
+	f.opts.Language = model.LangEN
 
 	qs, err := eval.LoadSet(f.set)
 	if err != nil {

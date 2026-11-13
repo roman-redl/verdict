@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/roman-redl/verdict/internal/model"
 )
 
 // Options are the parameters of one run.
@@ -71,6 +73,12 @@ type Options struct {
 	// pre-placed in the run's fulltext/ is read in every mode: an explicit
 	// user action beats the mode.
 	TextMode TextMode
+
+	// Language is the language of the report: the synthesis writes its free
+	// text in it and Go renders the labels of report.md in it ("" = REPORT_LANG
+	// from the environment, default English). The enum values and the JSON keys
+	// of the artifacts stay English.
+	Language model.Language
 }
 
 // Clients are the pipeline's external systems, all ports (see ports.go). A
@@ -120,6 +128,8 @@ type Settings struct {
 	NoScreen         bool
 	// TextMode is the default text mode ("" = hybrid).
 	TextMode TextMode
+	// Language is the default report language ("" = English).
+	Language model.Language
 	// HybridPivotalMax caps the pivotal studies the hybrid mode deepens.
 	HybridPivotalMax int
 	// EnrichCacheTTL and CritiqueCacheTTL are the freshness windows of the
@@ -155,8 +165,13 @@ func New(set Settings, clients Clients, log *slog.Logger, now func() time.Time) 
 // runParams are the parameters of one run that every stage needs besides the
 // shared state.
 type runParams struct {
-	opts Options // TextMode is resolved
+	opts Options // TextMode and Language are resolved
 	dir  string  // artifact directory; downloaded and dropped-in PDFs live in dir/fulltext
+}
+
+// language is the report language of the run; English where none was resolved.
+func (rp runParams) language() model.Language {
+	return cmp.Or(rp.opts.Language, model.LangEN)
 }
 
 // Stage names double as artifact file names (<name>.json).
@@ -188,6 +203,12 @@ func resolveTextMode(opt, cfg TextMode) (TextMode, error) {
 	return ParseTextMode(string(cmp.Or(opt, cfg, TextHybrid)))
 }
 
+// resolveLanguage settles the report language the same way: the run's flag,
+// else the config's, else English, validated again for Options built in code.
+func resolveLanguage(opt, cfg model.Language) (model.Language, error) {
+	return model.ParseLanguage(string(cmp.Or(opt, cfg, model.LangEN)))
+}
+
 // Run executes all stages; returns the final state and the artifact directory.
 func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error) {
 	dir, err := p.prepareDir(opts)
@@ -201,6 +222,11 @@ func (p *Pipeline) Run(ctx context.Context, opts Options) (*State, string, error
 	}
 
 	opts.TextMode = mode
+
+	if opts.Language, err = resolveLanguage(opts.Language, p.set.Language); err != nil {
+		return nil, dir, err
+	}
+
 	rp := runParams{opts: opts, dir: dir}
 
 	if err := copyInput(rp); err != nil {
@@ -283,9 +309,26 @@ func (p *Pipeline) resumeStage(ctx context.Context, rp runParams, st *State, nam
 		return p.refillLoadedAbstracts(ctx, rp, st, artifact)
 	case stageCritique:
 		return p.deepenLoadedCritique(ctx, rp, st, artifact)
+	case stageSynthesis:
+		p.warnReportLanguage(rp, st)
 	}
 
 	return nil
+}
+
+// warnReportLanguage tells that a loaded report keeps the language it was
+// written in: the language of a report is fixed by its synthesis, so asking
+// for another one on a resume changes nothing until the synthesis is redone.
+func (p *Pipeline) warnReportLanguage(rp runParams, st *State) {
+	if st.Report == nil {
+		return
+	}
+
+	have, want := cmp.Or(st.Report.Language, model.LangEN), rp.language()
+	if have != want {
+		p.log.Warn("the existing report keeps its language; delete 4-synthesis.json to re-synthesize",
+			"report_language", have, "requested_language", want)
+	}
 }
 
 // runStage runs one stage and saves its checkpoint.

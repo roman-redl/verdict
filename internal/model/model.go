@@ -254,7 +254,10 @@ type VisionNote struct {
 
 // Report is the final artifact of the reduce step.
 type Report struct {
-	Question         string    `json:"question"`
+	Question string `json:"question"`
+	// Language is the language of the report's text and labels; empty in
+	// reports written before the field existed, which are English.
+	Language         Language  `json:"language,omitempty"`
 	GeneratedAt      time.Time `json:"generated_at"`
 	Verdict          string    `json:"verdict"` // strong | moderate | weak | insufficient
 	VerdictRationale string    `json:"verdict_rationale"`

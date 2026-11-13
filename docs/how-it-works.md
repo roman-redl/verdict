@@ -1096,6 +1096,50 @@ The rules (`evidence_base.go`, `evidence_text.go`):
   worded as the report's pooled line ("Effect of the one direct study with
   numbers (not pooled)"); without an estimate the line reads "Not pooled: no
   direct study with usable numbers on the outcome".
+- *The list of studies* (`evidence_list.go`) follows the paragraph in
+  `report.md`: a code block under the header "Direct studies by number of
+  participants (bar: log scale)", two lines per direct study. The first line:
+  the participants (right-aligned, "—" when not stated), a bar of `█` blocks
+  whose length follows log10 of the participants (the largest study gets 16
+  blocks, any known size at least one), the design (for a randomized trial with
+  its blinding: "RCT, double-blind"; observational designs by name), the year,
+  where the study's result points relative to the claim (supports | no effect
+  | opposite | mixed | unclear, from the critic's `result_direction`) and
+  "pooled" when the study is in the pooled estimate; the fields are separated
+  by " · " and padded into columns. The second line: the title, cut to 70
+  characters. The order: studies by participants, largest first, unknown sizes
+  last; then the systematic reviews and meta-analyses as a group of their own
+  (the size column reads "review", no bar, a Cochrane review is marked). One
+  entry per trial: the reports of one trial are merged by the same
+  registration grouping as the paragraph, the entry names the report that best
+  matches the question; retracted and not-assessed papers are not listed. At
+  most 30 entries, then "… and K more"; the last line of the block counts the
+  indirect or off-topic and the not-assessed papers. The data is
+  `evidence_base.studies` of the artifact (one record per entry: the reviews
+  first, then the trials, each group in corpus order; the report sorts them),
+  absent in an artifact written before the
+  list, which renders as before, without the block.
+
+**Report language.** The report has one language, `en` (default) or `ru`
+(`--lang`, `REPORT_LANG`, the `lang` field of a daemon job; `ParseLanguage` at
+each of these boundaries, the pipeline receives the plain `model.Language`). It
+decides two things: hard rule 5 of the synthesis prompt ("All human-readable
+text in English" becomes Russian; enum values, JSON keys and DOIs stay as
+specified, paper titles as published), and the wording Go renders into
+`report.md`: headings, field labels, the verdict level names, the evidence-base
+paragraph and list, the pooled line and the rating prefixes come from a small
+table per language (`lexicon*.go`, no i18n library; Russian plural forms by the
+usual three-form rule). The table is the only place the wording lives; the
+English table reproduces the text the report always had, pinned by the golden
+files (`testdata/report.golden.md`, `report.golden.ru.md`). Not translated in
+v1: the reason sentences that the imprecision and blinding-bias rules generate,
+the data warnings, the critic's concerns and the LLM usage footer, and the
+labels of `matrix.csv` and `context.md` (a digest for the model); the synthesis
+text in them (the matrix notes, the rationale, consensus, contradictions and
+gaps) is in the report language. `Report.Language` is stored in the
+artifact, so a report always renders in the language its text was written in
+(an old artifact has none: English); `verdict eval` forces English, because its
+scoring reads the report's fields.
 
 **What the tool honestly cannot do:**
 - full texts only where a legal copy exists: `--text-mode lean` runs on

@@ -10,12 +10,6 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
-// fullTextGapsIntro tells the reader how to supply a missing full text.
-const fullTextGapsIntro = "These direct studies were critiqued from the abstract: no open-access full text was " +
-	"obtained (in the hybrid mode only the pivotal studies are tried). To read one in full, download its PDF " +
-	"and save it in the run directory as `fulltext/<file>` (or run `verdict addpdf --run-dir <run> <file.pdf>`, " +
-	"which reads the DOI from the PDF itself), then rerun with `--resume`."
-
 // fullTextGaps lists the direct studies that have no full text, one line per
 // study: title, DOI, the best page to download it from, and the file name the
 // PDF must have in fulltext/. Nothing in the lean mode (no full text was
@@ -61,15 +55,16 @@ func bestLandingURL(e *model.EnrichedPaper) string {
 	return l.list[0] // the DOI is there: fullTextGaps skips a paper without one
 }
 
-// writeFullTextGaps appends the section to the report; nothing when there are
-// no gaps.
-func writeFullTextGaps(b *strings.Builder, st *State) {
+// writeFullTextGaps appends the section to the report, with the lexicon's
+// title and the instruction that tells the reader how to supply a missing full
+// text; nothing when there are no gaps.
+func writeFullTextGaps(b *strings.Builder, lx lexicon, st *State) {
 	lines := fullTextGaps(st)
 	if len(lines) == 0 {
 		return
 	}
 
-	b.WriteString("\n### Full texts not obtained\n\n" + fullTextGapsIntro + "\n\n")
+	b.WriteString("\n### " + lx.fullTexts + "\n\n" + lx.fullTextsIntro + "\n\n")
 
 	for _, l := range lines {
 		b.WriteString("- " + l + "\n")

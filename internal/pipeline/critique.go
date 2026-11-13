@@ -27,6 +27,12 @@ const (
 	valueUnclear    = "unclear" // sample_adequacy / result_direction — no data
 	relevanceDirect = "direct"  // relevance: the study is directly about the question
 
+	// result_direction: where a study's findings point relative to the claim.
+	resultPositive = "positive"
+	resultNull     = "null"
+	resultNegative = "negative"
+	resultMixed    = "mixed"
+
 	// relevanceIndirect: the abstract does not report the asked outcome. The hybrid
 	// pass still gives these studies a full text when direct ones leave slots free.
 	relevanceIndirect = "indirect"

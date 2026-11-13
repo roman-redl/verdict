@@ -36,8 +36,53 @@ type EvidenceBase struct {
 	// Other is the number of direct publications of another or unclear design
 	// (narrative reviews, guidelines, laboratory studies).
 	Other int `json:"other,omitempty"`
-	// Summary is the rendered paragraph of the report, without its label.
+	// Summary is the rendered paragraph of the report, without its label, in
+	// the report's language.
 	Summary string `json:"summary"`
+	// Studies are the direct studies one by one, the data behind the report's
+	// list: a trial with all its reports is one entry, retracted and
+	// not-assessed papers are not in it. The reviews come first, then the
+	// trials, each group in corpus order (a trial at its first report); the
+	// report sorts them.
+	// Empty in artifacts written before the list existed.
+	Studies []EvidenceStudy `json:"studies,omitempty"`
+}
+
+// StudyDirection is where the findings of one study point relative to the
+// claim of the question. The values are the critic's result_direction words
+// read against the claim: positive is "supports", negative is "opposite".
+type StudyDirection string
+
+const (
+	// DirectionSupports means the study's result supports the claim.
+	DirectionSupports StudyDirection = "supports"
+	// DirectionNull means the study found no effect.
+	DirectionNull StudyDirection = "null"
+	// DirectionOpposite means the study's result runs against the claim.
+	DirectionOpposite StudyDirection = "opposite"
+	// DirectionMixed means the study's outcomes point both ways.
+	DirectionMixed StudyDirection = "mixed"
+	// DirectionUnclear means the direction cannot be stated.
+	DirectionUnclear StudyDirection = "unclear"
+)
+
+// EvidenceStudy is one direct study of the evidence base. For a trial reported
+// several times it describes the report that best matches the question (DOI,
+// title, year, direction) with the size and design folded from all its reports.
+type EvidenceStudy struct {
+	DOI   string `json:"doi,omitempty"`
+	Title string `json:"title"`
+	Year  int    `json:"year,omitempty"`
+	// Design is the study's design; Blinding is set for the randomized ones.
+	Design   StudyDesign `json:"design"`
+	Blinding Blinding    `json:"blinding,omitempty"`
+	// Cochrane marks a Cochrane review (by DOI prefix).
+	Cochrane bool `json:"cochrane,omitempty"`
+	// Participants is zero when the size is not stated; a review carries none.
+	Participants int            `json:"participants,omitempty"`
+	Direction    StudyDirection `json:"direction"`
+	// Pooled is true when the study is in the pooled estimate.
+	Pooled bool `json:"pooled,omitempty"`
 }
 
 // EvidenceGroup describes the direct studies of one design group.

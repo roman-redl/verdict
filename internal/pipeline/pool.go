@@ -180,6 +180,13 @@ func (p *Pipeline) pool(st *State) poolResult {
 	return poolResult{est: est, blinding: blinding, leftOut: out}
 }
 
+// studyKey is how the pool names a study (PooledEstimate.Studies) and how the
+// evidence list finds it there: the normalized DOI, else the title; empty when
+// the paper has neither (such a study is never matched by key).
+func studyKey(e *model.EnrichedPaper) string {
+	return cmp.Or(model.NormalizeDOI(e.DOI), strings.TrimSpace(e.Title))
+}
+
 // studyEffect puts one study's effect on its analysis scale. ok is false when
 // the study does not take part in pooling; left is set when it would have, but
 // the rules keep it out (and ok is false then too).
@@ -190,7 +197,7 @@ func (p *Pipeline) studyEffect(
 		return pooledStudy{}, nil, false
 	}
 
-	doi := cmp.Or(e.DOI, e.Title)
+	doi := studyKey(e)
 	design := resolveDesign(e, c)
 
 	// A review's estimate repeats the data of the trials it includes, and

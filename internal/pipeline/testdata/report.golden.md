@@ -14,6 +14,17 @@
 
 **Evidence base:** 3 papers reviewed; 2 answer the question directly: 2 randomized trials (2 blinding not assessed; 118 participants — Creatine and memory: a randomized trial; size not stated for 1). Pooled: 3 trials, 1234 participants. Indirect or off-topic: 1.
 
+Direct studies by number of participants (bar: log scale)
+
+```
+118 ████████████████ · RCT           · 2021 · supports · pooled
+    Creatine and memory: a randomized trial
+  —                  · crossover RCT · 2023 · mixed    · pooled
+    Creatine in the elderly
+
+Indirect or off-topic: 1 · not assessed: 0
+```
+
 ### Scientific consensus: contested
 
 Most direct studies lean positive (10.1000/a), one is mixed (10.1000/c).

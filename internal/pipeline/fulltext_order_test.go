@@ -465,7 +465,7 @@ func TestFullTextGaps(t *testing.T) {
 func TestWriteFullTextGaps(t *testing.T) {
 	var b strings.Builder
 
-	writeFullTextGaps(&b, &State{TextMode: TextHybrid})
+	writeFullTextGaps(&b, english(), &State{TextMode: TextHybrid})
 	assert.Empty(t, b.String(), "no gaps, no section")
 
 	st := &State{
@@ -474,7 +474,7 @@ func TestWriteFullTextGaps(t *testing.T) {
 		Critiques: []model.Critique{{Relevance: relevanceDirect}},
 	}
 
-	writeFullTextGaps(&b, st)
+	writeFullTextGaps(&b, english(), st)
 
 	got := b.String()
 	assert.Contains(t, got, "\n### Full texts not obtained\n\n")

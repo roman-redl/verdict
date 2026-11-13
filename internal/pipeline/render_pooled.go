@@ -2,6 +2,8 @@ package pipeline
 
 // The wording of the computed lines of the report: the pooled estimate, the
 // imprecision rating and the lack-of-blinding rating (render.go places them).
+// The labels and the units come from the lexicon; the reason texts of the
+// imprecision and blinding ratings are generated in English.
 
 import (
 	"fmt"
@@ -12,22 +14,21 @@ import (
 )
 
 // pooledLabel names what pooledText shows.
-func pooledLabel(pe *model.PooledEstimate) string {
+func (l lexicon) pooledLabel(pe *model.PooledEstimate) string {
 	if pe.Method == model.PoolSingleStudy {
-		return "Effect of the one direct study with numbers (not pooled)"
+		return l.pooledSingle
 	}
 
 	if pe.Converted {
-		return "Pooled effect of the direct studies (random effects, DerSimonian-Laird; " +
-			"measures converted to one standardized scale)"
+		return l.pooledConverted
 	}
 
-	return "Pooled effect of the direct studies (random effects, DerSimonian-Laird)"
+	return l.pooledPlain
 }
 
 // pooledText renders the pooled numbers; Go formats them, the LLM never
 // retypes them.
-func pooledText(pe *model.PooledEstimate) string {
+func (l lexicon) pooledText(pe *model.PooledEstimate) string {
 	// one precision for the three numbers: two decimals, three when any of
 	// them is small, so that a small effect does not read as zero
 	prec := 2
@@ -43,15 +44,15 @@ func pooledText(pe *model.PooledEstimate) string {
 		est += " " + pe.Unit
 	}
 
-	s := fmt.Sprintf("%s (95%% CI %.*f to %.*f), %d %s", est, prec, pe.CILow, prec, pe.CIHigh,
-		pe.K, plural(pe.K, "study", "studies"))
+	s := fmt.Sprintf("%s (%s %.*f%s%.*f), %s", est, l.ci, prec, pe.CILow, l.ciTo, prec, pe.CIHigh,
+		l.count(pe.K, l.studies))
 
 	if pe.Participants > 0 {
-		s += fmt.Sprintf(", %d participants", pe.Participants)
+		s += ", " + l.count(pe.Participants, l.participants)
 	}
 
 	if pe.Events > 0 {
-		s += fmt.Sprintf(", %d events", pe.Events)
+		s += ", " + l.count(pe.Events, l.events)
 	}
 
 	if pe.I2 != nil {
@@ -59,18 +60,28 @@ func pooledText(pe *model.PooledEstimate) string {
 	}
 
 	if pe.Stratum != "" {
-		s += "; design: " + string(pe.Stratum)
+		s += "; " + l.design + ": " + l.stratum(pe.Stratum)
 	}
 
 	if pe.Outcome != "" {
-		s += "; outcome: " + pe.Outcome
+		s += "; " + l.outcome + ": " + pe.Outcome
 	}
 
 	if n := len(pe.LeftOut); n > 0 {
-		s += fmt.Sprintf("; not pooled (%d %s): %s", n, plural(n, "study", "studies"), leftOutPreview(pe.LeftOut))
+		s += fmt.Sprintf("; %s (%s): %s", l.notPooled, l.count(n, l.studies), l.leftOutPreview(pe.LeftOut))
 	}
 
 	return s
+}
+
+// stratum names the design class of a pooled estimate; a value outside the
+// vocabulary is shown as it is.
+func (l lexicon) stratum(s model.Stratum) string {
+	if name, ok := l.strata[s]; ok {
+		return name
+	}
+
+	return string(s)
 }
 
 // maxLeftOutShown caps the left-out entries a report line names.
@@ -78,20 +89,20 @@ const maxLeftOutShown = 5
 
 // leftOutPreview names the first left-out studies with their reasons; the full
 // list is pooled_estimate.left_out in the artifact.
-func leftOutPreview(left []string) string {
+func (l lexicon) leftOutPreview(left []string) string {
 	if len(left) <= maxLeftOutShown {
 		return strings.Join(left, ", ")
 	}
 
-	return strings.Join(left[:maxLeftOutShown], ", ") + fmt.Sprintf(", and %d more", len(left)-maxLeftOutShown)
+	return strings.Join(left[:maxLeftOutShown], ", ") + fmt.Sprintf(l.andMore, len(left)-maxLeftOutShown)
 }
 
 // imprecisionText renders the computed rating: the levels, then the reason
 // (a sentence with the numbers).
-func imprecisionText(imp *model.Imprecision) string {
-	s := "not rated down"
+func (l lexicon) imprecisionText(imp *model.Imprecision) string {
+	s := l.notRatedDown
 	if imp.Levels > 0 {
-		s = fmt.Sprintf("rated down %d %s", imp.Levels, plural(imp.Levels, "level", "levels"))
+		s = l.ratedDown + " " + l.count(imp.Levels, l.levels)
 	}
 
 	return s + " — " + imp.Reason
@@ -99,15 +110,15 @@ func imprecisionText(imp *model.Imprecision) string {
 
 // blindingBiasText renders the computed rating like imprecisionText: serious
 // (the levels), then the reason with the shares.
-func blindingBiasText(bb *model.BlindingBias) string {
-	return fmt.Sprintf("serious, rated down %d %s — %s", bb.Levels, plural(bb.Levels, "level", "levels"), bb.Reason)
+func (l lexicon) blindingBiasText(bb *model.BlindingBias) string {
+	return l.serious + ", " + l.ratedDown + " " + l.count(bb.Levels, l.levels) + " — " + bb.Reason
 }
 
 // pooledLine is the one-line digest entry; empty without a pooled estimate.
-func pooledLine(pe *model.PooledEstimate) string {
+func (l lexicon) pooledLine(pe *model.PooledEstimate) string {
 	if pe == nil {
 		return ""
 	}
 
-	return pooledLabel(pe) + ": " + pooledText(pe) + "."
+	return l.pooledLabel(pe) + ": " + l.pooledText(pe) + "."
 }

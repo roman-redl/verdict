@@ -307,6 +307,40 @@ func TestSubmitRejectsUnknownTextMode(t *testing.T) {
 	require.Empty(t, jobs.all(), "a refused request leaves no job behind")
 }
 
+// A job carries the report language of its request; an absent one is left for
+// the pipeline's default (REPORT_LANG, then English), an unknown one is
+// refused before a job is created.
+func TestSubmitReportLanguage(t *testing.T) {
+	var got pipeline.Options
+
+	srv, jobs := startServer(t, func(_ context.Context, opts pipeline.Options) (*pipeline.State, string, error) {
+		got = opts
+
+		return nil, t.TempDir(), nil
+	})
+
+	job, status := submit(t, srv.URL, `{"question":"q","lang":"RU"}`)
+	require.Equal(t, http.StatusAccepted, status)
+	waitForJob(t, srv.URL, job.ID, JobDone)
+	assert.Equal(t, model.LangRU, got.Language)
+
+	job, status = submit(t, srv.URL, `{"question":"q"}`)
+	require.Equal(t, http.StatusAccepted, status)
+	waitForJob(t, srv.URL, job.ID, JobDone)
+	assert.Equal(t, model.Language(""), got.Language)
+
+	before := len(jobs.all())
+	resp, err := call(http.MethodPost, srv.URL+"/runs", strings.NewReader(`{"question":"q","lang":"de"}`))
+	require.NoError(t, err)
+
+	body, _ := io.ReadAll(resp.Body)
+	require.NoError(t, resp.Body.Close())
+
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, string(body), "en | ru")
+	require.Len(t, jobs.all(), before, "a refused request leaves no job behind")
+}
+
 // Parser details of a malformed body are not echoed back.
 func TestSubmitMalformedJSONHidesParserDetails(t *testing.T) {
 	srv, _ := startServer(t, func(context.Context, pipeline.Options) (*pipeline.State, string, error) {

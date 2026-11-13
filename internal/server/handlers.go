@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -29,6 +30,7 @@ type submitRequest struct {
 	MaxPapers int      `json:"max_papers"`
 	TextMode  string   `json:"text_mode"`  // lean | hybrid (default) | full
 	StopAfter string   `json:"stop_after"` // e.g. "2" — deterministic stages only
+	Lang      string   `json:"lang"`       // report language: en | ru (default: REPORT_LANG, en)
 }
 
 func (s *Server) submit(w http.ResponseWriter, r *http.Request) {
@@ -98,12 +100,19 @@ func (s *Server) options(w http.ResponseWriter, req *submitRequest) (pipeline.Op
 		return pipeline.Options{}, false
 	}
 
+	lang, err := model.ParseLanguage(req.Lang)
+	if err != nil {
+		http.Error(w, `unknown "lang" (want en | ru)`, http.StatusBadRequest)
+		return pipeline.Options{}, false
+	}
+
 	opts := pipeline.Options{
 		Question:  req.Question,
 		Topic:     req.Topic,
 		MaxPapers: req.MaxPapers,
 		TextMode:  mode,
 		StopAfter: req.StopAfter,
+		Language:  lang,
 	}
 
 	if len(req.DOIs) > 0 {

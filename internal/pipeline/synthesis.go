@@ -16,7 +16,9 @@ import (
 // synthesisMaxTokens bounds the judge's answer.
 const synthesisMaxTokens = 8000
 
-func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error {
+func (p *Pipeline) synthesize(ctx context.Context, rp runParams, st *State) error {
+	lang := rp.language()
+
 	judge := p.clients.LLM
 	if p.clients.LLMSynthesis != nil {
 		judge = p.clients.LLMSynthesis
@@ -44,7 +46,7 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 
 	var jr synthesisResult
 
-	usage, err := AskJSON(ctx, judge, synthesisSystemPrompt, user, &jr, synthesisMaxTokens)
+	usage, err := AskJSON(ctx, judge, synthesisPrompt(lang), user, &jr, synthesisMaxTokens)
 	if errors.Is(err, ErrLLMStop) {
 		p.log.Error("synthesis stopped: the LLM backend takes no more calls", "err", err)
 
@@ -65,6 +67,7 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 
 	r := model.Report{
 		Question:          st.Question,
+		Language:          lang,
 		GeneratedAt:       p.now().UTC(),
 		Verdict:           jr.Verdict,
 		VerdictRationale:  jr.VerdictRationale,
@@ -75,7 +78,7 @@ func (p *Pipeline) synthesize(ctx context.Context, _ runParams, st *State) error
 		Imprecision:       st.Imprecision,
 		BlindingBias:      st.BlindingBias,
 		ComparableStudies: &withNumbers,
-		EvidenceBase:      buildEvidenceBase(st, st.Pooled),
+		EvidenceBase:      evidenceBaseFor(st, st.Pooled, lang),
 		Contradictions:    jr.Contradictions,
 		Gaps:              jr.Gaps,
 		Matrix:            buildMatrix(st, jr.Notes),

@@ -8,6 +8,7 @@ import (
 
 	"github.com/roman-redl/verdict/cmd/internal/app"
 	"github.com/roman-redl/verdict/internal/db"
+	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -18,6 +19,7 @@ type runFlags struct {
 	engineFlag, modeFlag string
 	sourcesFlag          string
 	pubmedFlag           string
+	langFlag             string
 }
 
 // runCmd is the full pipeline for a research question or a list of DOIs.
@@ -52,6 +54,10 @@ func (c *cli) execute(ctx context.Context, f *runFlags) error {
 	}
 
 	if f.opts.PubMed, err = pipeline.ParsePubMedMode(f.pubmedFlag); err != nil {
+		return err
+	}
+
+	if f.opts.Language, err = model.ParseLanguage(f.langFlag); err != nil {
 		return err
 	}
 
@@ -162,6 +168,9 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	addLLMFlags(cmd, opts)
 	fl.StringVar(&opts.ChallengeNote, "challenge-note", "",
 		"counterargument to weigh and answer in the verdict rationale (not data)")
+	fl.StringVar(&f.langFlag, "lang", "",
+		"language of the report: en | ru — the verdict text and the labels of report.md "+
+			"(defaults to REPORT_LANG from env, en)")
 	fl.StringVar(&f.modeFlag, "text-mode", "",
 		"what the critic reads: lean (abstracts only) | hybrid (abstracts, then full texts for the pivotal studies — "+
 			"default) | full (full texts for all) (defaults to TEXT_MODE from env)")

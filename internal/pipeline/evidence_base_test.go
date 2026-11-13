@@ -35,7 +35,8 @@ type evPaper struct {
 	retracted bool
 	types     []string
 	authors   []string
-	failed    bool // the critic's call failed: the critique carries an error
+	failed    bool   // the critic's call failed: the critique carries an error
+	direction string // the critic's result_direction
 }
 
 func evState(papers ...evPaper) *State {
@@ -62,7 +63,7 @@ func evState(papers ...evPaper) *State {
 		})
 		c := model.Critique{
 			DOI: p.doi, Relevance: relevance, StudyDesign: p.design, Blinding: p.blinding,
-			SampleSizeReported: p.size,
+			SampleSizeReported: p.size, ResultDirection: p.direction,
 		}
 
 		if p.failed {
@@ -96,7 +97,7 @@ func TestEvidenceBaseDesignGroups(t *testing.T) {
 		evPaper{doi: "10.1/i4", relevance: " "},
 	)
 
-	eb := buildEvidenceBase(st, nil)
+	eb := evidenceBaseEN(st, nil)
 	require.NotNil(t, eb)
 
 	assert.Equal(t, 14, eb.Reviewed)
@@ -209,7 +210,7 @@ func TestEvidenceBaseBlindingOfRepeatReports(t *testing.T) {
 // Observational studies and reviews are never broken down by blinding, even
 // when the critic gave one.
 func TestEvidenceBaseBlindingOnlyForRandomized(t *testing.T) {
-	eb := buildEvidenceBase(evState(
+	eb := evidenceBaseEN(evState(
 		evPaper{doi: "10.1/o", design: model.DesignCohort, blinding: model.BlindingOpen, size: 10},
 	), nil)
 
@@ -346,7 +347,7 @@ func TestEvidenceBaseRepeatReportsCountOnce(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			eb := buildEvidenceBase(evState(tc.papers...), nil)
+			eb := evidenceBaseEN(evState(tc.papers...), nil)
 			require.NotNil(t, eb.Randomized)
 
 			assert.Equal(t, tc.wantStudies, eb.Randomized.Studies)
@@ -397,7 +398,7 @@ func TestEvidenceBaseCochraneCount(t *testing.T) {
 				papers = append(papers, evPaper{doi: d, design: model.DesignSystematicReview})
 			}
 
-			eb := buildEvidenceBase(evState(papers...), nil)
+			eb := evidenceBaseEN(evState(papers...), nil)
 			assert.Equal(t, tc.want, eb.Reviews.Cochrane)
 			assert.Equal(t, len(tc.dois), eb.Reviews.Studies)
 
@@ -413,7 +414,7 @@ func TestEvidenceBaseCochraneCount(t *testing.T) {
 // A retracted paper is left out of the breakdown and said so; an erratum is
 // not a study and counts with the off-topic papers.
 func TestEvidenceBaseRetractedAndNotStudies(t *testing.T) {
-	eb := buildEvidenceBase(evState(
+	eb := evidenceBaseEN(evState(
 		evPaper{doi: doiA, design: model.DesignRCT, size: 100},
 		evPaper{doi: doiB, design: model.DesignRCT, size: 999, retracted: true},
 		evPaper{doi: doiC, design: model.DesignRCT, types: []string{typeErratumEv}},
@@ -437,7 +438,7 @@ func TestEvidenceBaseNotAssessed(t *testing.T) {
 	}
 
 	t.Run("a failed critique", func(t *testing.T) {
-		eb := buildEvidenceBase(evState(
+		eb := evidenceBaseEN(evState(
 			evPaper{doi: doiA, design: model.DesignRCT, size: 100, regs: []string{regEvidence}},
 			evPaper{doi: doiB, design: model.DesignRCT, size: 100, regs: []string{regEvidence}},
 			evPaper{doi: doiC, relevance: relevanceOff},
@@ -474,7 +475,7 @@ func TestEvidenceBaseNotAssessed(t *testing.T) {
 	})
 
 	t.Run("none failed: nothing is said", func(t *testing.T) {
-		eb := buildEvidenceBase(evState(evPaper{doi: doiA, design: model.DesignRCT}), nil)
+		eb := evidenceBaseEN(evState(evPaper{doi: doiA, design: model.DesignRCT}), nil)
 
 		assert.Zero(t, eb.NotAssessed)
 		assert.NotContains(t, eb.Summary, "Not assessed")
@@ -485,7 +486,7 @@ func TestEvidenceBaseNotAssessed(t *testing.T) {
 	})
 
 	t.Run("all failed", func(t *testing.T) {
-		eb := buildEvidenceBase(evState(evPaper{doi: doiA, failed: true}, evPaper{doi: doiB, failed: true}), nil)
+		eb := evidenceBaseEN(evState(evPaper{doi: doiA, failed: true}, evPaper{doi: doiB, failed: true}), nil)
 
 		assert.Zero(t, eb.Reviewed)
 		assert.Equal(t, 2, eb.NotAssessed)
@@ -495,7 +496,7 @@ func TestEvidenceBaseNotAssessed(t *testing.T) {
 }
 
 func TestEvidenceBaseNothingDirect(t *testing.T) {
-	eb := buildEvidenceBase(evState(
+	eb := evidenceBaseEN(evState(
 		evPaper{doi: doiA, relevance: relevanceIndirect, design: model.DesignRCT},
 		evPaper{doi: doiB, relevance: relevanceOff},
 	), nil)

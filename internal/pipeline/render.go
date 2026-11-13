@@ -10,83 +10,97 @@ import (
 	"github.com/roman-redl/verdict/internal/model"
 )
 
-// RenderMarkdown renders the human-readable report.md from the final state.
+// RenderMarkdown renders the human-readable report.md from the final state,
+// in the language of the report (English for one written before the field
+// existed).
 func RenderMarkdown(st *State) string {
 	r := st.Report
+	lx := lexiconFor(r.Language)
 
 	var b strings.Builder
 
-	b.WriteString("# Evidence Report\n\n")
-	fmt.Fprintf(&b, "**Question:** %s\n\n", r.Question)
-	fmt.Fprintf(&b, "## Verdict: %s\n\n", verdictLabel(r.Verdict))
-
-	if r.EffectDirection != "" {
-		fmt.Fprintf(&b, "**Effect direction:** %s\n\n", effectDirectionLabel(r.EffectDirection))
-	}
-
-	if pe := r.PooledEstimate; pe != nil {
-		fmt.Fprintf(&b, "**%s:** %s\n\n", pooledLabel(pe), pooledText(pe))
-	}
-
-	if imp := r.Imprecision; imp != nil {
-		fmt.Fprintf(&b, "**Imprecision (computed):** %s\n\n", imprecisionText(imp))
-	}
-
-	if bb := r.BlindingBias; bb != nil {
-		fmt.Fprintf(&b, "**Risk of bias from lack of blinding (computed):** %s\n\n", blindingBiasText(bb))
-	}
-
-	if n := r.ComparableStudies; n != nil {
-		fmt.Fprintf(&b, "**Studies with numbers on the outcome:** %d\n\n", *n)
-	}
-
-	if eb := r.EvidenceBase; eb != nil && eb.Summary != "" {
-		fmt.Fprintf(&b, "**Evidence base:** %s\n\n", eb.Summary)
-	}
+	b.WriteString("# " + lx.reportTitle + "\n\n")
+	fmt.Fprintf(&b, "**%s:** %s\n\n", lx.question, r.Question)
+	fmt.Fprintf(&b, "## %s: %s\n\n", lx.verdict, lx.verdictLabel(r.Verdict))
+	writeComputedLines(&b, lx, r)
 
 	if r.Consensus != "" || r.ConsensusStatus != "" {
-		fmt.Fprintf(&b, "### Scientific consensus: %s\n\n", consensusLabel(r.ConsensusStatus))
+		fmt.Fprintf(&b, "### %s: %s\n\n", lx.consensus, lx.consensusLabel(r.ConsensusStatus))
 
 		if r.Consensus != "" {
 			b.WriteString(r.Consensus + "\n\n")
 		}
 	}
 
-	if t := directionTally(st); t != "" {
-		fmt.Fprintf(&b, "**Direction of direct studies:** %s\n\n", t)
+	if t := lx.directionTally(st); t != "" {
+		fmt.Fprintf(&b, "**%s:** %s\n\n", lx.directTally, t)
 	}
 
-	fmt.Fprintf(&b, "_Generated: %s_\n\n", r.GeneratedAt.Format("2006-01-02 15:04 UTC"))
-	b.WriteString("### Rationale\n\n" + r.VerdictRationale + "\n\n")
+	fmt.Fprintf(&b, "_%s: %s_\n\n", lx.generated, r.GeneratedAt.Format("2006-01-02 15:04 UTC"))
+	b.WriteString("### " + lx.rationale + "\n\n" + r.VerdictRationale + "\n\n")
+	writeMatrix(&b, lx, r.Matrix)
 
-	b.WriteString("### Evidence matrix\n\n")
-	b.WriteString("| Study | Year | Design | N | Sup/Contra | Direction | Quality | Relevance | Note |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
-
-	for i := range r.Matrix {
-		m := &r.Matrix[i]
-		cell := shortTitle(m.Title, 55)
-
-		if m.DOI != "" {
-			cell = fmt.Sprintf("[%s](https://doi.org/%s)", cell, m.DOI)
-		}
-
-		fmt.Fprintf(&b, "| %s | %d | %s | %s | %d/%d | %s | %s | %s | %s |\n",
-			cell, m.Year, mdCell(orDash(m.Design)), numOrDash(m.SampleSize),
-			m.Supporting, m.Contradicting, mdCell(orDash(m.Direction)),
-			mdCell(orDash(m.DesignQuality)), mdCell(orDash(m.Relevance)), mdCell(orDash(m.Note)))
-	}
-
-	sectionList(&b, "Contradictions", r.Contradictions)
-	sectionList(&b, "Gaps and limitations", r.Gaps)
-	sectionList(&b, "Data warnings", r.Warnings)
-	writeFullTextGaps(&b, st)
+	sectionList(&b, lx.contradictions, r.Contradictions)
+	sectionList(&b, lx.gaps, r.Gaps)
+	sectionList(&b, lx.warnings, r.Warnings)
+	writeFullTextGaps(&b, lx, st)
 
 	if line := st.Cost.Markdown(); line != "" {
 		b.WriteString("\n_" + line + "_\n")
 	}
 
 	return b.String()
+}
+
+// writeComputedLines writes the lines the pipeline computes under the verdict:
+// the effect direction, the pooled estimate, the two ratings, the study counts
+// and the evidence base with its list of studies.
+func writeComputedLines(b *strings.Builder, lx lexicon, r *model.Report) {
+	if r.EffectDirection != "" {
+		fmt.Fprintf(b, "**%s:** %s\n\n", lx.effectDirection, lx.effectDirectionLabel(r.EffectDirection))
+	}
+
+	if pe := r.PooledEstimate; pe != nil {
+		fmt.Fprintf(b, "**%s:** %s\n\n", lx.pooledLabel(pe), lx.pooledText(pe))
+	}
+
+	if imp := r.Imprecision; imp != nil {
+		fmt.Fprintf(b, "**%s:** %s\n\n", lx.imprecision, lx.imprecisionText(imp))
+	}
+
+	if bb := r.BlindingBias; bb != nil {
+		fmt.Fprintf(b, "**%s:** %s\n\n", lx.blindingBias, lx.blindingBiasText(bb))
+	}
+
+	if n := r.ComparableStudies; n != nil {
+		fmt.Fprintf(b, "**%s:** %d\n\n", lx.comparable, *n)
+	}
+
+	if eb := r.EvidenceBase; eb != nil && eb.Summary != "" {
+		fmt.Fprintf(b, "**%s:** %s\n\n", lx.evidenceBase, eb.Summary)
+		b.WriteString(lx.studyList(eb))
+	}
+}
+
+// writeMatrix writes the evidence matrix as a markdown table.
+func writeMatrix(b *strings.Builder, lx lexicon, rows []model.MatrixRow) {
+	b.WriteString("### " + lx.matrix + "\n\n")
+	b.WriteString(lx.matrixHeader + "\n")
+	b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+
+	for i := range rows {
+		m := &rows[i]
+		cell := shortTitle(m.Title, 55)
+
+		if m.DOI != "" {
+			cell = fmt.Sprintf("[%s](https://doi.org/%s)", cell, m.DOI)
+		}
+
+		fmt.Fprintf(b, "| %s | %d | %s | %s | %d/%d | %s | %s | %s | %s |\n",
+			cell, m.Year, mdCell(orDash(m.Design)), numOrDash(m.SampleSize),
+			m.Supporting, m.Contradicting, mdCell(orDash(m.Direction)),
+			mdCell(orDash(m.DesignQuality)), mdCell(orDash(m.Relevance)), mdCell(orDash(m.Note)))
+	}
 }
 
 // RenderCSV renders the matrix in a machine-readable form (for the
@@ -130,7 +144,7 @@ func RenderContext(st *State) string {
 		writeVerdictDigest(&b, st.Report)
 	}
 
-	if t := directionTally(st); t != "" {
+	if t := english().directionTally(st); t != "" {
 		fmt.Fprintf(&b, "Direction of direct studies: %s\n\n", t)
 	}
 
@@ -158,12 +172,15 @@ func RenderContext(st *State) string {
 	return b.String()
 }
 
-// writeVerdictDigest writes the verdict block of the digest.
+// writeVerdictDigest writes the verdict block of the digest. The digest is
+// English whatever the report's language: it feeds the model, not the reader.
 func writeVerdictDigest(b *strings.Builder, r *model.Report) {
-	fmt.Fprintf(b, "Verdict: %s.%s Consensus: %s.\n",
-		verdictLabel(r.Verdict), effectDirectionSentence(r.EffectDirection), consensusLabel(r.ConsensusStatus))
+	lx := english()
 
-	if line := pooledLine(r.PooledEstimate); line != "" {
+	fmt.Fprintf(b, "Verdict: %s.%s Consensus: %s.\n",
+		lx.verdictLabel(r.Verdict), lx.effectDirectionSentence(r.EffectDirection), lx.consensusLabel(r.ConsensusStatus))
+
+	if line := lx.pooledLine(r.PooledEstimate); line != "" {
 		b.WriteString(line + "\n")
 	}
 
@@ -241,33 +258,19 @@ func writePaperDigest(b *strings.Builder, e *model.EnrichedPaper, c model.Critiq
 	}
 }
 
-func verdictLabel(v string) string {
-	switch strings.ToLower(v) {
-	case "strong":
-		return "STRONG — well-established evidence"
-	case "moderate":
-		return "MODERATE — limited but consistent evidence"
-	case "weak":
-		return "WEAK — sparse or low-quality evidence"
-	case "insufficient":
-		return "INSUFFICIENT — not enough evidence to judge"
+// verdictLabel is the heading wording of the verdict level; a value outside the
+// vocabulary is shown in capitals as it is.
+func (l lexicon) verdictLabel(v string) string {
+	if name, ok := l.verdictNames[strings.ToLower(v)]; ok {
+		return name
 	}
 
 	return strings.ToUpper(v)
 }
 
-func consensusLabel(s string) string {
-	switch strings.ToLower(s) {
-	case "broad_agreement":
-		return "broad agreement"
-	case "contested":
-		return "contested"
-	case "emerging":
-		return "emerging"
-	case "no_consensus":
-		return "no consensus"
-	case "insufficient_data":
-		return "insufficient data for consensus"
+func (l lexicon) consensusLabel(s string) string {
+	if name, ok := l.consensusNames[strings.ToLower(s)]; ok {
+		return name
 	}
 
 	return orDash(s)
@@ -275,16 +278,9 @@ func consensusLabel(s string) string {
 
 // effectDirectionLabel is the report's wording of the effect direction; a
 // value outside the vocabulary (a hand-edited artifact) is shown as it is.
-func effectDirectionLabel(d model.EffectDirection) string {
-	switch d {
-	case model.EffectSupports:
-		return "supports the claim"
-	case model.EffectNoEffect:
-		return "no meaningful effect"
-	case model.EffectOpposite:
-		return "opposite effect"
-	case model.EffectUnclear:
-		return "cannot be stated"
+func (l lexicon) effectDirectionLabel(d model.EffectDirection) string {
+	if name, ok := l.effectNames[d]; ok {
+		return name
 	}
 
 	return orDash(string(d))
@@ -292,12 +288,12 @@ func effectDirectionLabel(d model.EffectDirection) string {
 
 // effectDirectionSentence is the digest's sentence for the effect direction,
 // with a leading space; empty for a report written before the field existed.
-func effectDirectionSentence(d model.EffectDirection) string {
+func (l lexicon) effectDirectionSentence(d model.EffectDirection) string {
 	if d == "" {
 		return ""
 	}
 
-	return " Effect direction: " + effectDirectionLabel(d) + "."
+	return " " + l.effectDirection + ": " + l.effectDirectionLabel(d) + "."
 }
 
 func plural(n int, one, many string) string {
@@ -323,7 +319,7 @@ func sectionList(b *strings.Builder, title string, items []string) {
 }
 
 func shortTitle(s string, n int) string {
-	s = strings.NewReplacer("|", "/", "\n", " ").Replace(s)
+	s = strings.NewReplacer("|", "/", "\n", " ", "\r", " ", "\t", " ").Replace(s)
 	r := []rune(s)
 
 	if len(r) <= n {
@@ -353,8 +349,8 @@ func orDash(s string) string {
 // studies only: reviews and papers that are not study reports (errata,
 // comments) are not counted, and a trial reported several times counts once,
 // with the direction of the report that best matches the question's outcome
-// and time frame (tallyIndexes).
-func directionTally(st *State) string {
+// and time frame (tallyIndexes). The words are the lexicon's.
+func (l lexicon) directionTally(st *State) string {
 	var pos, null, neg, mixed, unclear int
 
 	crits := st.Critiques
@@ -364,13 +360,13 @@ func directionTally(st *State) string {
 
 	for _, i := range tallyIndexes(st, crits) {
 		switch strings.ToLower(crits[i].ResultDirection) {
-		case "positive":
+		case resultPositive:
 			pos++
-		case "null":
+		case resultNull:
 			null++
-		case "negative":
+		case resultNegative:
 			neg++
-		case "mixed":
+		case resultMixed:
 			mixed++
 		default:
 			unclear++
@@ -381,16 +377,16 @@ func directionTally(st *State) string {
 
 	for _, p := range []struct {
 		n    int
-		name string
+		word string
 	}{
-		{pos, "positive"},
-		{null, "null"},
-		{neg, "negative"},
-		{mixed, "mixed"},
+		{pos, resultPositive},
+		{null, resultNull},
+		{neg, resultNegative},
+		{mixed, resultMixed},
 		{unclear, valueUnclear},
 	} {
 		if p.n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", p.n, p.name))
+			parts = append(parts, fmt.Sprintf(l.item, p.n, l.tallyNames[p.word]))
 		}
 	}
 

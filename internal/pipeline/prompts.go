@@ -12,6 +12,27 @@ import (
 // critiqueSystemPrompt and critiquePaper (the critic stage) live in
 // critique.go: the stage is batched, with the single-study form as fallback.
 
+// languageRuleEN is hard rule 5 of the synthesis prompt in English; the other
+// languages replace it (synthesisPrompt).
+const languageRuleEN = "5. All human-readable text in English."
+
+// languageRuleRU makes the model write the free text of the verdict in
+// Russian; what a program reads (enum values, JSON keys) and what is cited
+// (DOIs, paper titles) stays as it is.
+const languageRuleRU = "5. All human-readable text (verdict_rationale, consensus, matrix_notes, contradictions, " +
+	"gaps) in Russian, in natural plain wording. Enum values, JSON keys and DOIs stay exactly as specified in " +
+	"English; paper titles stay as published."
+
+// synthesisPrompt is the synthesis system prompt for the language of the
+// report: the English prompt with hard rule 5 swapped.
+func synthesisPrompt(lang model.Language) string {
+	if lang == model.LangRU {
+		return strings.Replace(synthesisSystemPrompt, languageRuleEN, languageRuleRU, 1)
+	}
+
+	return synthesisSystemPrompt
+}
+
 // synthesisSystemPrompt — the reduce step: aggregation into a verdict along
 // a GRADE-style rubric. Key anti-illusions are baked into the rules: the
 // absence of contradictions is not confirmation; recent papers naturally
@@ -110,7 +131,7 @@ Hard rules:
 3. Retracted papers (retracted=true) must be excluded from supporting evidence and mentioned in contradictions.
 4. Give every DIRECT study a matrix note, even weak or failed ones (note the failure); ` +
 	`the pipeline fills in notes for the rest.
-5. All human-readable text in English.
+` + languageRuleEN + `
 6. Build consensus ONLY from studies with relevance "direct", grounded in their structured result_direction ` +
 	`fields: tally them first (e.g. "of 12 direct studies: 7 positive, 3 null, 2 negative"), then state where ` +
 	`the field leans. Do not duplicate: verdict says how PROVEN it is, ` +
@@ -409,11 +430,11 @@ func renderContextCompact(st *State, skip map[string]bool) string {
 	var b strings.Builder
 
 	if st.Report != nil {
-		r := st.Report
+		r, lx := st.Report, english() // the digests are English: they feed the model, not the reader
 		fmt.Fprintf(&b, "Verdict: %s.%s Consensus: %s.\n",
-			verdictLabel(r.Verdict), effectDirectionSentence(r.EffectDirection), consensusLabel(r.ConsensusStatus))
+			lx.verdictLabel(r.Verdict), lx.effectDirectionSentence(r.EffectDirection), lx.consensusLabel(r.ConsensusStatus))
 
-		if line := pooledLine(r.PooledEstimate); line != "" {
+		if line := lx.pooledLine(r.PooledEstimate); line != "" {
 			b.WriteString(line + "\n")
 		}
 

@@ -65,10 +65,64 @@ type evidenceStudy struct {
 	size     int    // zero when not stated
 	label    string // names the study where it is the largest
 	cochrane bool
+	// ref names the study in the list: the report that best matches the
+	// question, for a trial; pooled is whether the study is in the pooled estimate.
+	ref    studyRef
+	pooled bool
 }
 
-// buildEvidenceBase summarizes the corpus; nil without enriched papers. pe is
-// the pooled estimate of the report (nil when nothing was pooled).
+// studyRef identifies one report for the list of studies.
+type studyRef struct {
+	doi, title string
+	year       int
+	direction  model.StudyDirection
+}
+
+// refOf describes a report: its DOI, title (the label where there is none),
+// year and the direction of its findings.
+func refOf(e *model.EnrichedPaper, c model.Critique) studyRef {
+	title := strings.TrimSpace(e.Title)
+	if title == "" {
+		title = paperLabel(e)
+	}
+
+	return studyRef{
+		doi: model.NormalizeDOI(e.DOI), title: title, year: e.Year,
+		direction: studyDirection(c.ResultDirection),
+	}
+}
+
+// studyDirection reads the critic's result_direction against the claim.
+func studyDirection(raw string) model.StudyDirection {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case resultPositive:
+		return model.DirectionSupports
+	case resultNull:
+		return model.DirectionNull
+	case resultNegative:
+		return model.DirectionOpposite
+	case resultMixed:
+		return model.DirectionMixed
+	}
+
+	return model.DirectionUnclear
+}
+
+// evidenceBaseFor builds the evidence base of the corpus and writes its
+// summary in the language of the report.
+func evidenceBaseFor(st *State, pe *model.PooledEstimate, lang model.Language) *model.EvidenceBase {
+	eb := buildEvidenceBase(st, pe)
+	if eb != nil {
+		eb.Summary = lexiconFor(lang).evidenceText(eb, pe)
+	}
+
+	return eb
+}
+
+// buildEvidenceBase summarizes the corpus in numbers and one entry per direct
+// study; nil without enriched papers. The wording (Summary) is written by
+// evidenceBaseFor. pe is the pooled estimate of the report (nil when nothing
+// was pooled): the studies in it are marked.
 func buildEvidenceBase(st *State, pe *model.PooledEstimate) *model.EvidenceBase {
 	if len(st.Enriched) == 0 {
 		return nil
@@ -76,6 +130,7 @@ func buildEvidenceBase(st *State, pe *model.PooledEstimate) *model.EvidenceBase 
 
 	crits := critiquesFor(st)
 	trials := trialGroups(trialInputs(st, crits))
+	pooled := pooledKeys(pe)
 	eb := &model.EvidenceBase{}
 
 	var (
@@ -97,7 +152,7 @@ func buildEvidenceBase(st *State, pe *model.PooledEstimate) *model.EvidenceBase 
 			eb.Retracted++
 		case resolveDesign(e, c).IsSecondary():
 			studies = append(studies, evidenceStudy{
-				design: resolveDesign(e, c), label: paperLabel(e),
+				design: resolveDesign(e, c), label: paperLabel(e), ref: refOf(e, c),
 				cochrane: strings.HasPrefix(model.NormalizeDOI(e.DOI), cochraneDOIPrefix),
 			})
 		default:
@@ -110,7 +165,7 @@ func buildEvidenceBase(st *State, pe *model.PooledEstimate) *model.EvidenceBase 
 	}
 
 	for _, root := range order {
-		studies = append(studies, foldTrial(st, crits, members[root]))
+		studies = append(studies, foldTrial(st, crits, members[root], pooled))
 		eb.RepeatReports += len(members[root]) - 1
 	}
 
@@ -119,9 +174,31 @@ func buildEvidenceBase(st *State, pe *model.PooledEstimate) *model.EvidenceBase 
 	// Reviewed = Direct + RepeatReports + Retracted + Indirect: every assessed
 	// paper is in exactly one of the four
 	eb.Reviewed = len(st.Enriched) - eb.NotAssessed
-	eb.Summary = evidenceText(eb, pe)
 
 	return eb
+}
+
+// pooledKeys is the set of the keys (studyKey) of the studies in the pooled
+// estimate; empty when nothing is pooled. A single study is not pooled with
+// anything, so it is not marked either.
+func pooledKeys(pe *model.PooledEstimate) map[string]bool {
+	set := map[string]bool{}
+
+	if pe == nil || pe.Method == model.PoolSingleStudy {
+		return set
+	}
+
+	// the normalized form too: an estimate saved before the keys were
+	// normalized names a DOI as the paper wrote it
+	for _, k := range pe.Studies {
+		for _, key := range []string{strings.TrimSpace(k), model.NormalizeDOI(k)} {
+			if key != "" {
+				set[key] = true
+			}
+		}
+	}
+
+	return set
 }
 
 // notAssessed reports whether the paper has no usable critique: the call
@@ -137,9 +214,9 @@ func notAssessed(c model.Critique) bool {
 // the one that best matches the question (reportRank, as the pool and the
 // direction tally keep it); a field it does not state (an unclear design, no
 // blinding, no size) is taken from the other reports in corpus order.
-func foldTrial(st *State, crits []model.Critique, reports []int) evidenceStudy {
+func foldTrial(st *State, crits []model.Critique, reports []int, pooled map[string]bool) evidenceStudy {
 	kept := reports[0]
-	rank := func(i int) reportRank { return rankOf(st.Enriched[i].DOI, st.Enriched[i].Year, crits[i].Effect) }
+	rank := func(i int) reportRank { return rankOf(studyKey(&st.Enriched[i]), st.Enriched[i].Year, crits[i].Effect) }
 
 	for _, i := range reports[1:] {
 		if rank(i).keptOver(rank(kept)) {
@@ -155,12 +232,17 @@ func foldTrial(st *State, crits []model.Critique, reports []int) evidenceStudy {
 		}
 	}
 
-	s := evidenceStudy{design: model.DesignUnclear}
+	s := evidenceStudy{design: model.DesignUnclear, ref: refOf(&st.Enriched[kept], crits[kept])}
 	sized, designed := false, false
 	s.blinding = foldBlinding(crits, ordered)
 
 	for _, i := range ordered {
 		e, c := &st.Enriched[i], crits[i]
+
+		// the study is pooled when any of its reports is: the pool keeps one
+		// report per trial, which need not be the one named here
+		key := studyKey(e)
+		s.pooled = s.pooled || (key != "" && pooled[key])
 
 		if d := resolveDesign(e, c); !designed && d.IsKnown() {
 			s.design, designed = d, true
@@ -224,9 +306,9 @@ func paperLabel(e *model.EnrichedPaper) string {
 func fillEvidenceGroups(eb *model.EvidenceBase, studies []evidenceStudy) {
 	byKind := map[evidenceKind][]evidenceStudy{}
 
-	for _, s := range studies {
-		k := evidenceKindOf(s.design)
-		byKind[k] = append(byKind[k], s)
+	for i := range studies {
+		k := evidenceKindOf(studies[i].design)
+		byKind[k] = append(byKind[k], studies[i])
 	}
 
 	eb.Randomized = evidenceGroup(byKind[evidenceRandomized], true)
@@ -234,6 +316,18 @@ func fillEvidenceGroups(eb *model.EvidenceBase, studies []evidenceStudy) {
 	eb.Reviews = reviewGroup(byKind[evidenceReview])
 	eb.Other = len(byKind[evidenceOther])
 	eb.Direct = len(studies)
+
+	for i := range studies {
+		eb.Studies = append(eb.Studies, studies[i].record())
+	}
+}
+
+// record is the study as the artifact keeps it.
+func (s evidenceStudy) record() model.EvidenceStudy {
+	return model.EvidenceStudy{
+		DOI: s.ref.doi, Title: s.ref.title, Year: s.ref.year, Design: s.design, Blinding: s.blinding,
+		Cochrane: s.cochrane, Participants: s.size, Direction: s.ref.direction, Pooled: s.pooled,
+	}
 }
 
 // reviewGroup counts the reviews and the Cochrane ones among them; their sizes
@@ -245,8 +339,8 @@ func reviewGroup(reviews []evidenceStudy) *model.EvidenceGroup {
 
 	g := &model.EvidenceGroup{Studies: len(reviews)}
 
-	for _, r := range reviews {
-		if r.cochrane {
+	for i := range reviews {
+		if reviews[i].cochrane {
 			g.Cochrane++
 		}
 	}
@@ -265,7 +359,9 @@ func evidenceGroup(studies []evidenceStudy, withBlinding bool) *model.EvidenceGr
 
 	var sizes []int
 
-	for _, s := range studies {
+	for i := range studies {
+		s := &studies[i]
+
 		if withBlinding {
 			countBlinding(g, s.blinding)
 		}

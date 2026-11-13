@@ -243,8 +243,8 @@ Keep only correct runs: when a run is superseded or broken, delete it
 | `1-discovery.json` | found papers (DOIs, abstracts, design tags); its `question` field is reused verbatim by challenge re-runs |
 | `2-enrichment.json` | Scite tallies + retraction flags (OpenAlex **and** Crossref/Retraction Watch) + OA links + who contradicts (Scite key) + abstracts OpenAlex withholds (Europe PMC fallback, `abstract_source`) + `trial_registrations` (registration numbers from the abstract and the PubMed record; papers that share one are reports of one trial, pooled and counted once — `left_out` in the pooled estimate names the reports set aside) + `publication_types` (OpenAlex type, PubMed publication types: an erratum, comment, letter or other paper that is not a study report is never pooled or counted in the direction tally) |
 | `3-critique.json` | per-paper LLM critiques (quality, relevance, direction of findings; for the extracted effect also `outcome_match`, `timepoint_weeks` / `timepoint_match`, `adjusted` and, for a cluster trial, `cluster`) |
-| `4-synthesis.json` | the final report JSON; `pooled_estimate` carries `stratum` (`randomized` or `non-randomized`: the two are never pooled together) and `left_out`, the studies with numbers that were not pooled, each as `doi (reason)`; `evidence_base` is the computed summary of the studies behind the verdict (counts by design group, blinding, sizes), `blinding_bias` the computed rating for lack of blinding when it fires |
-| `report.md` / `matrix.csv` | human-readable report / matrix as a table (numbers assembled deterministically, never LLM-copied) |
+| `4-synthesis.json` | the final report JSON (`language` names the language of its text; absent = English); `pooled_estimate` carries `stratum` (`randomized` or `non-randomized`: the two are never pooled together) and `left_out`, the studies with numbers that were not pooled, each as `doi (reason)`; `evidence_base` is the computed summary of the studies behind the verdict (counts by design group, blinding, sizes, and `studies`: one entry per direct study, the data of the report's list), `blinding_bias` the computed rating for lack of blinding when it fires |
+| `report.md` / `matrix.csv` | human-readable report / matrix as a table (numbers assembled deterministically, never LLM-copied); the report is in the language of `--lang` / `REPORT_LANG` (English by default) and, under the evidence-base line, lists the direct studies by number of participants (a bar on a log scale) in a code block — show both to the user as they are |
 | `context.md` | digest for `ask` and interactive agents |
 | `fulltext/*.pdf` | paper PDFs: ones you drop in yourself (`<doi with / as _>.pdf`, always read in every mode — `verdict addpdf` reads the DOI from the PDF) plus OA PDF downloads in `full` mode or for the pivotal studies the hybrid pass deepens (also where an XML source supplies the full text: that text is what the critic reads, the PDF is saved besides it and not read; a failed download there is only logged) — kept for full-text critique + chart checks. The "Full texts not obtained" section of `report.md` lists the direct studies read from the abstract, each with the file name to save its PDF under; rerun with `--resume` |
 | `3b-vision.json` | optional agent-written chart critique (via the vision tool, or the agent's own eyes in a Claude session); the synthesis stage weighs it |
@@ -294,6 +294,19 @@ run from the last completed stage without paying twice.
                          #   before the single synthesis; full — OA
                          #   full texts for every paper. A PDF dropped into
                          #   fulltext/ is read in every mode.
+--lang ru                # language of the report: en | ru (defaults to REPORT_LANG
+                         #   from env, en). The synthesis writes the rationale,
+                         #   consensus, notes, contradictions and gaps in it, and
+                         #   report.md is labelled in it (headings, the evidence-base
+                         #   sentence and study list, the pooled line). Enum values,
+                         #   JSON keys and the column labels of matrix.csv and the
+                         #   labels of context.md stay English (the notes in
+                         #   matrix.csv and the rationale, consensus, contradictions
+                         #   and gaps in context.md are the synthesis text, in the
+                         #   report language); so do the reasons of the computed
+                         #   imprecision and blinding ratings, the data warnings,
+                         #   the critic's concerns and the LLM usage footer.
+                         #   `eval` always runs in English
 --llm-command claude-max # LLM wrapper for this run, by name (never bare `claude`).
                          #   Order: this flag -> CLAUDE_WRAPPER (set by the
                          #   wrapper of the current session) -> LLM_COMMAND
@@ -312,6 +325,23 @@ run from the last completed stage without paying twice.
 #   drops a downloaded PDF into the run; the DOI is read from the PDF itself
 --llm-concurrency 4      # LLM stage parallelism
 ```
+
+**Report language.** `--lang en|ru` (env `REPORT_LANG`, default English; the
+flag wins) sets the language of the whole report. The synthesis prompt asks the
+model for its free text in that language; Go writes the headings, the field
+labels, the verdict level names, the evidence-base sentence, the list of the
+direct studies and the pooled line from a small per-language table. What stays
+English in every language: enum values and JSON keys, the column labels and
+values of `matrix.csv`, the labels of `context.md`, the reason texts Go
+generates (the imprecision and blinding-bias reasons, the data warnings), the
+critic's concerns (the fallback of an empty matrix note), the LLM usage footer
+and paper titles. The synthesis text inside `matrix.csv` (the notes) and
+`context.md` (the rationale, consensus, contradictions and gaps) is in the
+report language. The language is stored in the report (`4-synthesis.json`,
+`language`), so a `--resume` of a finished synthesis keeps the language of that
+synthesis; to get the other language delete `4-synthesis.json` and rerun with
+`--resume` (one synthesis call). `verdict eval` always runs in English, whatever
+`REPORT_LANG` says. Over HTTP, a job takes `"lang": "ru"`.
 
 ## Costs
 
@@ -566,7 +596,8 @@ reports a general message, the details are in the daemon log.
 
 ```
 POST /runs   {"question": "...", "topic": "...", "max_papers": 15,
-              "text_mode": "hybrid", "stop_after": "2"}     # or "dois": [...]
+              "text_mode": "hybrid", "stop_after": "2",
+              "lang": "ru"}                                 # or "dois": [...]; lang: en | ru
 GET  /runs                                                # jobs with status
 GET  /runs/{id}                                           # one job + verdict
 GET  /runs/{id}/{artifact}                                # report.md, context.md, N-*.json, ...

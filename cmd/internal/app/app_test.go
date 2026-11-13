@@ -16,6 +16,7 @@ import (
 
 	"github.com/roman-redl/verdict/internal/config"
 	"github.com/roman-redl/verdict/internal/llm"
+	"github.com/roman-redl/verdict/internal/model"
 	"github.com/roman-redl/verdict/internal/pipeline"
 )
 
@@ -457,12 +458,13 @@ func TestBuildClientsPropagatesBackendErrors(t *testing.T) {
 func TestPipelineSettings(t *testing.T) {
 	got := PipelineSettings(&config.Config{
 		MaxPapers: 15, Concurrency: 4, LLMConcurrency: 3, LLMChunk: 5, ConsensusPages: 2, PubMed: pipeline.PubMedOff,
-		TextMode: pipeline.TextFull, HybridPivotalMax: 6, EnrichCacheTTLDays: 30, CritiqueCacheTTLDays: 0,
+		TextMode: pipeline.TextFull, ReportLang: model.LangRU, HybridPivotalMax: 6,
+		EnrichCacheTTLDays: 30, CritiqueCacheTTLDays: 0,
 	})
 
 	assert.Equal(t, pipeline.Settings{
 		MaxPapers: 15, Concurrency: 4, LLMConcurrency: 3, LLMChunk: 5, ConsensusPages: 2, PubMed: pipeline.PubMedOff,
-		TextMode: pipeline.TextFull, HybridPivotalMax: 6,
+		TextMode: pipeline.TextFull, Language: model.LangRU, HybridPivotalMax: 6,
 		EnrichCacheTTL: 30 * 24 * time.Hour, CritiqueCacheTTL: 0,
 	}, got, "cache TTLs in days become durations; zero stays zero (cache off)")
 }

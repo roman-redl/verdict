@@ -95,15 +95,33 @@ modes A/B/C are a different thing — see docs/usage.md.)
    - mode B with additions, or mode C: `bin/verdict run --topic <topic>
      --dois dois.txt -q "<full question>"` over the merged corpus (one
      topic for the whole problem).
+   - **Report language.** For a Russian-speaking user every `verdict` command
+     that reaches the synthesis must carry `--lang ru` (or set
+     `REPORT_LANG=ru` for the whole session): the `run` above, a `--resume`
+     after deleting `4-synthesis.json`, the re-runs after `addpdf`, the
+     challenge re-runs (Scenario 3). Without it the report silently comes out
+     in English. The discovery-only run does not need the flag. For an
+     English-speaking user leave it out (English is the default; `REPORT_LANG`
+     in `.env` changes the default). The language is fixed by the synthesis,
+     and `--resume` over an existing `4-synthesis.json` keeps the report as it
+     is (the log warns when the requested language differs): to get the other
+     language later, delete `4-synthesis.json` + `report.md` + `matrix.csv` and
+     rerun with `--resume --lang <en|ru>` (one synthesis call).
 7. **Explain**: read `report.md` and `context.md`, then tell the user the
-   verdict and consensus in plain words. Put the **Evidence base** line of
-   `report.md` (written by Go, right under the verdict block) next to the
-   verdict in every answer, translated into the user's language with its
-   numbers unchanged: it shows at a glance what a strong or a weak verdict
-   stands on (how many papers answer the question directly, what kind of
-   studies, how many participants, what was pooled). Do not recompute it
-   or drop parts of it; when a report has no such line, answer without
-   it. Then say which DOIs and designs carry the verdict and consensus,
+   verdict and consensus in plain words. Show the user the **Evidence base**
+   line of `report.md` (written by Go, right under the verdict block) and the
+   **study list block** right under it (the header line and the code block of
+   the direct studies, with the bars) as they are, next to the verdict in
+   every answer: both are already in the user's language when the run used
+   `--lang`, so copy them unchanged, the code block verbatim (monospace, no
+   reflow; never rebuild it as a table). They show at a glance what a strong
+   or a weak verdict stands on (how many papers answer the question directly,
+   what kind of studies, how many participants, what was pooled, which study
+   is the big one). Do not recompute them or drop parts of them; when a report
+   has no such line or block (an old run), answer without it, and a report in
+   English for a Russian-speaking user (a run made without `--lang ru`) gets
+   the line translated with its numbers unchanged. Then say which DOIs and
+   designs carry the verdict and consensus,
    where the direct studies' findings point (the direction tally: how
    many positive / null / negative), every term explained on first use,
    every claim labeled by evidence kind (a clinician survey shows what
@@ -120,7 +138,8 @@ modes A/B/C are a different thing — see docs/usage.md.)
      the file from the user, `bin/verdict addpdf <file> --run-dir ...` (the
      DOI is read from the PDF itself), delete `3-critique.json` +
      `4-synthesis.json` + `report.md` + `matrix.csv`, then
-     `run --run-dir ... --resume`. The critique cache re-critiques ONLY the
+     `run --run-dir ... --resume` (with `--lang ru` for a Russian-speaking
+     user, as above). The critique cache re-critiques ONLY the
      studies whose inputs changed (a dropped PDF changes the cache key) —
      the rest come from the cache. A PDF dropped into `fulltext/` is read in
      every text mode.
@@ -165,7 +184,8 @@ that discovery was keyword-based, not semantic.
    snowball check is welcome here too.
 3. **A counterargument, not papers?** (`"your moderate is too generous"`)
    Re-run the SAME corpus with `run --challenge-note "<the argument>"`:
-   the judge must weigh it and answer it in the rationale. The note is an
+   the judge must weigh it and answer it in the rationale (add `--lang ru` for
+   a Russian-speaking user, as in Scenario 1). The note is an
    argument, not data — it cannot override the collected evidence. Reuse the
    question verbatim and the critique cache makes this a 1-call re-run.
 4. **Fresh run in the SAME topic**, same `-q` — never edit existing

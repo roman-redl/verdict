@@ -7,10 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/roman-redl/verdict/internal/model"
 )
 
 // doiList writes a DOI list file and returns its path.
@@ -76,4 +79,31 @@ func TestCorruptCacheIsLogged(t *testing.T) {
 	assert.Empty(t, LoadEnrichCache(path, ttl30d, testNow, log))
 	assert.Empty(t, LoadCritiqueCache(path, ttl30d, testNow, log))
 	assert.Contains(t, logs.String(), "cache corrupt")
+}
+
+// A resume that loads a finished synthesis keeps the report in its language;
+// asking for another language warns instead of silently changing nothing.
+func TestResumeWarnsWhenTheReportLanguageDiffers(t *testing.T) {
+	artifact := filepath.Join(t.TempDir(), stageSynthesis+".json")
+	require.NoError(t, saveJSON(artifact, &State{Report: &model.Report{Language: model.LangEN}}))
+
+	for _, tc := range []struct {
+		name string
+		lang model.Language
+		warn bool
+	}{
+		{"same language", model.LangEN, false},
+		{"default language", "", false},
+		{"another language", model.LangRU, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+
+			p := newTest(t, Settings{}, Clients{}, slog.New(slog.NewTextHandler(&logs, nil)))
+			rp := params(Options{Resume: true, Language: tc.lang})
+
+			require.NoError(t, p.resumeStage(t.Context(), rp, &State{}, stageSynthesis, artifact))
+			assert.Equal(t, tc.warn, strings.Contains(logs.String(), "the existing report keeps its language"))
+		})
+	}
 }
