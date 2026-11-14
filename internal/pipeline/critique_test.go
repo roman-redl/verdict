@@ -159,6 +159,83 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	require.NotZero(t, s3.calls, "added full text must re-critique, not serve the cached abstract critique")
 }
 
+// The markers the pipeline keeps in a critique (the effect follow-up was made,
+// the labels were voted on, the critic's own labels) are not the model's to
+// set: a fresh reply that carries them loses them, so that it cannot suppress
+// the follow-up or the vote.
+func TestFreshCritiqueRepliesLoseThePipelinesMarkers(t *testing.T) {
+	const marked = `"effect_asked":true,"match_adjudicated":true,` +
+		`"effect":{"outcome":"x","outcome_match":"related","timepoint_match":"no",` +
+		`"outcome_match_critic":"same","timepoint_match_critic":"yes",` +
+		`"intervention":{"events":3,"total":50},"control":{"events":9,"total":50}}`
+
+	check := func(t *testing.T, c model.Critique) {
+		t.Helper()
+
+		assert.False(t, c.EffectAsked)
+		assert.False(t, c.MatchAdjudicated)
+		require.NotNil(t, c.Effect)
+		assert.Equal(t, model.OutcomeRelated, c.Effect.OutcomeMatch, "the model's own labels stay")
+		assert.Equal(t, model.TimepointNo, c.Effect.TimepointMatch)
+		assert.Empty(t, c.Effect.OutcomeMatchCritic)
+		assert.Empty(t, c.Effect.TimepointMatchCritic)
+	}
+
+	t.Run("a batch reply", func(t *testing.T) {
+		batch := `{"critiques":[{"doi":"10.1/a","relevance":"direct","result_direction":"positive",` + marked + `}]}`
+		s := &scriptCompleter{replies: []string{batch}}
+
+		got, _, err := critiqueBatch(t.Context(), s, []model.EnrichedPaper{ep(doiA)}, "q", quietLog())
+		require.NoError(t, err)
+		check(t, got[doiA])
+	})
+
+	t.Run("a single reply", func(t *testing.T) {
+		single := `{"doi":"10.1/a","relevance":"direct","result_direction":"positive",` + marked + `}`
+		s := &scriptCompleter{replies: []string{single}}
+
+		got, _, err := critiquePaper(t.Context(), s, ep(doiA), "q", quietLog())
+		require.NoError(t, err)
+		check(t, got)
+	})
+
+	t.Run("the follow-up and the vote stay due", func(t *testing.T) {
+		c := normalizeCritique(model.Critique{
+			DOI: doiA, Relevance: relevanceDirect, ResultDirection: resultPositive, StudyDesign: designRCT,
+			EffectAsked: true, MatchAdjudicated: true,
+		}, ep(doiA), quietLog())
+
+		assert.True(t, needsEffectFollowUp(&model.EnrichedPaper{Abstract: "text", StudyDesign: designRCT}, c))
+		assert.False(t, c.MatchAdjudicated)
+	})
+}
+
+// A critique loaded from the cache is the pipeline's own record: it keeps its
+// markers and is not asked again.
+func TestCachedCritiqueKeepsThePipelinesMarkers(t *testing.T) {
+	tmp := t.TempDir()
+	cachePath := filepath.Join(tmp, "critique-cache.json")
+
+	cached := crit(doiA, qualityHigh, relevanceDirect, directionPositive)
+	cached.EffectAsked, cached.MatchAdjudicated = true, true
+	cached.Effect = &model.Effect{
+		OutcomeMatch: model.OutcomeRelated, OutcomeMatchCritic: model.OutcomeSame,
+		TimepointMatch: model.TimepointNo, TimepointMatchCritic: model.TimepointYes,
+	}
+
+	seeded := CritiqueCache{critiqueCacheKey(ep(doiA), "q?"): {CheckedAt: testNow, Critique: cached}}
+	require.NoError(t, seeded.Save(cachePath))
+
+	s := &scriptCompleter{}
+	p := newTest(t, Settings{LLMConcurrency: 1, LLMChunk: 5, CritiqueCacheTTL: ttl30d}, Clients{LLM: s}, quietLog())
+	st := &State{Question: "q?", Enriched: []model.EnrichedPaper{ep(doiA)}}
+
+	require.NoError(t, p.critique(t.Context(), params(Options{RunDir: filepath.Join(tmp, "run")}), st))
+
+	require.Zero(t, s.calls)
+	assert.Equal(t, cached, st.Critiques[0])
+}
+
 // PDFs dropped into the run directory after enrichment (the addpdf recipe, a
 // resume whose stage-2 artifact survived) enter at critique time and
 // re-critique: the cache key includes the full text (regression: the pickup

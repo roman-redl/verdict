@@ -76,6 +76,7 @@ func russian() lexicon {
 		},
 		notRatedDown: "оценка не понижена", ratedDown: "оценка понижена на", serious: "серьёзный риск",
 
+		grade:    russianGrade(),
 		sentence: russianSentence(studies),
 		list:     russianList(),
 	}

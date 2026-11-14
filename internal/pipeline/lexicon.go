@@ -53,6 +53,9 @@ type lexicon struct {
 	strata                                     map[model.Stratum]string
 	notRatedDown, ratedDown, serious           string
 
+	// grade is the wording of the computed certainty line.
+	grade gradeWords
+
 	sentence evidenceWords
 	list     listWords
 }

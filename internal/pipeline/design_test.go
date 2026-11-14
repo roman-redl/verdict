@@ -33,6 +33,23 @@ func studyOf(title, tag string) model.EnrichedPaper {
 	return e
 }
 
+// pubTypeRCT is PubMed's publication type of a randomized trial.
+const pubTypeRCT = "Randomized Controlled Trial"
+
+// typedStudy is a study with the given title and publication types, no tag.
+func typedStudy(title string, types ...string) model.EnrichedPaper {
+	e := studyOf(title, "")
+	e.PublicationTypes = model.NormalizePublicationTypes(types)
+
+	return e
+}
+
+func withTag(e model.EnrichedPaper, tag string) model.EnrichedPaper {
+	e.StudyDesign = tag
+
+	return e
+}
+
 func paperOf(doi, title, tag string) model.Paper {
 	return model.Paper{DOI: doi, Title: title, StudyDesign: tag}
 }
@@ -89,6 +106,52 @@ func TestResolveDesign(t *testing.T) {
 			want:   model.DesignSystematicReview,
 		},
 		{name: "nothing known", paper: studyOf("", ""), want: model.DesignUnclear},
+		{
+			name:   "an unclear critic and a randomized publication type: rct",
+			paper:  typedStudy(titleTrial, pubTypeRCT),
+			critic: model.DesignUnclear,
+			want:   model.DesignRCT,
+		},
+		{
+			name:  "no critic design and a randomized publication type: rct",
+			paper: typedStudy("", "Journal Article", pubTypeRCT),
+			want:  model.DesignRCT,
+		},
+		{
+			name:   "an explicit critic design is not overridden by the publication type",
+			paper:  typedStudy("", pubTypeRCT),
+			critic: model.DesignCohort,
+			want:   model.DesignCohort,
+		},
+		{
+			name:   "a cluster trial of the critic stays cluster",
+			paper:  typedStudy("", pubTypeRCT),
+			critic: model.DesignClusterRCT,
+			want:   model.DesignClusterRCT,
+		},
+		{
+			name:   "the tag wins over the publication type",
+			paper:  withTag(typedStudy("", pubTypeRCT), tagCohort),
+			critic: model.DesignUnclear,
+			want:   model.DesignCohort,
+		},
+		{
+			name:  "a review title wins over the publication type",
+			paper: typedStudy(titleMetaAnalysisRCT, pubTypeRCT),
+			want:  model.DesignMetaAnalysis,
+		},
+		{
+			name:   "a review publication type blocks the fallback",
+			paper:  typedStudy("", pubTypeRCT, "Meta-Analysis"),
+			critic: model.DesignUnclear,
+			want:   model.DesignUnclear,
+		},
+		{
+			name:   "a pragmatic trial type does not say randomized",
+			paper:  typedStudy("", "Pragmatic Clinical Trial"),
+			critic: model.DesignUnclear,
+			want:   model.DesignUnclear,
+		},
 	}
 
 	for _, tt := range tests {

@@ -416,7 +416,7 @@ func pooledFrom(g *poolGroup) (*model.PooledEstimate, []float64, error) {
 	pe := &model.PooledEstimate{
 		Method: method, Measure: g.measure, Unit: g.unit,
 		Estimate: back(res.Estimate), CILow: back(res.CILow), CIHigh: back(res.CIHigh),
-		K: res.K, Studies: dois, Outcome: joinOutcomes(g.items),
+		K: res.K, Studies: dois, Weights: res.Weights, Outcome: joinOutcomes(g.items),
 	}
 
 	if method == model.PoolRandomEffects {

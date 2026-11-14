@@ -90,10 +90,12 @@ artifacts are JSON too.
 medicine: **strong / moderate / weak / insufficient**, with exact
 definitions baked into the prompt. As in GRADE, it rates the certainty of
 the stated direction, "no effect" included: randomized trials start at
-strong and observational studies at weak, each serious problem (risk of
-bias, inconsistency, indirectness, imprecision, publication bias) lowers it
-one level, and the study count is not a level by itself — one adequate,
-well-conducted trial is usually moderate. Measured against Cochrane
+strong and observational studies at weak, each problem (risk of bias,
+inconsistency, indirectness, imprecision, publication bias) lowers it by
+the levels the domain's rule gives, and the study count is not a level by
+itself — one adequate, well-conducted trial is usually moderate. The level
+is computed in Go from the model's yes/no checklist answers (see "The
+certainty level is computed from a checklist"). Measured against Cochrane
 conclusions with `verdict eval` (docs/usage.md, "Evaluation").
 
 **Consensus** — where the field as a whole stands on the question. The
@@ -678,7 +680,9 @@ pooled estimate the reasons go to a report warning instead).
    (a missing label reads as `same`) and whose `timepoint_match` is not `no`
    (a missing one reads as `unclear`) is pooled; the others are left out as
    `other outcome` or `other time point`. "Unknown" is never "different": a
-   garbled or missing label does not exclude a study.
+   garbled or missing label does not exclude a study. The labels are the
+   critic's, settled by a majority vote of three independent calls (see
+   "The outcome and time point labels are settled by a vote").
 3. **Cluster trials.** A `cluster_rct` effect from counts or means that does not
    account for clustering (`cluster.adjusted_for_clustering` not true) has the
    participants and events of each arm divided by the design effect
@@ -739,6 +743,73 @@ example of the metafor package. A pooled mean difference also carries `sd`,
 the participant-weighted mean of the studies' pooled SDs, when every study
 gave its arms' SDs and sizes (a reported estimate has no SD).
 
+**Missing numbers are asked for once more.** The critic does not always copy
+the numbers: re-running it on the same corpus sometimes returned no `effect`
+for a direct study whose abstract gives the arms' counts, and the study then
+dropped out of the pool. After the critique stage — and after the hybrid
+deepening, whose deep re-critique can drop an effect too — every critique
+with relevance `direct`, a primary design (resolved as above), a
+`result_direction` of positive, null, negative or mixed, and no `effect` is
+asked one short follow-up of its own: the question and the paper's text (the
+abstract, or the full text when there is one), the same field description and
+extraction rules the critic prompts carry (`critiqueEffectField`,
+`critiqueEffectExtractionRules`), and the answer `{"effect": {...}}` or
+`{"effect": null}`. A returned effect goes through the normalization of a
+normal critique (unknown labels dropped with a warning) and is kept only when
+it holds usable numbers (not placeholder zeros); otherwise the study keeps no
+effect, with a warning. At most 10 studies are asked per run (corpus order; a
+log line says when the cap cut some), one call each, run in parallel like the
+critique chunks. The calls count in the critique stage's cost and in the log
+(`effect follow-up`: missing, asked, filled). The filled effect is written to
+`3-critique.json` and to the critique cache, and the critique carries
+`effect_asked`, so a resume or a re-run served from the cache does not ask
+again, whatever the answer was (an unreadable reply or a failed call is not
+remembered: such a study is asked again by a later run served from the critique
+cache, not by a `--resume` of the same run directory, which loads
+`3-critique.json` as it is). The markers (`effect_asked`, `match_adjudicated`, the critic's own
+labels) are the pipeline's: a fresh model reply that carries them loses them, so
+it cannot suppress the follow-up or the vote, while a critique read back from
+the cache or the artifact keeps them. Writing a changed critique through to the
+cache keeps the entry's `checked_at`: a marker or a number added to a critique
+does not make it any younger against the cache's TTL. A usage limit stops the
+follow-up like it stops the critique: what the finished calls filled stays
+cached, `--resume` continues.
+
+**The outcome and time point labels are settled by a vote.** The critic's
+`outcome_match` and `timepoint_match` decide whether an effect enters the
+pool, and the critic does not always give the same label to the same trial: one
+trial (freedom from AF recurrence) was `same` in two runs and `related` in a
+third, and the `related` run took it out of the pool. The last step of the
+critique stage, after the follow-up, therefore labels again every critique
+with relevance `direct`, a primary design and an effect with usable numbers.
+Three independent calls of the `plan` role model (sonnet by default, the same
+role mechanism as the screening) each get the question and, per candidate,
+only the effect's own `outcome` text, `timepoint` text and `timepoint_weeks`
+(no abstracts, and not the critic's labels, which would anchor the answer),
+and label each candidate with `outcome_match` and `timepoint_match` by the
+same definitions the critic prompts carry (`critiqueOutcomeMatchDef`,
+`critiqueTimepointMatchDef`). Per candidate and per label the majority of the
+valid votes wins; with no majority (three different answers, or two valid
+replies that differ) the critic's label stays. A malformed reply (not JSON
+after the usual one retry, an unknown label, a missing candidate) is no vote
+for every candidate of the call; with fewer than two valid replies the
+critic's labels stay, a warning is logged, and the step runs again on a
+later run served from the critique cache (a `--resume` of the same run
+directory loads `3-critique.json` as it is and does not repeat the step,
+apart from a hybrid artifact that still lacks its deepening). More than 40 candidates are split into rounds of three calls each. The
+calls run in parallel under the LLM concurrency limit and count in the critique
+stage's cost; the log line `outcome adjudication` gives the candidates, the
+studies settled and how many outcome and time point labels changed. Where the
+vote changed a label, the effect keeps the critic's own in
+`outcome_match_critic` / `timepoint_match_critic` (an absent label counts as
+`same` / `unclear`, as the pool reads it), so the artifact shows what the
+adjudication did. The result goes to `3-critique.json` and to the critique
+cache with the critique's `match_adjudicated` marker, so a resume or a re-run
+served from the cache does not vote again. A usage limit stops the step like
+the critique: a vote cut short is not applied, the calls made are counted, and
+`--resume` runs it again. Without a `plan` model client the step is skipped
+with a warning.
+
 **Reviews are not pooled.** A systematic review or meta-analysis repeats the
 data of the trials it includes, so pooling both would count that data twice
 and make the interval falsely narrow (and the imprecision rating, computed
@@ -750,7 +821,16 @@ as independent evidence. The design is resolved from, in order: the critic's
 `meta-analysis`, `systematic review`, `literature review`, `cohort study`
 and so on, mapped onto the same set; its catch-all `other` says nothing); the
 title ("systematic review", "meta-analysis", "pooled analysis", "umbrella
-review", "Cochrane review"). A study whose design stays unknown is not
+review", "Cochrane review"); and last the publication types of the paper
+(OpenAlex and PubMed records): a paper typed `Randomized Controlled Trial`
+is `rct` (never `cluster_rct` or `crossover_rct` — the types do not tell;
+`Pragmatic Clinical Trial` and `Controlled Clinical Trial` do not say the
+allocation was random, so they are not read as randomized, and a record typed
+also as a review is not a trial). The publication-type step is the fallback
+for a critic that left the design empty or `unclear`: the same text can make
+the critic commit to a design in one run and not in the next, and a
+randomized trial that reads `unclear` would fall out of the randomized
+stratum. An explicit design of the critic is never overridden. A study whose design stays unknown is not
 skipped as a review, but it has no design class either (see the strata above).
 The same resolved design fills the Design column when the
 paper has no discovery tag (`--dois`, OpenAlex discovery). Critiques saved
@@ -852,7 +932,10 @@ of the direction of the effect vary between runs and mix up "no effect" with
 computed in Go (`internal/grade`, pure arithmetic):
 `imprecision` (`levels` 0-2, `target`, the band, a `reason` sentence with the
 numbers) goes next to `pooled_estimate` in the judge's input, and the judge
-uses its `levels` exactly instead of judging imprecision again. The null is 1
+uses its `levels` exactly instead of judging imprecision again. Where Go
+computed none (no pooled estimate, or one it cannot rate) the input has no
+`imprecision` field and the model rates imprecision itself, as 0, 1 or 2
+levels (`imprecision_without_pool`, see the level arithmetic below). The null is 1
 for ratios and 0 for differences. The thresholds are the defaults for when no
 minimal important difference is known: a ratio of 0.75 to 1.25, an SMD of ±0.2,
 an MD of ±0.2 SD (only when the SD is known).
@@ -903,11 +986,11 @@ critique without the new fields never fires it. Blinding of a study whose design
 is known not to be randomized is not counted. Nothing fires without a pooled
 estimate. The result is `blinding_bias` (`levels` 1, a `reason` with that
 share), next to `imprecision` in the judge's input and in the report ("Risk of
-bias from lack of blinding (computed)"). The judge's prompt tells it that the
-risk-of-bias domain then includes it: it lowers at least that one level for
-risk of bias, does not lower again for blinding, and other flaws shown by the
-text can still make risk of bias very serious (two levels). Without
-`blinding_bias` the prompt reads as before.
+bias from lack of blinding (computed)"). Go counts it as one of the
+risk-of-bias levels (see "The certainty level is computed from a checklist"),
+and the judge's prompt tells the model not to count blinding again: lack of
+blinding is not a checklist item. Without `blinding_bias` the model has no
+blinding item to answer either.
 
 **Inconsistency needs more than one study.** GRADE judges inconsistency across
 studies: one study cannot be inconsistent, and neither can studies that report
@@ -923,10 +1006,116 @@ whose `outcome_match` is `same` (a missing label reads as the same). The
 design stratum, the measure, the time point and whether the study entered the
 pool do not matter: a second trial with numbers on the outcome that stayed out
 of the pool still makes the judgment possible, so the count is not the pool's
-`k`. With fewer than two, the prompt forbids rating down for inconsistency; a
-lack of numbers is a gap (imprecision or reporting), not inconsistency. The
-rating itself stays with the judge. The report shows the count as "Studies
-with numbers on the outcome".
+`k`. With fewer than two, the prompt tells the model to answer "no" to both
+inconsistency items and Go ignores them; a lack of numbers is a gap
+(imprecision or reporting), not inconsistency. The report shows the count as
+"Studies with numbers on the outcome".
+
+**The certainty level is computed from a checklist.** With the same inputs the
+synthesis model's level differed between repeats in 4 of 12 questions, every
+time on a borderline "is this serious?" call about risk of bias or
+indirectness; the computed parts (the pool, imprecision, blinding) were
+stable. So the model no longer rates how serious a problem is: its answer
+carries a required `grade_checklist` of factual items, answered "yes" only when
+the text states it (an unreported detail is "no"). `risk_of_bias` is answered
+per study (`per_study`: for every direct primary study of the input a `doi` and
+the four items `attrition`: loss above 20 percent in any arm or a gap above 10
+points between arms; `allocation_flaw`: "yes" only when the text states that
+allocation was not random or not concealed (quasi-random or alternating
+allocation, allocation by date or record number, a concealment stated as
+broken or absent), and a baseline imbalance between the arms, in age or
+prognostic factors, is not this item: a repeat measurement flipped it to "yes"
+on a trial that merely reported such an imbalance, which Cochrane's experts did
+not rate down; `selective_outcome`; `stopped_early_for_benefit`; and a note).
+The other items are one answer each for the evidence, judged on the studies
+that carry most of the evidence: `inconsistency` (`directions_conflict`,
+`sizes_differ_beyond_chance`), `indirectness` (`population`, `intervention`,
+`comparator`, `outcome`), `publication_bias` (`suspected`) and `large_effect`
+(only for non-randomized evidence; an omitted answer reads as "no"). The model
+does not say whether a direct study exists: the consensus status
+`insufficient_data` used to feed the level, and it is computed from the data
+now. Risk of bias used to be answered once for "the studies that carry most of
+the evidence", and which studies those were flipped between repeats; the
+per-study answers and the weighing are Go's now. Imprecision is computed by Go
+when there is a pooled estimate it can rate; otherwise the model gives a number
+of levels (`imprecision_without_pool`, below). Go (`grade_checklist.go`,
+`grade_risk.go`) does the arithmetic:
+
+- start: strong when the pooled estimate's stratum is randomized, weak when it
+  is non-randomized; without a pool, or with no stratum, strong when any direct
+  study is a randomized trial, else weak;
+- risk of bias: each item counts when the studies answering "yes" carry more
+  than half of the weight (a share of exactly one half does not count). The
+  weights are the pool's per-study weights (the random-effects shares that
+  `meta.Pool` computes, the same ones the lack-of-blinding rule uses, kept in
+  `pooled_estimate.weights`; a trial reported several times has the weight of
+  the report the pool kept, and an answer for any of its reports counts for the
+  trial, "yes" if any says so) when there is a pooled estimate; only the pooled
+  studies carry weight. Without a pooled estimate each direct primary study is
+  weighted by its known participants, and a study that states no size weighs as
+  much as the mean of the known sizes (all equal when none is known). A DOI
+  that is not a direct primary study is ignored, and a study the model left out
+  counts as "no" on every item. The levels are the number of counting items plus
+  one when the computed lack of blinding (`blinding_bias`) fired, at most 2. The
+  share of every item is stored in `report.grade.risk_of_bias.shares`. A reply
+  without `per_study` (an older one, or a model that ignores the new shape)
+  falls back on the four global answers (attrition, allocation flaw, selective
+  outcome, stopping early for benefit; each "yes" is a level) and logs a
+  warning;
+- inconsistency: 1 when `comparable_studies` is 2 or more and either item is
+  "yes", else 0; indirectness: 1 when any of the four is "yes"; publication
+  bias: 1 when suspected;
+- imprecision: the computed levels of the pooled estimate when Go computed
+  them (as before; the model's answer is then dropped). When the input has no
+  `imprecision` field (no pooled estimate, or one Go cannot rate) there is no
+  interval to rate, and the model gives `imprecision_without_pool` (0, 1 or 2;
+  required exactly there, a missing or out-of-range value is retried; a whole
+  number written as `1.0` or as the text `"1"` is read as that number) by the
+  prompt's data-size rules: serious when the data are small
+  (under about 300 events or 400 participants), very serious when all the
+  direct data are under about 100 participants or the interval reaches into
+  both a clear benefit and a clear harm, a narrow interval that excludes no
+  effect is precise, one adequately sized trial with a clear result is not
+  rated down. A rule computed by Go from the participants alone was tried and
+  withdrawn: on 32 questions it disagreed with the Cochrane experts in 4 cases
+  and agreed in 1 (large single trials without poolable numbers were rated
+  down, tiny ones only one level);
+- upgrade: +1 when the start is weak and `large_effect` is "yes";
+- level = start - the domains + upgrade, floored at insufficient (strong 3,
+  moderate 2, weak 1, insufficient 0); also insufficient when there is no
+  direct primary study (`report.grade.no_direct_study`): computed from the
+  data only, true when the evidence base lists no direct study that is not a
+  review (retracted papers, non-study papers and indirect studies are already
+  outside it); the model's `consensus_status` plays no part.
+
+The computed level is `report.verdict`. When the model's own `verdict` field
+differs, a warning with both goes to the log, a warning that names the model's
+level goes to the report's data warnings (in the language of the report; the
+rationale is the model's and may argue for its own level), and Go's level is
+kept; the model's rationale is kept too, and the prompt tells it to apply
+exactly this arithmetic so that the text agrees. The report stores the checklist and the
+steps (`report.grade`: the start, each domain's levels with the items that
+caused them, the upgrade, the level) and shows one line under the computed
+ratings, e.g. "Certainty (computed): start strong; risk of bias −2 (lack of
+blinding, attrition 64%), imprecision −1; → weak", in the language of the
+report; a risk-of-bias item answered per study is shown with its share of the
+weight (the Russian wording is in `lexicon_grade.go`). An
+answer without a checklist, or with an unknown value, or with a value of the
+wrong JSON type (a text where a list belongs; a boolean for an item is read as
+yes or no, and an imprecision written as `1.0` or `"1"` as that number), is
+retried once like a broken JSON reply (the retry names the problem). The
+per-study entries are the exception: an item missing from an entry counts as
+"no", and an entry with an answer outside yes | no is left out (that study
+counts as "no" on every item, like one the model left out); the log says how
+many. A paper without a DOI is listed to the model by its title, and its
+per-study answer is matched by the title (case aside). When the retry has no
+usable checklist either, or fails altogether (broken JSON, a failed call: the
+first answer, valid JSON that only failed the check, is kept for this), the run
+does not fail: the model's verdict is kept, but still insufficient when there
+is no direct primary study and replaced by insufficient (with a warning) when
+it is no known level; a warning goes to the log and the report has no `grade`
+and no computed line. A report written before the checklist loads and renders
+as it did.
 
 The judge's own `effect_direction` (`supports`, `no_effect`, `opposite` or
 `unclear`) is separate from the verdict (how certain that direction is) and

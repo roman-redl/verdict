@@ -31,19 +31,24 @@ func (p *Pipeline) critique(ctx context.Context, rp runParams, st *State) error 
 	return p.critiqueWith(ctx, rp, st, p.clients.LLM)
 }
 
-// critiqueStage is the critique stage proper: the abstracts critique, and in
-// the hybrid text mode the deepening of the pivotal studies right after it, so
-// that the synthesis sees the final critiques and runs once.
+// critiqueStage is the critique stage proper: the abstracts critique, in the
+// hybrid text mode the deepening of the pivotal studies right after it, and
+// last the follow-up for the numbers the critic left out of direct studies —
+// after the deepening, which re-critiques and can drop an effect too — and the
+// vote on the outcome and time point labels of the extracted effects
+// (critiqueTail). The synthesis then sees the final critiques and runs once.
 func (p *Pipeline) critiqueStage(ctx context.Context, rp runParams, st *State) error {
 	if err := p.critique(ctx, rp, st); err != nil {
 		return err
 	}
 
-	if rp.opts.TextMode != TextHybrid || st.HybridDone {
-		return nil
+	if rp.opts.TextMode == TextHybrid && !st.HybridDone {
+		if err := p.hybridPass(ctx, rp, st); err != nil {
+			return err
+		}
 	}
 
-	return p.hybridPass(ctx, rp, st)
+	return p.critiqueTail(ctx, rp, st)
 }
 
 // critiqueWith is the map stage with the given client (the hybrid deepening

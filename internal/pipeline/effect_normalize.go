@@ -17,6 +17,10 @@ func normalizeEffect(ef *model.Effect, doi string, log *slog.Logger) {
 		return
 	}
 
+	// the critic's own labels record a change by the outcome adjudication, which
+	// only the pipeline makes: a fresh reply that carries them is not to be believed
+	ef.OutcomeMatchCritic, ef.TimepointMatchCritic = "", ""
+
 	if ef.OutcomeMatch != "" {
 		m, err := model.ParseOutcomeMatch(string(ef.OutcomeMatch))
 		if err != nil {

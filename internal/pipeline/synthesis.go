@@ -44,32 +44,23 @@ func (p *Pipeline) synthesize(ctx context.Context, rp runParams, st *State) erro
 		return err
 	}
 
-	var jr synthesisResult
-
-	usage, err := AskJSON(ctx, judge, synthesisPrompt(lang), user, &jr, synthesisMaxTokens)
-	if errors.Is(err, ErrLLMStop) {
-		p.log.Error("synthesis stopped: the LLM backend takes no more calls", "err", err)
-
-		return errLLMStopped()
-	}
-
+	jr, checklistErr, err := p.askSynthesis(ctx, judge, synthesisPrompt(lang), user, st)
 	if err != nil {
-		return fmt.Errorf("LLM synthesis: %w", err)
+		return err
 	}
-
-	st.synthesisCost().add(usage) // accumulates: a rerun after deleting 4-synthesis.json adds its call
-	p.log.Info("synthesis llm usage", "in", usage.InputTokens, "out", usage.OutputTokens)
 
 	direction, directionWarning := p.directionFromPooled(st.Imprecision, jr.ClaimChange,
 		p.effectDirection(jr.EffectDirection))
 
 	withNumbers := comparableStudies(st)
+	base := evidenceBaseFor(st, st.Pooled, lang)
+	verdict, grade := p.certainty(st, base, jr, checklistErr, lexiconFor(lang))
 
 	r := model.Report{
 		Question:          st.Question,
 		Language:          lang,
 		GeneratedAt:       p.now().UTC(),
-		Verdict:           jr.Verdict,
+		Verdict:           verdict,
 		VerdictRationale:  jr.VerdictRationale,
 		ConsensusStatus:   jr.ConsensusStatus,
 		Consensus:         jr.Consensus,
@@ -77,8 +68,9 @@ func (p *Pipeline) synthesize(ctx context.Context, rp runParams, st *State) erro
 		PooledEstimate:    st.Pooled,
 		Imprecision:       st.Imprecision,
 		BlindingBias:      st.BlindingBias,
+		Grade:             grade,
 		ComparableStudies: &withNumbers,
-		EvidenceBase:      evidenceBaseFor(st, st.Pooled, lang),
+		EvidenceBase:      base,
 		Contradictions:    jr.Contradictions,
 		Gaps:              jr.Gaps,
 		Matrix:            buildMatrix(st, jr.Notes),
@@ -92,6 +84,37 @@ func (p *Pipeline) synthesize(ctx context.Context, rp runParams, st *State) erro
 	st.Report = &r
 
 	return nil
+}
+
+// askSynthesis puts the judge's question and returns its answer. An answer
+// without a usable grade_checklist is retried like a broken one; when the retry
+// has none either, the answer is still returned, with the checklist's error as
+// the second result (the verdict then stays the model's). The cost is booked
+// whatever the answer.
+func (p *Pipeline) askSynthesis(ctx context.Context, judge Completer, system, user string,
+	st *State,
+) (jr *synthesisResult, checklistErr, err error) {
+	jr = &synthesisResult{}
+
+	// the model rates imprecision itself only when the pipeline computed none
+	usage, err := AskJSONChecked(ctx, judge, system, user, jr, synthesisMaxTokens,
+		func() error { return jr.checkChecklist(st.Imprecision == nil) })
+
+	switch {
+	case errors.Is(err, ErrLLMStop):
+		p.log.Error("synthesis stopped: the LLM backend takes no more calls", "err", err)
+
+		return nil, nil, errLLMStopped()
+	case errors.Is(err, errChecklist):
+		checklistErr = err
+	case err != nil:
+		return nil, nil, fmt.Errorf("LLM synthesis: %w", err)
+	}
+
+	st.synthesisCost().add(usage) // accumulates: a rerun after deleting 4-synthesis.json adds its call
+	p.log.Info("synthesis llm usage", "in", usage.InputTokens, "out", usage.OutputTokens)
+
+	return jr, checklistErr, nil
 }
 
 // effectDirection normalizes the judge's effect_direction: a missing or

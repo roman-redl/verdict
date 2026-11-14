@@ -338,8 +338,8 @@ func TestSynthesisInputCarriesTheBlindingBias(t *testing.T) {
 	assert.Contains(t, with, `"blinding_bias":{"levels":1,"reason":"open-label studies carry 94% of the pool weight"}`)
 
 	assert.Contains(t, synthesisSystemPrompt, "When the input has blinding_bias")
-	assert.Contains(t, synthesisSystemPrompt, "do not lower again for blinding")
-	assert.Contains(t, synthesisSystemPrompt, "very serious (2 levels)")
+	assert.Contains(t, synthesisSystemPrompt, "do not count blinding again")
+	assert.Contains(t, synthesisSystemPrompt, "two levels at most")
 }
 
 // A critique and a state written before the new fields load, pool and reach

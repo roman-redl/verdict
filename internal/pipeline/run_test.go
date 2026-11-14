@@ -15,15 +15,23 @@ import (
 )
 
 const (
+	// the direct study is a randomized trial of 200 people with no pooled
+	// estimate: the evidence starts strong and the canned checklist rates the
+	// imprecision one level (imprecision_without_pool), so the computed verdict
+	// is moderate; the papers of runFakes have no abstract, so the study is not
+	// asked for its numbers (needsEffectFollowUp) and no follow-up call is made
 	batchReply = `{"critiques":[` +
-		`{"doi":"10.1000/a","design_quality":"high","relevance":"direct","result_direction":"positive"},` +
+		`{"doi":"10.1000/a","design_quality":"high","relevance":"direct","result_direction":"positive",` +
+		`"study_design":"rct","sample_size_reported":200},` +
 		`{"doi":"10.1000/b","design_quality":"low","relevance":"indirect","result_direction":"null"}]}`
 	// batchReplyTangential: the second study is off-topic, so the hybrid pass
 	// leaves it on its abstract (an indirect one would get a free slot).
 	batchReplyTangential = `{"critiques":[` +
-		`{"doi":"10.1000/a","design_quality":"high","relevance":"direct","result_direction":"positive"},` +
+		`{"doi":"10.1000/a","design_quality":"high","relevance":"direct","result_direction":"positive",` +
+		`"study_design":"rct","sample_size_reported":200},` +
 		`{"doi":"10.1000/b","design_quality":"low","relevance":"tangential","result_direction":"null"}]}`
-	synthesisReply = `{"verdict":"moderate","verdict_rationale":"10.1000/a leads",` +
+	// the checklist (gradeChecklistReply) raises nothing for randomized evidence
+	synthesisReply = `{"verdict":"moderate","verdict_rationale":"10.1000/a leads",` + gradeChecklistReply +
 		`"consensus_status":"emerging","consensus":"leans positive",` +
 		`"matrix_notes":{"10.1000/a":"the pivotal trial"},"gaps":["few studies"]}`
 )
@@ -35,7 +43,6 @@ func runFakes(t *testing.T, replies ...string) (*Pipeline, *fakeWorks, *scriptCo
 
 	works := &fakeWorks{byDOI: func(doi string) (*model.Work, error) {
 		w := work(doi, "Study "+doi)
-		w.Abstract = "A randomized trial of " + doi
 		w.OAURL = "https://oa.test/" + doi + ".pdf"
 
 		return w, nil
@@ -59,6 +66,21 @@ func runFakes(t *testing.T, replies ...string) (*Pipeline, *fakeWorks, *scriptCo
 	}, quietLog())
 
 	return p, works, llm
+}
+
+// withAbstracts gives the papers of runFakes an abstract, the text the effect
+// follow-up reads (see batchReply).
+func withAbstracts(works *fakeWorks) {
+	byDOI := works.byDOI
+
+	works.byDOI = func(doi string) (*model.Work, error) {
+		w, err := byDOI(doi)
+		if w != nil {
+			w.Abstract = "A randomized trial of " + doi
+		}
+
+		return w, err
+	}
 }
 
 // The whole pipeline, four stages, on fakes: no HTTP server anywhere.

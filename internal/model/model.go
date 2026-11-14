@@ -221,7 +221,17 @@ type Critique struct {
 	// extracted by the critic and pooled by the pipeline; nil when the text
 	// has none.
 	Effect *Effect `json:"effect,omitempty"`
-	Error  string  `json:"error,omitempty"`
+	// EffectAsked is true when the pipeline already put the follow-up question
+	// for the missing effect to the critic (pipeline.followUpEffects), whatever
+	// the answer was: a study that has no numbers is not asked again on a
+	// resume or in a re-run served from the critique cache.
+	EffectAsked bool `json:"effect_asked,omitempty"`
+	// MatchAdjudicated is true when the pipeline already settled the effect's
+	// outcome_match and timepoint_match by a vote of independent calls
+	// (pipeline.adjudicateMatches); the labels are not voted on again on a
+	// resume or in a re-run served from the critique cache.
+	MatchAdjudicated bool   `json:"match_adjudicated,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 // MatrixRow is one row of the evidence matrix in the final report. All
@@ -278,6 +288,10 @@ type Report struct {
 	// BlindingBias is the risk-of-bias rating for lack of blinding; nil when
 	// the rule did not fire (and in reports written before the field).
 	BlindingBias *BlindingBias `json:"blinding_bias,omitempty"`
+	// Grade is the certainty level the pipeline computed from the synthesis's
+	// grade_checklist and the computed ratings (Verdict is this level); nil
+	// when the checklist was unusable, and in reports written before the field.
+	Grade *GradeAssessment `json:"grade,omitempty"`
 	// ComparableStudies is the number of distinct direct studies with usable
 	// numbers on the question's outcome, the basis of the inconsistency
 	// judgment; nil in reports written before the field.

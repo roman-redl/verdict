@@ -69,6 +69,19 @@ type evidenceStudy struct {
 	// question, for a trial; pooled is whether the study is in the pooled estimate.
 	ref    studyRef
 	pooled bool
+	// dois are the normalized answer keys (answerKey) of all the reports of the
+	// study: the risk of bias answers are matched to the study by any of them.
+	// weight is the study's share of the pooled estimate, zero when it is not
+	// pooled or there is no estimate with weights.
+	dois   []string
+	weight float64
+}
+
+// answerKey is how the synthesis names a report in its per-study answers: the
+// normalized DOI, else the normalized title (the input lists a paper without a
+// DOI by its title only); empty when the paper has neither.
+func answerKey(e *model.EnrichedPaper) string {
+	return cmp.Or(model.NormalizeDOI(e.DOI), model.NormalizeDOI(e.Title))
 }
 
 // studyRef identifies one report for the list of studies.
@@ -124,13 +137,21 @@ func evidenceBaseFor(st *State, pe *model.PooledEstimate, lang model.Language) *
 // evidenceBaseFor. pe is the pooled estimate of the report (nil when nothing
 // was pooled): the studies in it are marked.
 func buildEvidenceBase(st *State, pe *model.PooledEstimate) *model.EvidenceBase {
+	eb, _ := evidenceStudies(st, pe)
+
+	return eb
+}
+
+// evidenceStudies is buildEvidenceBase with the studies it counted, which carry
+// what the risk-of-bias aggregation needs (every report's DOI, the pool weight).
+func evidenceStudies(st *State, pe *model.PooledEstimate) (*model.EvidenceBase, []evidenceStudy) {
 	if len(st.Enriched) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	crits := critiquesFor(st)
 	trials := trialGroups(trialInputs(st, crits))
-	pooled := pooledKeys(pe)
+	pooled, weights := pooledKeys(pe), poolWeights(pe)
 	eb := &model.EvidenceBase{}
 
 	var (
@@ -165,7 +186,7 @@ func buildEvidenceBase(st *State, pe *model.PooledEstimate) *model.EvidenceBase 
 	}
 
 	for _, root := range order {
-		studies = append(studies, foldTrial(st, crits, members[root], pooled))
+		studies = append(studies, foldTrial(st, crits, members[root], pooled, weights))
 		eb.RepeatReports += len(members[root]) - 1
 	}
 
@@ -175,7 +196,26 @@ func buildEvidenceBase(st *State, pe *model.PooledEstimate) *model.EvidenceBase 
 	// paper is in exactly one of the four
 	eb.Reviewed = len(st.Enriched) - eb.NotAssessed
 
-	return eb
+	return eb, studies
+}
+
+// poolWeights maps the key (studyKey) of each pooled study to its weight in the
+// estimate; nil when there is no estimate or it has no weights (an artifact
+// written before they were kept, or a count that does not match the studies).
+func poolWeights(pe *model.PooledEstimate) map[string]float64 {
+	if pe == nil || len(pe.Weights) == 0 || len(pe.Weights) != len(pe.Studies) {
+		return nil
+	}
+
+	out := make(map[string]float64, len(pe.Studies))
+
+	for i, k := range pe.Studies {
+		if k = strings.TrimSpace(k); k != "" {
+			out[k] = pe.Weights[i]
+		}
+	}
+
+	return out
 }
 
 // pooledKeys is the set of the keys (studyKey) of the studies in the pooled
@@ -213,8 +253,11 @@ func notAssessed(c model.Critique) bool {
 // foldTrial folds the reports of one trial into a study. The kept report is
 // the one that best matches the question (reportRank, as the pool and the
 // direction tally keep it); a field it does not state (an unclear design, no
-// blinding, no size) is taken from the other reports in corpus order.
-func foldTrial(st *State, crits []model.Critique, reports []int, pooled map[string]bool) evidenceStudy {
+// blinding, no size) is taken from the other reports in corpus order. The pool
+// keeps one report per trial, so the study's weight is that report's weight.
+func foldTrial(st *State, crits []model.Critique, reports []int, pooled map[string]bool,
+	weights map[string]float64,
+) evidenceStudy {
 	kept := reports[0]
 	rank := func(i int) reportRank { return rankOf(studyKey(&st.Enriched[i]), st.Enriched[i].Year, crits[i].Effect) }
 
@@ -243,6 +286,11 @@ func foldTrial(st *State, crits []model.Critique, reports []int, pooled map[stri
 		// report per trial, which need not be the one named here
 		key := studyKey(e)
 		s.pooled = s.pooled || (key != "" && pooled[key])
+		s.weight += weights[key]
+
+		if key := answerKey(e); key != "" {
+			s.dois = append(s.dois, key)
+		}
 
 		if d := resolveDesign(e, c); !designed && d.IsKnown() {
 			s.design, designed = d, true

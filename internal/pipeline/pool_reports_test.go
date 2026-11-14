@@ -281,7 +281,10 @@ func TestRunTrialWithoutNumbersAndCohortLeavesNoPool(t *testing.T) {
 		`"study_design":"cohort","effect":{"outcome":"mortality","outcome_match":"same","timepoint_match":"yes",` +
 		`"adjusted":true,"measure":"HR","value":0.55,"ci_low":0.4,"ci_high":0.75}}]}`
 
-	p, _, llm := runFakes(t, reply, effectSynthesisReply)
+	// the trial has a direction but no numbers: the critic is asked for them
+	// once more and finds none
+	p, works, llm := runFakes(t, reply, followUpNullReply, effectSynthesisReply)
+	withAbstracts(works)
 
 	st, _, err := p.Run(t.Context(), Options{
 		DOIFile: doiList(t, listDOIA, listDOIB), RunDir: filepath.Join(t.TempDir(), "run"), TextMode: TextLean,
@@ -289,9 +292,10 @@ func TestRunTrialWithoutNumbersAndCohortLeavesNoPool(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Nil(t, st.Pooled)
-	require.Len(t, llm.prompts, 2)
-	assert.NotContains(t, llm.prompts[1], `"pooled_estimate"`)
-	assert.Contains(t, llm.prompts[1], `"adjusted":true`, "the judge still reads the cohort's own effect")
+	require.Len(t, llm.prompts, 3)
+	assert.Contains(t, llm.prompts[1], "Extract the effect from this study")
+	assert.NotContains(t, llm.prompts[2], `"pooled_estimate"`)
+	assert.Contains(t, llm.prompts[2], `"adjusted":true`, "the judge still reads the cohort's own effect")
 
 	require.NotNil(t, st.Report)
 	assert.Contains(t, st.Report.Warnings,

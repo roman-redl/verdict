@@ -203,9 +203,9 @@ func TestSynthesisPromptHasTheInconsistencyRule(t *testing.T) {
 func TestReportRendersTheComparableStudies(t *testing.T) {
 	two := 2
 
-	got := RenderMarkdown(&State{Report: &model.Report{Verdict: "moderate", ComparableStudies: &two}})
+	got := RenderMarkdown(&State{Report: &model.Report{Verdict: verdictModerate, ComparableStudies: &two}})
 	assert.Contains(t, got, "**Studies with numbers on the outcome:** 2\n\n")
 
-	old := RenderMarkdown(&State{Report: &model.Report{Verdict: "moderate"}})
+	old := RenderMarkdown(&State{Report: &model.Report{Verdict: verdictModerate}})
 	assert.NotContains(t, old, "Studies with numbers on the outcome", "a report written before the field has no line")
 }

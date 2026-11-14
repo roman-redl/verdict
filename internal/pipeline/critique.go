@@ -56,19 +56,27 @@ const critiqueBlindingField = `blinding (only for a randomized trial; omit for a
 	`"masked outcome assessment" is single_blind; "open-label" or "unblinded" is open; ` +
 	`"unclear" when the text does not say,`
 
+// critiqueOutcomeMatchDef and critiqueTimepointMatchDef define the two labels
+// the pool filters on. The critic prompts and the outcome adjudication
+// (match_adjudication.go) share them, so that both judge by one definition.
+const critiqueOutcomeMatchDef = `outcome_match: "same" | "related" | "different" — "same" is the question's ` +
+	`primary outcome, defined the same way; "related" is a surrogate, a composite, a component, or the same ` +
+	`outcome under another definition; "different" is another outcome`
+
+const critiqueTimepointMatchDef = `timepoint_match: "yes" | "no" | "unclear" — whether that follow-up is the ` +
+	`time frame the question asks about; "yes" when the question names no time frame, "unclear" when the ` +
+	`follow-up or the frame cannot be told`
+
 // critiqueEffectField documents the optional effect object in the field list
 // of both critique prompts. The numbers are only extracted here: the pipeline
 // pools them in Go (pool.go), the model never computes.
 const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the text has no numbers for the ` +
 	`question's outcome): the numbers the text reports for the question's outcome, with
   outcome (short text: which outcome these numbers are for), timepoint (when it was measured; only if stated),
-  outcome_match: "same" | "related" | "different" — "same" is the question's primary outcome, defined the ` +
-	`same way; "related" is a surrogate, a composite, a component, or the same outcome under another ` +
-	`definition; "different" is another outcome,
+  ` + critiqueOutcomeMatchDef + `,
   timepoint_weeks (number: the follow-up at which these numbers are measured, converted to weeks ` +
 	`(1 month = 4.3 weeks, 1 year = 52 weeks); omit when the text does not state it),
-  timepoint_match: "yes" | "no" | "unclear" — whether that follow-up is the time frame the question asks ` +
-	`about; "yes" when the question names no time frame, "unclear" when the follow-up or the frame cannot be told,
+  ` + critiqueTimepointMatchDef + `,
   adjusted (true for a non-randomized study whose numbers are an adjusted estimate; omit otherwise),
   cluster (only for a cluster-randomized trial): {unit (what was randomized: village, clinic, school), ` +
 	`clusters (number of clusters randomized), mean_size (participants per cluster, only if stated), ` +
@@ -110,9 +118,10 @@ const critiqueSampleRule = `Report sample size only if it is explicitly stated: 
 	`individual participants in the randomized clusters, never the number of clusters (name the clusters and ` +
 	`their number in concerns); for a non-randomized study, the number analysed in the compared groups. `
 
-// critiqueEffectRules are the extraction and judgement rules that go with the
-// effect field.
-const critiqueEffectRules = `Effect extraction rules:
+// critiqueEffectExtractionRules are the rules that go with the effect field;
+// the effect follow-up (effect_followup.go) uses them without the judgement
+// rule below.
+const critiqueEffectExtractionRules = `Effect extraction rules:
 - "intervention" is the arm that receives the question's intervention, "control" is its comparator — ` +
 	`whatever order the paper lists the arms in; never swap them.
 - A reported estimate is copied as printed, with its own direction. When the paper's comparison is the ` +
@@ -142,7 +151,11 @@ const critiqueEffectRules = `Effect extraction rules:
 	`Take the question's primary outcome at its main timepoint; when the paper reports several time points ` +
 	`or outcomes, give the one that matches the question and say so in outcome_match and timepoint_match; if ` +
 	`only another outcome or time point is reported, give it and mark outcome_match or timepoint_match ` +
-	`accordingly instead of omitting the effect.
+	`accordingly instead of omitting the effect.`
+
+// critiqueEffectRules are the extraction and judgement rules that go with the
+// effect field.
+const critiqueEffectRules = critiqueEffectExtractionRules + `
 
 Result direction from numbers: when the text gives counts, means or an estimate for the question's outcome, ` +
 	`judge result_direction from those numbers even if the authors report no significance test or effect ` +
@@ -274,8 +287,12 @@ func critiqueInput(e model.EnrichedPaper) map[string]any {
 
 // normalizeCritique fills the guaranteed fields from the study when the LLM
 // omitted or garbled them; an unknown study design becomes "unclear" with a
-// warning in the log.
+// warning in the log. It is for a fresh reply only: the markers the pipeline
+// keeps in a critique (EffectAsked, MatchAdjudicated) are reset, so that the
+// model cannot suppress the follow-up or the vote by writing them; a critique
+// loaded from the cache or the artifact keeps its markers.
 func normalizeCritique(c model.Critique, e model.EnrichedPaper, log *slog.Logger) model.Critique {
+	c.EffectAsked, c.MatchAdjudicated = false, false
 	c.DOI = cmp.Or(c.DOI, e.DOI)
 	c.StudyDesign = normalizeDesign(c.StudyDesign, c.DOI, log)
 	c.Blinding = normalizeBlinding(c.Blinding, c.DOI, log)

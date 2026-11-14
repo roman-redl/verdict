@@ -88,7 +88,7 @@ func TestCritiquesFor(t *testing.T) {
 func TestRenderMarkdownEscapesPipes(t *testing.T) {
 	st := &State{
 		Report: &model.Report{
-			Verdict: "weak",
+			Verdict: verdictWeak,
 			Matrix: []model.MatrixRow{
 				{DOI: "10.1/p", Title: "Pipe study", Design: "RCT|pilot", Note: "concerns: a | b"},
 			},

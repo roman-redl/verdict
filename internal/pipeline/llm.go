@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -66,6 +67,22 @@ const retryJSONEchoChars = 4000
 // backends are stateless, so a bare "fix your previous reply" reaches a model
 // that has never seen it.
 func AskJSON(ctx context.Context, c Completer, system, user string, out any, maxTokens int) (Usage, error) {
+	return AskJSONChecked(ctx, c, system, user, out, maxTokens, nil)
+}
+
+// AskJSONChecked is AskJSON with a check of the decoded answer: check (nil for
+// none) runs on out after a successful decode, and an answer it rejects is
+// retried once like a broken one, the retry telling the model what was wrong.
+// out is cleared before the retry's decode of a rejected answer, so a field of
+// it cannot survive into the second one. When the retry's answer is valid JSON
+// but is rejected again, the error wraps the check's error and out holds that
+// answer: the caller may fall back on it. The same holds when the retry fails
+// altogether (a call error or broken JSON): out then holds the first answer,
+// which decoded fine, and the error wraps the first check's error alongside
+// the retry's own, so the caller may fall back on the first answer.
+func AskJSONChecked(ctx context.Context, c Completer, system, user string, out any, maxTokens int,
+	check func() error,
+) (Usage, error) {
 	opts := CompleteOptions{MaxTokens: maxTokens}
 
 	text, usage, err := c.Complete(ctx, system, user+jsonInstruct, opts)
@@ -73,25 +90,102 @@ func AskJSON(ctx context.Context, c Completer, system, user string, out any, max
 		return usage, fmt.Errorf("calling %s: %w", c.Name(), err)
 	}
 
-	if err := json.Unmarshal(extractJSON(text), out); err == nil {
+	decodeErr, checkErr := decodeAnswer(text, out, check)
+	if decodeErr == nil && checkErr == nil {
 		return usage, nil
 	}
 
+	problem := "not valid JSON"
+	if decodeErr == nil {
+		problem = fmt.Sprintf("rejected: %v", checkErr)
+	}
+
 	retry := user + jsonInstruct +
-		"\n\nYour previous answer was not valid JSON:\n" + capText(text, retryJSONEchoChars) +
+		"\n\nYour previous answer was " + problem + ":\n" + capText(text, retryJSONEchoChars) +
 		"\n\nReturn ONLY the corrected JSON object, nothing else."
+	// the rejected first answer decoded fine and filled out: keep it, so that a
+	// retry that fails altogether still leaves the caller something to fall back on
+	var firstAnswer any
+
+	firstCheckErr := checkErr
+
+	if checkErr != nil {
+		firstAnswer = copyTarget(out)
+	}
+
+	keepFirst := func(retryErr error) error {
+		if firstAnswer == nil {
+			return retryErr
+		}
+
+		restoreTarget(out, firstAnswer)
+
+		return fmt.Errorf("%w; the first answer is kept: %w", retryErr, firstCheckErr)
+	}
+
 	text, u2, err := c.Complete(ctx, system, retry, opts)
 	usage = usage.Add(u2)
 
 	if err != nil {
-		return usage, fmt.Errorf("calling %s: %w", c.Name(), err)
+		return usage, keepFirst(fmt.Errorf("calling %s: %w", c.Name(), err))
 	}
 
-	if err := json.Unmarshal(extractJSON(text), out); err != nil {
-		return usage, fmt.Errorf("%s answered with invalid JSON after a retry: %w", c.Name(), err)
+	// a first answer that failed to decode may still have filled some fields
+	// (encoding/json goes on after a wrong-typed value), so the retry decodes
+	// into a clean target either way; the snapshot above is for check rejections
+	clearTarget(out)
+
+	decodeErr, checkErr = decodeAnswer(text, out, check)
+	if decodeErr != nil {
+		return usage, keepFirst(fmt.Errorf("%s answered with invalid JSON after a retry: %w", c.Name(), decodeErr))
+	}
+
+	if checkErr != nil {
+		return usage, fmt.Errorf("%s gave a rejected answer after a retry: %w", c.Name(), checkErr)
 	}
 
 	return usage, nil
+}
+
+// clearTarget zeroes what out points to, so that a decode into it starts clean.
+func clearTarget(out any) {
+	if v := reflect.ValueOf(out); v.Kind() == reflect.Pointer && !v.IsNil() {
+		v.Elem().SetZero()
+	}
+}
+
+// copyTarget is a shallow copy of what out points to (nil when out is not a
+// non-nil pointer). Shallow is enough: a decode into the zeroed target
+// allocates its own maps, slices and pointers and leaves the copy's alone.
+func copyTarget(out any) any {
+	v := reflect.ValueOf(out)
+	if v.Kind() != reflect.Pointer || v.IsNil() {
+		return nil
+	}
+
+	c := reflect.New(v.Elem().Type())
+	c.Elem().Set(v.Elem())
+
+	return c.Interface()
+}
+
+// restoreTarget puts a copyTarget copy back into out.
+func restoreTarget(out, saved any) {
+	reflect.ValueOf(out).Elem().Set(reflect.ValueOf(saved).Elem())
+}
+
+// decodeAnswer decodes the answer into out and runs the check; the two
+// failures come back apart (a broken answer is not checked).
+func decodeAnswer(text string, out any, check func() error) (decodeErr, checkErr error) {
+	if err := json.Unmarshal(extractJSON(text), out); err != nil {
+		return fmt.Errorf("decoding the answer: %w", err), nil
+	}
+
+	if check != nil {
+		return nil, check()
+	}
+
+	return nil, nil
 }
 
 // capText hard-caps a string at n runes.

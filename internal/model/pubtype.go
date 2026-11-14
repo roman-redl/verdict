@@ -108,3 +108,24 @@ func IsMeetingAbstract(types []string) bool {
 		return slices.Contains(meetingAbstractTypes, t)
 	})
 }
+
+// pubTypeRandomizedTrial is the PubMed publication type of a randomized trial.
+// Of the other trial types, "Pragmatic Clinical Trial", "Controlled Clinical
+// Trial" and "Equivalence Trial" do not say the allocation was random, so they
+// are not read as randomized.
+const pubTypeRandomizedTrial = "randomized controlled trial"
+
+// reviewPubTypes are the publication types of secondary research. A record
+// typed both as a review and as a trial is the review (its indexers tag the
+// trials it covers), so it is not a randomized trial.
+var reviewPubTypes = []string{"meta-analysis", "systematic review", "review"}
+
+// IsRandomizedTrialType reports whether the publication types name the paper
+// itself as a randomized trial: PubMed's "Randomized Controlled Trial", and no
+// review type beside it. false when they say nothing of the kind.
+func IsRandomizedTrialType(types []string) bool {
+	norm := NormalizePublicationTypes(types)
+
+	return slices.Contains(norm, pubTypeRandomizedTrial) &&
+		!slices.ContainsFunc(norm, func(t string) bool { return slices.Contains(reviewPubTypes, t) })
+}

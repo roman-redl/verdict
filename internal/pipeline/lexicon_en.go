@@ -71,6 +71,7 @@ func english() lexicon {
 		},
 		notRatedDown: "not rated down", ratedDown: "rated down", serious: "serious",
 
+		grade:    englishGrade(),
 		sentence: englishSentence(studies),
 		list:     englishList(),
 	}

@@ -855,7 +855,8 @@ const (
 		`{"doi":"10.1000/b","design_quality":"high","relevance":"direct","result_direction":"null",` +
 		`"effect":{"outcome":"mortality","intervention":{"events":12,"total":110},"control":{"events":22,"total":108}}}]}`
 	effectSynthesisReply = `{"verdict":"moderate","verdict_rationale":"pooled estimate drives it",` +
-		`"effect_direction":"Supports","consensus_status":"broad_agreement","consensus":"leans positive"}`
+		gradeChecklistReply + `"effect_direction":"Supports","consensus_status":"broad_agreement",` +
+		`"consensus":"leans positive"}`
 )
 
 // The whole run: the critic's numbers are pooled in Go before the synthesis,

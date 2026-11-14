@@ -103,6 +103,11 @@ type Effect struct {
 	// the question's time frame; empty reads as "unclear".
 	TimepointWeeks *float64       `json:"timepoint_weeks,omitempty"`
 	TimepointMatch TimepointMatch `json:"timepoint_match,omitempty"`
+	// OutcomeMatchCritic and TimepointMatchCritic keep the critic's own label
+	// when the outcome adjudication (pipeline.adjudicateMatches) changed it;
+	// empty when the vote left the label as the critic wrote it.
+	OutcomeMatchCritic   OutcomeMatch   `json:"outcome_match_critic,omitempty"`
+	TimepointMatchCritic TimepointMatch `json:"timepoint_match_critic,omitempty"`
 	// Adjusted is true when the numbers are an adjusted estimate (aOR, aRR,
 	// aHR) of a non-randomized study; false or absent means crude numbers.
 	Adjusted bool `json:"adjusted,omitempty"`
@@ -212,6 +217,11 @@ type PooledEstimate struct {
 	// claim's outcome, which the direction is read against.
 	Outcome string   `json:"outcome,omitempty"`
 	Studies []string `json:"studies"` // DOIs
+	// Weights are the studies' shares of the pooled estimate, in the order of
+	// Studies (random-effects weights, summing to 1; [1] for a single study).
+	// The risk-of-bias aggregation weighs the studies' answers by them. Absent
+	// in artifacts written before the field existed.
+	Weights []float64 `json:"weights,omitempty"`
 	// LeftOut lists the direct studies with usable numbers that are not in the
 	// pool, each as "doi (reason)": another measure ("doi (MEASURE)"; a study
 	// from counts is labelled RR, its default measure, even when the pool is an

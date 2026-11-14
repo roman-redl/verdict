@@ -79,6 +79,27 @@ func TestWorkToPaperCarriesTheTypes(t *testing.T) {
 	assert.Equal(t, []string{typeErratum, typeJournalArticle}, w.ToPaper("").PublicationTypes)
 }
 
+func TestIsRandomizedTrialType(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		types []string
+		want  bool
+	}{
+		{"no types", nil, false},
+		{"a plain article", []string{typeArticle, typeJournalArticle}, false},
+		{"PubMed randomized trial", []string{typeJournalArticle, typeTrial}, true},
+		{"spaces and case", []string{"  randomized   CONTROLLED trial "}, true},
+		{"pragmatic trial is not read as randomized", []string{"Pragmatic Clinical Trial"}, false},
+		{"controlled clinical trial is not read as randomized", []string{"Controlled Clinical Trial"}, false},
+		{"a review of trials", []string{typeTrial, "Meta-Analysis"}, false},
+		{"a systematic review of trials", []string{typeTrial, "Systematic Review"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsRandomizedTrialType(tc.types))
+		})
+	}
+}
+
 func TestIsMeetingAbstract(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

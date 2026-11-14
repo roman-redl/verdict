@@ -255,7 +255,8 @@ func TestSynthesisInputCarriesTheImprecision(t *testing.T) {
 
 	without, err := synthesisUserPrompt(st)
 	require.NoError(t, err)
-	assert.NotContains(t, without, `"imprecision"`)
+	assert.NotContains(t, without, `"imprecision"`, "without a pooled rating the model rates it itself")
+	assert.NotContains(t, without, "imprecision_no_pool")
 
 	st.Imprecision = p.assessImprecision(st.Pooled)
 	require.NotNil(t, st.Imprecision)
@@ -271,7 +272,8 @@ func TestSynthesisPromptSplitsTheJudgments(t *testing.T) {
 	assert.Contains(t, synthesisSystemPrompt, "when the input has imprecision, the pipeline computed it")
 	assert.Contains(t, synthesisSystemPrompt, "do not judge imprecision again")
 	assert.Contains(t, synthesisSystemPrompt, "little_or_no_difference = no effect")
-	assert.Contains(t, synthesisSystemPrompt, "When imprecision is absent:")
+	assert.Contains(t, synthesisSystemPrompt,
+		"When the input has no imprecision field, give your own rating in imprecision_without_pool")
 	assert.Contains(t, synthesisSystemPrompt, `target "uncertain" = the evidence cannot tell`)
 	assert.Contains(t, synthesisSystemPrompt,
 		"When the pooled CI includes no effect, the pipeline does not take a direction")
@@ -288,7 +290,7 @@ func claimReply(claimChange string) string {
 		return effectSynthesisReply
 	}
 
-	return `{"verdict":"moderate","verdict_rationale":"pooled estimate drives it",` +
+	return `{"verdict":"moderate","verdict_rationale":"pooled estimate drives it",` + gradeChecklistReply +
 		`"effect_direction":"Supports","claim_change":"` + claimChange + `",` +
 		`"consensus_status":"broad_agreement","consensus":"leans positive"}`
 }
