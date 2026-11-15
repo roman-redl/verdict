@@ -129,3 +129,25 @@ func IsRandomizedTrialType(types []string) bool {
 	return slices.Contains(norm, pubTypeRandomizedTrial) &&
 		!slices.ContainsFunc(norm, func(t string) bool { return slices.Contains(reviewPubTypes, t) })
 }
+
+// pubTypeLetter is the one non-study type that may stand beside a trial type: a
+// research letter reports the results of a trial (see studyTypePrefixes).
+const pubTypeLetter = "letter"
+
+// IsRandomizedTrialReport reports whether the publication types make the paper
+// a report of a randomized trial itself: IsRandomizedTrialType, and none of the
+// types of a paper without results of its own (an erratum, a comment, a
+// retraction notice, an editorial) beside it, since a notice about a trial is
+// not the trial. A letter is let through. A retracted trial ("Retracted
+// Publication") is still the trial.
+func IsRandomizedTrialReport(types []string) bool {
+	if !IsRandomizedTrialType(types) {
+		return false
+	}
+
+	return !slices.ContainsFunc(NormalizePublicationTypes(types), func(t string) bool {
+		_, notStudy := nonStudyTypes[t]
+
+		return notStudy && t != pubTypeLetter
+	})
+}

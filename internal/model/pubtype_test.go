@@ -14,6 +14,7 @@ const (
 	typeJournalArticle = "journal-article"
 	typeErratum        = "erratum"
 	typeComment        = "Comment"
+	typeLetter         = "Letter"
 	typeNews           = "News"
 	typeTrial          = "Randomized Controlled Trial"
 	lowerComment       = "comment"
@@ -96,6 +97,29 @@ func TestIsRandomizedTrialType(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, IsRandomizedTrialType(tc.types))
+		})
+	}
+}
+
+func TestIsRandomizedTrialReport(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		types []string
+		want  bool
+	}{
+		{"no types", nil, false},
+		{"PubMed randomized trial", []string{typeJournalArticle, typeTrial}, true},
+		{"a comment beside the trial type", []string{typeTrial, typeComment}, false},
+		{"an erratum beside the trial type", []string{typeTrial, "Published Erratum"}, false},
+		{"a retraction notice beside the trial type", []string{typeTrial, "Retraction of Publication"}, false},
+		{"an editorial beside the trial type", []string{typeTrial, "Editorial"}, false},
+		{"a retracted trial is still a trial", []string{typeTrial, "Retracted Publication"}, true},
+		{"a research letter of a trial", []string{typeTrial, typeLetter}, true},
+		{"a review of trials", []string{typeTrial, "Meta-Analysis"}, false},
+		{"not a randomized type", []string{"Controlled Clinical Trial"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsRandomizedTrialReport(tc.types))
 		})
 	}
 }

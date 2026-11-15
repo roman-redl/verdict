@@ -33,8 +33,11 @@ func studyOf(title, tag string) model.EnrichedPaper {
 	return e
 }
 
-// pubTypeRCT is PubMed's publication type of a randomized trial.
-const pubTypeRCT = "Randomized Controlled Trial"
+// PubMed's publication types of a randomized trial and of a comment.
+const (
+	pubTypeRCT     = "Randomized Controlled Trial"
+	pubTypeComment = "Comment"
+)
 
 // typedStudy is a study with the given title and publication types, no tag.
 func typedStudy(title string, types ...string) model.EnrichedPaper {
@@ -134,6 +137,42 @@ func TestResolveDesign(t *testing.T) {
 			paper:  withTag(typedStudy("", pubTypeRCT), tagCohort),
 			critic: model.DesignUnclear,
 			want:   model.DesignCohort,
+		},
+		{
+			name:   "a comment on a trial is not a trial",
+			paper:  typedStudy("", pubTypeRCT, pubTypeComment),
+			critic: model.DesignUnclear,
+			want:   model.DesignUnclear,
+		},
+		{
+			name:   "an erratum of a trial is not a trial",
+			paper:  typedStudy("", pubTypeRCT, "Published Erratum"),
+			critic: model.DesignUnclear,
+			want:   model.DesignUnclear,
+		},
+		{
+			name:   "a retraction notice is not a trial",
+			paper:  typedStudy("", pubTypeRCT, "Retraction of Publication"),
+			critic: model.DesignUnclear,
+			want:   model.DesignUnclear,
+		},
+		{
+			name:   "an editorial is not a trial",
+			paper:  typedStudy("", pubTypeRCT, "Editorial"),
+			critic: model.DesignUnclear,
+			want:   model.DesignUnclear,
+		},
+		{
+			name:   "a retracted trial is still a trial",
+			paper:  typedStudy("", pubTypeRCT, "Retracted Publication"),
+			critic: model.DesignUnclear,
+			want:   model.DesignRCT,
+		},
+		{
+			name:   "a research letter of a trial is a trial",
+			paper:  typedStudy("", pubTypeRCT, "Letter"),
+			critic: model.DesignUnclear,
+			want:   model.DesignRCT,
 		},
 		{
 			name:  "a review title wins over the publication type",

@@ -17,12 +17,13 @@ import (
 // resolveDesign returns the best known design of a study, or DesignUnclear
 // when no source tells. A critic's "unclear" or an artifact without the field
 // falls through to the discovery tag, then to the title, then to the
-// publication types: a paper typed as a randomized controlled trial is "rct"
-// (never cluster or crossover: the types do not tell). The critic reads the
-// same text on every run but does not always commit to a design — one run of
-// three said "unclear" for a randomized trial and moved it out of its
-// stratum — while the publication types are a stored fact. An explicit design
-// of the critic is never overridden.
+// publication types: a paper typed as a randomized controlled trial
+// (model.IsRandomizedTrialReport: not a notice about a trial) is "rct" (never
+// cluster or crossover: the types do not tell). The critic reads the same text
+// on every run but does not always commit to a design — one run of three said
+// "unclear" for a randomized trial and moved it out of its stratum — while the
+// publication types are a stored fact. An explicit design of the critic is
+// never overridden.
 //
 // The critic's value is trusted as stored: it is normalized when the critique
 // is written, so an unparseable one can come only from a hand-edited artifact
@@ -40,7 +41,7 @@ func resolveDesign(e *model.EnrichedPaper, c model.Critique) model.StudyDesign {
 		return d
 	}
 
-	if model.IsRandomizedTrialType(e.PublicationTypes) {
+	if model.IsRandomizedTrialReport(e.PublicationTypes) {
 		return model.DesignRCT
 	}
 
