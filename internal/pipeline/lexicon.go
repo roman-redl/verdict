@@ -26,7 +26,7 @@ type lexicon struct {
 
 	// The skeleton of report.md: headings and field labels.
 	reportTitle, question, verdict, effectDirection   string
-	imprecision, blindingBias, comparable             string
+	imprecision, blindingBias, robustness, comparable string
 	evidenceBase, consensus, directTally, generated   string
 	rationale, matrix, contradictions, gaps, warnings string
 	// matrixHeader is the whole header row of the evidence matrix.
@@ -53,11 +53,29 @@ type lexicon struct {
 	strata                                     map[model.Stratum]string
 	notRatedDown, ratedDown, serious           string
 
+	// robust is the wording of the computed robustness line.
+	robust robustWords
+
 	// grade is the wording of the computed certainty line.
 	grade gradeWords
 
 	sentence evidenceWords
 	list     listWords
+}
+
+// robustWords are the sentences of the robustness line.
+type robustWords struct {
+	// holds says the direction survives leaving out any one of k studies.
+	holds func(k int) string
+	// holdsUnclear is the same for a whole pool whose direction cannot be
+	// stated: there is no direction to hold, the conclusion stays.
+	holdsUnclear func(k int) string
+	// single says the pooled result rests on one study.
+	single string
+	// fragile opens the sentence that names the decisive studies; without takes
+	// the title (1), the details in brackets or nothing (2) and the direction (3);
+	// weight takes the share in whole percent as text ("<1" for a tiny one).
+	fragile, without, weight string
 }
 
 // evidenceWords are the parts of the evidence-base sentence.

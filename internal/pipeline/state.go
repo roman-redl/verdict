@@ -39,7 +39,12 @@ type State struct {
 	// without a pooled estimate that has weights and in artifacts written
 	// before it.
 	RelatedOutcomes *model.RelatedOutcomes `json:"related_outcomes,omitempty"`
-	Report          *model.Report          `json:"report,omitempty"`
+	// Robustness is the leave-one-out check of the pooled conclusion, computed
+	// after the synthesis (it needs the claim's change) and kept out of the
+	// synthesis input and of the GRADE level; nil without a pooled estimate and
+	// in artifacts written before it.
+	Robustness *model.Robustness `json:"robustness,omitempty"`
+	Report     *model.Report     `json:"report,omitempty"`
 	// TextMode is the text mode of the run that produced the report; the
 	// report lists the full texts not obtained only where full texts were
 	// asked for. Empty in artifacts written before the field existed.

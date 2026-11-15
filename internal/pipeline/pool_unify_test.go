@@ -443,7 +443,10 @@ func TestUnifiedPoolLeavesSingleMeasurePoolsAlone(t *testing.T) {
 			require.NotNil(t, plain.est)
 			assert.Equal(t, tc.measure, plain.est.Measure)
 			assert.False(t, plain.est.Converted)
-			assert.Equal(t, plain, got, "labels change nothing when one measure covers every study")
+			// the group keeps the labels of its studies, so it is not compared
+			assert.Equal(t, plain.est, got.est, "labels change nothing when one measure covers every study")
+			assert.Equal(t, plain.blinding, got.blinding)
+			assert.Equal(t, plain.leftOut, got.leftOut)
 		})
 	}
 }

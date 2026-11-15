@@ -53,6 +53,9 @@ func (p *Pipeline) synthesize(ctx context.Context, rp runParams, st *State) erro
 	direction, directionWarning := p.directionFromPooled(st.Imprecision, jr.ClaimChange,
 		p.effectDirection(jr.EffectDirection))
 
+	// after the judge: the direction of each smaller pool needs the claim's change
+	st.Robustness = p.assessRobustness(res, st.Imprecision, jr.ClaimChange)
+
 	withNumbers := comparableStudies(st)
 	base := evidenceBaseFor(st, st.Pooled, lang)
 	verdict, grade := p.certainty(st, base, jr, checklistErr, lexiconFor(lang))
@@ -69,6 +72,7 @@ func (p *Pipeline) synthesize(ctx context.Context, rp runParams, st *State) erro
 		PooledEstimate:    st.Pooled,
 		Imprecision:       st.Imprecision,
 		BlindingBias:      st.BlindingBias,
+		Robustness:        st.Robustness,
 		Grade:             grade,
 		ComparableStudies: &withNumbers,
 		EvidenceBase:      base,

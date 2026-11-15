@@ -1,13 +1,15 @@
 package pipeline
 
 // The wording of the computed lines of the report: the pooled estimate, the
-// imprecision rating and the lack-of-blinding rating (render.go places them).
-// The labels and the units come from the lexicon; the reason texts of the
-// imprecision and blinding ratings are generated in English.
+// imprecision rating, the lack-of-blinding rating and the robustness check
+// (render.go places them). The labels and the units come from the lexicon; the
+// reason texts of the imprecision and blinding ratings are generated in English.
 
 import (
+	"cmp"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/roman-redl/verdict/internal/model"
@@ -112,6 +114,62 @@ func (l lexicon) imprecisionText(imp *model.Imprecision) string {
 // (the levels), then the reason with the shares.
 func (l lexicon) blindingBiasText(bb *model.BlindingBias) string {
 	return l.serious + ", " + l.ratedDown + " " + l.count(bb.Levels, l.levels) + " — " + bb.Reason
+}
+
+// maxDecisiveShown caps the decisive studies the robustness line names; all of
+// them are in robustness.decisive in the artifact.
+const maxDecisiveShown = 3
+
+// weightPercent is a weight (0-1) as whole percent; a share under half a percent
+// is "<1" rather than a misleading 0.
+func weightPercent(w float64) string {
+	if pct := w * 100; pct >= 0.5 {
+		return strconv.Itoa(int(math.Round(pct)))
+	}
+
+	return "<1"
+}
+
+// robustnessText renders the leave-one-out check: that the direction holds (or,
+// when the whole pool's direction cannot be stated, that the conclusion does not
+// change), that the result rests on one study, or the studies without which the
+// direction changes, each with its size and weight.
+func (l lexicon) robustnessText(r *model.Robustness) string {
+	w := l.robust
+
+	switch {
+	case r.SingleStudy:
+		return w.single
+	case len(r.Decisive) == 0 && r.Direction == model.EffectUnclear:
+		return w.holdsUnclear(r.Checked)
+	case len(r.Decisive) == 0:
+		return w.holds(r.Checked)
+	}
+
+	shown := r.Decisive[:min(len(r.Decisive), maxDecisiveShown)]
+	parts := make([]string, len(shown))
+
+	for i := range shown {
+		d := &shown[i]
+
+		var details []string
+
+		if d.Participants > 0 {
+			details = append(details, l.count(d.Participants, l.participants))
+		}
+
+		details = append(details, fmt.Sprintf(w.weight, weightPercent(d.Weight)))
+
+		parts[i] = fmt.Sprintf(w.without, shortTitle(cmp.Or(d.Title, d.Study), largestLabelChars),
+			" ("+strings.Join(details, ", ")+")", l.effectDirectionLabel(d.DirectionWithout))
+	}
+
+	s := w.fragile + strings.Join(parts, "; ")
+	if more := len(r.Decisive) - len(shown); more > 0 {
+		s += fmt.Sprintf(l.andMore, more)
+	}
+
+	return s
 }
 
 // pooledLine is the one-line digest entry; empty without a pooled estimate.

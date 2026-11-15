@@ -283,6 +283,9 @@ type Report struct {
 	// BlindingBias is the risk-of-bias rating for lack of blinding; nil when
 	// the rule did not fire (and in reports written before the field).
 	BlindingBias *BlindingBias `json:"blinding_bias,omitempty"`
+	// Robustness is the leave-one-out check of the pooled conclusion; nil
+	// without a pooled estimate and in reports written before the field.
+	Robustness *Robustness `json:"robustness,omitempty"`
 	// Grade is the certainty level the pipeline computed from the synthesis's
 	// grade_checklist and the computed ratings (Verdict is this level); nil
 	// when the checklist was unusable, and in reports written before the field.

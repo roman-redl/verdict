@@ -19,6 +19,7 @@ func russian() lexicon {
 		reportTitle: "Отчёт о доказательствах", question: "Вопрос", verdict: "Вердикт",
 		effectDirection: "Направление эффекта", imprecision: "Неточность (расчёт)",
 		blindingBias: "Риск систематической ошибки из-за отсутствия ослепления (расчёт)",
+		robustness:   "Устойчивость вывода (расчёт)",
 		comparable:   "Исследований с числами по исходу", evidenceBase: "База доказательств",
 		consensus: "Научный консенсус", directTally: "Направление результатов прямых исследований",
 		generated: "Сформировано", rationale: "Обоснование", matrix: "Таблица доказательств",
@@ -76,10 +77,37 @@ func russian() lexicon {
 		},
 		notRatedDown: "оценка не понижена", ratedDown: "оценка понижена на", serious: "серьёзный риск",
 
+		robust: russianRobust(studies),
+
 		grade:    russianGrade(),
 		sentence: russianSentence(studies),
 		list:     russianList(),
 	}
+}
+
+func russianRobust(studies forms) robustWords {
+	return robustWords{
+		holds: func(k int) string {
+			return fmt.Sprintf("направление сохраняется, если исключить любое одно из %d %s", k, russianOf(k, studies))
+		},
+		holdsUnclear: func(k int) string {
+			return fmt.Sprintf("вывод не меняется, если исключить любое одно из %d %s", k, russianOf(k, studies))
+		},
+		single:  "объединённый результат опирается на одно исследование",
+		fragile: "хрупкий вывод: ", without: "без исследования «%[1]s»%[2]s направление становится таким: «%[3]s»",
+		weight: "%s%% веса",
+	}
+}
+
+// russianOf picks the noun form that follows "из" and a count: the genitive
+// plural ("из 12 исследований"), which for 21, 31 ... is the singular genitive
+// ("из 21 исследования").
+func russianOf(n int, f forms) string {
+	if russianForm(n) == 0 {
+		return f[1]
+	}
+
+	return f[2]
 }
 
 // russianVerb picks the verb form that agrees with a count in the object:

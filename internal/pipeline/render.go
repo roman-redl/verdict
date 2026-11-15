@@ -53,8 +53,9 @@ func RenderMarkdown(st *State) string {
 }
 
 // writeComputedLines writes the lines the pipeline computes under the verdict:
-// the effect direction, the pooled estimate, the two ratings, the computed
-// certainty, the study counts and the evidence base with its list of studies.
+// the effect direction, the pooled estimate, the imprecision rating, the
+// robustness check, the blinding rating, the computed certainty, the study
+// counts and the evidence base with its list of studies.
 func writeComputedLines(b *strings.Builder, lx lexicon, r *model.Report) {
 	if r.EffectDirection != "" {
 		fmt.Fprintf(b, "**%s:** %s\n\n", lx.effectDirection, lx.effectDirectionLabel(r.EffectDirection))
@@ -66,6 +67,10 @@ func writeComputedLines(b *strings.Builder, lx lexicon, r *model.Report) {
 
 	if imp := r.Imprecision; imp != nil {
 		fmt.Fprintf(b, "**%s:** %s\n\n", lx.imprecision, lx.imprecisionText(imp))
+	}
+
+	if rb := r.Robustness; rb != nil {
+		fmt.Fprintf(b, "**%s:** %s\n\n", lx.robustness, lx.robustnessText(rb))
 	}
 
 	if bb := r.BlindingBias; bb != nil {

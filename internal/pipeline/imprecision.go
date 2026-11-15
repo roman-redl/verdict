@@ -9,6 +9,7 @@ package pipeline
 // it gives "no difference seen" or, when too wide, "cannot tell" (grade).
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/roman-redl/verdict/internal/grade"
@@ -49,33 +50,46 @@ func (p *Pipeline) assessImprecision(pe *model.PooledEstimate) *model.Imprecisio
 		return nil
 	}
 
+	imp, err := rateImprecision(pe)
+	switch {
+	case errors.Is(err, errUnknownTarget):
+		p.log.Error("imprecision not computed: unknown target from the rule", "err", err)
+	case err != nil:
+		p.log.Warn("imprecision not computed: unusable pooled estimate", "err", err)
+	}
+
+	return imp
+}
+
+// errUnknownTarget marks a target the rule returned that the model does not
+// know: a bug, not data.
+var errUnknownTarget = errors.New("unknown imprecision target")
+
+// rateImprecision is the rating itself, without logging: the caller says what
+// the missing rating means (the check of the whole pool and the leave-one-out
+// check of a smaller one word it differently).
+func rateImprecision(pe *model.PooledEstimate) (*model.Imprecision, error) {
 	in, err := gradeInput(pe)
 	if err != nil {
-		p.log.Warn("imprecision not computed: unusable pooled estimate", "err", err)
-
-		return nil
+		return nil, err
 	}
 
 	a, err := grade.AssessImprecision(in)
 	if err != nil {
-		p.log.Warn("imprecision not computed: unusable pooled estimate", "err", err)
-
-		return nil
+		return nil, fmt.Errorf("rating: %w", err)
 	}
 
 	// grade and model name the targets alike on purpose: the stored value
 	// goes through the model's parser, like any value read from outside
 	target, err := model.ParseImprecisionTarget(string(a.Target))
 	if err != nil {
-		p.log.Error("imprecision not computed: unknown target from the rule", "err", err)
-
-		return nil
+		return nil, fmt.Errorf("%w: %w", errUnknownTarget, err)
 	}
 
 	return &model.Imprecision{
 		Levels: a.Levels, Target: target, BandLow: a.BandLow, BandHigh: a.BandHigh,
 		Reason: a.Reason, SizeChecked: a.SizeChecked,
-	}
+	}, nil
 }
 
 // directionFromPooled is the effect direction implied by the computed

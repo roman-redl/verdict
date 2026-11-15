@@ -117,7 +117,11 @@ modes A/B/C are a different thing — see docs/usage.md.)
    reflow; never rebuild it as a table). They show at a glance what a strong
    or a weak verdict stands on (how many papers answer the question directly,
    what kind of studies, how many participants, what was pooled, which study
-   is the big one). Do not recompute them or drop parts of them; when a report
+   is the big one). When the report has a **Robustness (computed)** line
+   (written by Go next to the pooled and imprecision lines), cite it too: it
+   says whether the direction holds when any one study is left out or names the
+   study it hangs on, and it does not change the verdict level. Do not
+   recompute them or drop parts of them; when a report
    has no such line or block (an old run), answer without it, and a report in
    English for a Russian-speaking user (a run made without `--lang ru`) gets
    the line translated with its numbers unchanged. Then say which DOIs and

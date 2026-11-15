@@ -768,7 +768,11 @@ The judge weighs the left-out studies as individual results, and the report's
 pooled line names the first few with their reasons (the rest are in
 `pooled_estimate.left_out`). The **judge reads** the result
 (`pooled_estimate` in its input) and may not recompute it; `report.md`
-prints the numbers from Go. The method is checked against the BCG vaccine
+prints the numbers from Go. In the judge's input the heterogeneity is not the
+bare `i2` number but `i2_percent`, a text with its unit and one decimal (for
+example "1.0%"): a bare 0.96 was read as 96 % and the pool was rated down for
+inconsistency. `i2_percent` exists only for a pool of two or more studies; the
+`i2` field in `4-synthesis.json` stays a number. The method is checked against the BCG vaccine
 example of the metafor package. A pooled mean difference also carries `sd`,
 the participant-weighted mean of the studies' pooled SDs, when every study
 gave its arms' SDs and sizes (a reported estimate has no SD).
@@ -1030,6 +1034,43 @@ and the judge's prompt tells the model not to count blinding again: lack of
 blinding is not a checklist item. Without `blinding_bias` the model has no
 blinding item to answer either.
 
+**Robustness of the pooled direction (leave-one-out).** The critic's labels vary
+from run to run (which outcome a study measures, whether it is the same trial as
+another), and on thin evidence the conclusion can turn on one study entering or
+leaving the pool. That cannot be made deterministic, so the report shows it
+(`robustness.go`, pure Go, no LLM call). After the synthesis returned its
+`claim_change`, Go makes the chosen pool again without each study in turn, by
+the same DerSimonian-Laird arithmetic on the same studies and the same measure
+(the choice of group and measure is not repeated), rates imprecision of the
+smaller pool and derives the effect direction from it exactly as it does for the
+whole pool. A study is decisive when leaving it out changes that direction
+(for example, two small trials whose interval includes no effect and one large
+trial that brings it to exclude it: without the large one the direction becomes
+"no effect"). A smaller pool keeps the mean-difference band situation of the
+whole one (it has a band only when the whole pool has an SD), so that only the
+data change, not the availability of the band. The result is `robustness`
+(`checked` studies, `direction` of the whole pool, `decisive` studies with
+their `weight`, `participants` and `direction_without`, `single_study`), shown
+as one line after the imprecision line ("Robustness (computed)"): the direction
+holds without any one study (when the whole pool's direction is itself "cannot
+be stated" the line says the conclusion does not change), or it is fragile and
+names up to three decisive studies, or the pooled result rests on one study (a
+single-study pool has nothing to leave out; a smaller pool of one remaining
+study takes the single-study path). The `participants` of a decisive study are
+the size the study list shows (the critic's count, else the metadata's), not the
+pool's n of the compared arms; a weight under half a percent prints as "<1%".
+Where the whole pool needs no `claim_change` but a smaller one does and there
+is none, the study is decisive with the direction "cannot be stated" (the
+interval then excludes no effect, but against the claim it cannot be read).
+
+The check is skipped, with a log warning and no line in the report, when: there
+is no pooled estimate (the studies are judged one by one); the whole pool's
+target needs `claim_change` and there is no usable one; the pooled estimate has
+no imprecision rating; the pool's weights do not match its studies (logged as an
+error, a bug); or a smaller pool cannot be pooled or rated. It is information
+for the reader: it does not change the certainty level and is not part of the
+judge's input.
+
 **Inconsistency needs more than one study.** GRADE judges inconsistency across
 studies: one study cannot be inconsistent, and neither can studies that report
 other outcomes. The judge, left alone, rated certainty down for inconsistency
@@ -1258,7 +1299,8 @@ question ──> [Consensus API] | [OpenAlex search] | [you + the free Consensus
 ## Part 5. Reading the report, and honest limits
 
 **In the report:** the Verdict + the effect direction + the pooled estimate
-and its computed imprecision when direct studies reported numbers (rendered
+and its computed imprecision and robustness (does the direction hold when any
+one study is left out) when direct studies reported numbers (rendered
 by Go) + the evidence base (below) + Consensus (the
 field's position and its status); the Rationale (which DOIs drive the conclusion); the matrix
 (the Sup/Contra column = supported/refuted); Contradictions (empty ≠

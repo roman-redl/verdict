@@ -111,6 +111,13 @@ func reportState() *State {
 				Levels: 1,
 				Reason: "open-label studies with a subjective or self-reported outcome carry 62% of the pool weight",
 			},
+			Robustness: &model.Robustness{
+				Checked: 3,
+				Decisive: []model.DecisiveStudy{{
+					Study: doiTrial, Title: titleTrial, Participants: 118, Weight: 0.62,
+					DirectionWithout: model.EffectNoEffect,
+				}},
+			},
 			Matrix: []model.MatrixRow{
 				{
 					DOI: doiTrial, Title: titleTrial, Year: 2021, Design: designRCT,
@@ -277,9 +284,10 @@ func TestPooledText(t *testing.T) {
 func TestRenderWithoutEffectFields(t *testing.T) {
 	st := reportState()
 	st.Report.EffectDirection, st.Report.PooledEstimate, st.Report.Imprecision = "", nil, nil
-	st.Report.BlindingBias, st.Report.EvidenceBase = nil, nil
+	st.Report.BlindingBias, st.Report.EvidenceBase, st.Report.Robustness = nil, nil, nil
 
 	md := RenderMarkdown(st)
+	assert.NotContains(t, md, "Robustness")
 	assert.NotContains(t, md, "Effect direction")
 	assert.NotContains(t, md, "Pooled effect")
 	assert.NotContains(t, md, "Imprecision")

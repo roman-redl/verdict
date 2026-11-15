@@ -17,8 +17,8 @@ func english() lexicon {
 
 		reportTitle: "Evidence Report", question: "Question", verdict: "Verdict",
 		effectDirection: "Effect direction", imprecision: "Imprecision (computed)",
-		blindingBias: "Risk of bias from lack of blinding (computed)",
-		comparable:   "Studies with numbers on the outcome", evidenceBase: "Evidence base",
+		blindingBias: "Risk of bias from lack of blinding (computed)", robustness: "Robustness (computed)",
+		comparable: "Studies with numbers on the outcome", evidenceBase: "Evidence base",
 		consensus: "Scientific consensus", directTally: "Direction of direct studies", generated: "Generated",
 		rationale: "Rationale", matrix: "Evidence matrix", contradictions: "Contradictions",
 		gaps: "Gaps and limitations", warnings: "Data warnings",
@@ -70,6 +70,18 @@ func english() lexicon {
 			model.StratumRandomized: "randomized", model.StratumNonRandomized: "non-randomized",
 		},
 		notRatedDown: "not rated down", ratedDown: "rated down", serious: "serious",
+
+		robust: robustWords{
+			holds: func(k int) string {
+				return fmt.Sprintf("the direction holds when any one of the %d studies is left out", k)
+			},
+			holdsUnclear: func(k int) string {
+				return fmt.Sprintf("the conclusion does not change when any one of the %d studies is left out", k)
+			},
+			single:  "the pooled result rests on one study",
+			fragile: "fragile — ", without: `without "%[1]s"%[2]s the direction becomes "%[3]s"`,
+			weight: "%s%% of the weight",
+		},
 
 		grade:    englishGrade(),
 		sentence: englishSentence(studies),

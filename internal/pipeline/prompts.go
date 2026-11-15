@@ -164,11 +164,31 @@ func synthesisUserPrompt(st *State) (string, error) {
 	return "Build the evidence assessment for this dataset:\n\n" + string(b), nil
 }
 
+// judgePooledEstimate is the pooled estimate as the judge reads it: the bare
+// i2 number (a percent) is replaced by a text with its unit, because a judge
+// read an I² of 0.96 % as 96 % and rated the pool down for inconsistency.
+type judgePooledEstimate struct {
+	*model.PooledEstimate
+
+	I2        *float64 `json:"i2,omitempty"` // always nil: hides the embedded number
+	I2Percent string   `json:"i2_percent,omitempty"`
+}
+
+// judgePooled is the judge's view of the pooled estimate (judgePooledEstimate).
+func judgePooled(pe *model.PooledEstimate) judgePooledEstimate {
+	j := judgePooledEstimate{PooledEstimate: pe}
+	if pe.I2 != nil {
+		j.I2Percent = fmt.Sprintf("%.1f%%", *pe.I2)
+	}
+
+	return j
+}
+
 // addComputed puts what the pipeline computed from the pool into the dataset:
 // each member only when there is one.
 func addComputed(data map[string]any, st *State) {
 	if st.Pooled != nil {
-		data["pooled_estimate"] = st.Pooled
+		data["pooled_estimate"] = judgePooled(st.Pooled)
 	}
 
 	if st.Imprecision != nil {

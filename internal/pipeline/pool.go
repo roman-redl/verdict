@@ -26,11 +26,16 @@ var measureOrder = []model.Measure{
 
 // pooledStudy is one direct study's effect on the analysis scale.
 type pooledStudy struct {
-	doi     string
-	measure model.Measure
-	unit    string // of an MD
-	study   meta.Study
-	n       int // participants in the effect's arms; 0 when unknown
+	doi string
+	// title and listSize name the study in the robustness check: the size is the
+	// one the evidence list shows (paperSize), not the pool's n, which counts the
+	// compared arms and is divided by the design effect for a cluster trial.
+	title    string
+	listSize int
+	measure  model.Measure
+	unit     string // of an MD
+	study    meta.Study
+	n        int // participants in the effect's arms; 0 when unknown
 
 	// Counts give an odds ratio as well as a risk ratio: a study from counts
 	// carries its RR in study (measure RR, its default) and the OR here, so that
@@ -118,7 +123,18 @@ type poolResult struct {
 	// blinding is the lack-of-blinding rating of the pooled studies; nil when
 	// the rule did not fire and without an estimate.
 	blinding *model.BlindingBias
-	leftOut  []leftOut
+	// group is the chosen pool's studies on its measure, kept for the
+	// leave-one-out check; nil without an estimate.
+	group   *poolGroup
+	leftOut []leftOut
+}
+
+// poolChoice is what poolBest made of the eligible studies.
+type poolChoice struct {
+	est      *model.PooledEstimate
+	blinding *model.BlindingBias
+	group    *poolGroup
+	left     []leftOut
 }
 
 // poolEffects is the pooled estimate of the corpus; see pool.
@@ -154,7 +170,8 @@ func (p *Pipeline) pool(st *State) poolResult {
 			continue
 		}
 
-		ps.trial, ps.regs, ps.year = trials[i]+1, e.TrialIDs(), e.Year
+		ps.trial, ps.regs, ps.year, ps.title = trials[i]+1, e.TrialIDs(), e.Year, e.Title
+		ps.listSize = paperSize(e, crits[i])
 		ps.abstract = model.IsMeetingAbstract(e.PublicationTypes)
 		ps.rank = rankOf(ps.doi, ps.year, crits[i].Effect)
 		items = append(items, ps)
@@ -166,25 +183,20 @@ func (p *Pipeline) pool(st *State) poolResult {
 	items, dropped = dropDuplicates(items)
 	out = append(out, dropped...)
 
-	var (
-		est      *model.PooledEstimate
-		blinding *model.BlindingBias
-	)
+	var choice poolChoice
 
 	if len(items) > 0 {
-		var measureLeft []leftOut
-
-		est, blinding, measureLeft = p.poolBest(settleContinuous(items))
-		out = append(out, measureLeft...)
+		choice = p.poolBest(settleContinuous(items))
+		out = append(out, choice.left...)
 	}
 
 	p.logLeftOut(out)
 
-	if est != nil {
-		est.Stratum, est.LeftOut = stratum, leftOutTexts(out)
+	if choice.est != nil {
+		choice.est.Stratum, choice.est.LeftOut = stratum, leftOutTexts(out)
 	}
 
-	return poolResult{est: est, blinding: blinding, leftOut: out}
+	return poolResult{est: choice.est, blinding: choice.blinding, group: choice.group, leftOut: out}
 }
 
 // studyKey is how the pool names a study (PooledEstimate.Studies) and how the
@@ -352,7 +364,7 @@ func settleContinuous(items []pooledStudy) []pooledStudy {
 // come back as left out for their measure. When some studies stay outside the
 // winner, the unified SMD pool (pool_unify.go) replaces it if it holds more
 // participants (moreParticipants).
-func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, *model.BlindingBias, []leftOut) {
+func (p *Pipeline) poolBest(items []pooledStudy) poolChoice {
 	groups := candidateGroups(items)
 	best := groups[0]
 
@@ -367,7 +379,7 @@ func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, *model.
 	pe, weights, err := pooledFrom(best)
 	if err != nil {
 		p.log.Warn("effects not pooled", "measure", best.measure, "err", err)
-		return nil, nil, nil
+		return poolChoice{}
 	}
 
 	blinding := p.ratedBlinding(best.items, weights)
@@ -395,7 +407,7 @@ func (p *Pipeline) poolBest(items []pooledStudy) (*model.PooledEstimate, *model.
 			"measure", best.measure, "studies", len(best.items), "left_out", len(left))
 	}
 
-	return pe, blinding, left
+	return poolChoice{est: pe, blinding: blinding, group: best, left: left}
 }
 
 // pooledFrom runs the arithmetic and brings the result back to the natural
