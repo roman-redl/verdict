@@ -33,7 +33,7 @@ func (p *Pipeline) synthesize(ctx context.Context, rp runParams, st *State) erro
 	res := p.pool(st)
 	st.Pooled = res.est
 	st.Imprecision = p.assessImprecision(st.Pooled)
-	st.BlindingBias = res.blinding
+	st.BlindingBias = blindingRating(st, res)
 
 	if w := noPoolWarning(res); w != "" {
 		st.Warnings = append(st.Warnings, w)

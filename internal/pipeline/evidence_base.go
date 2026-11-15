@@ -75,6 +75,10 @@ type evidenceStudy struct {
 	// pooled or there is no estimate with weights.
 	dois   []string
 	weight float64
+	// objective and selfReported are the critic's labels of the study's outcome
+	// (nil: not stated), for the lack-of-blinding rule without a pool.
+	objective    *bool
+	selfReported *bool
 }
 
 // answerKey is how the synthesis names a report in its per-study answers: the
@@ -278,6 +282,7 @@ func foldTrial(st *State, crits []model.Critique, reports []int, pooled map[stri
 	s := evidenceStudy{design: model.DesignUnclear, ref: refOf(&st.Enriched[kept], crits[kept])}
 	sized, designed := false, false
 	s.blinding = foldBlinding(crits, ordered)
+	s.objective, s.selfReported = foldOutcomeLabels(crits, ordered)
 
 	for _, i := range ordered {
 		e, c := &st.Enriched[i], crits[i]
@@ -322,6 +327,26 @@ func foldBlinding(crits []model.Critique, reports []int) model.Blinding {
 	}
 
 	return out
+}
+
+// foldOutcomeLabels is the objectivity and the self-reporting of a trial's
+// outcome from its reports in the order given: for each label the first value a
+// report's effect states; nil when none does (unknown). Only an effect on the
+// question's own outcome (a missing match reads as the same, as in the pool)
+// speaks for it: a quality-of-life effect of a mortality trial says nothing
+// about whether the mortality outcome is subjective.
+func foldOutcomeLabels(crits []model.Critique, reports []int) (objective, selfReported *bool) {
+	for _, i := range reports {
+		ef := crits[i].Effect
+		if ef == nil || !ef.OutcomeMatch.IsSame() {
+			continue
+		}
+
+		objective = cmp.Or(objective, ef.OutcomeObjective)
+		selfReported = cmp.Or(selfReported, ef.OutcomeSelfReported)
+	}
+
+	return objective, selfReported
 }
 
 // stated reports whether the critic gave a blinding the text states.

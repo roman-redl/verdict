@@ -22,6 +22,10 @@ const blindingLevels = 1
 // majority is the share of the pool's weight that counts as "most".
 const majority = 0.5
 
+// byParticipantsBasis names the weights of the rule without a pooled estimate
+// in its reason.
+const byParticipantsBasis = "of the participants (weighted by participants: there is no pooled estimate)"
+
 // totalEvents is the events of a study that gives no arm counts: the total the
 // critic copied (Effect.EventsTotal), as reported. A study without arm counts
 // gives a reported estimate, and clusterAdjusted leaves such an estimate and its
@@ -88,12 +92,62 @@ func blindingBias(items []pooledStudy, weights []float64) *model.BlindingBias {
 		return nil
 	}
 
-	return &model.BlindingBias{
-		Levels: blindingLevels,
-		Reason: fmt.Sprintf("studies with a subjective outcome and unmasked participants (open-label), or "+
-			"with an outcome the participants report themselves and only the outcome assessor masked, "+
-			"carry %.0f%% of the pool weight", unblinded*100),
+	return &model.BlindingBias{Levels: blindingLevels, Reason: blindingReason(unblinded, "of the pool weight")}
+}
+
+// blindingRating is the lack-of-blinding rating of the run: the pool's own
+// (res.blinding, by the pool weights) when there is a pooled estimate, else the
+// rule over the randomized trials weighted by participants.
+func blindingRating(st *State, res poolResult) *model.BlindingBias {
+	if res.est != nil {
+		return res.blinding
 	}
+
+	_, studies := evidenceStudies(st, nil)
+
+	return blindingBiasWithoutPool(studies)
+}
+
+// blindingReason is the sentence behind the rating: what counts as unblinded,
+// and the share of the weight those studies carry, with the weight's basis.
+func blindingReason(share float64, basis string) string {
+	return fmt.Sprintf("studies with a subjective outcome and unmasked participants (open-label), or "+
+		"with an outcome the participants report themselves and only the outcome assessor masked, "+
+		"carry %.0f%% %s", share*100, basis)
+}
+
+// blindingBiasWithoutPool is the lack-of-blinding rule for a corpus without a
+// pooled estimate. The studies are the direct primary randomized trials of the
+// run, one per trial (evidenceStudies); blinding is defined for randomized
+// trials only, so the other designs are not in the denominator. Each weighs by
+// its participants (participantWeighted, as the risk-of-bias items do without a
+// pool); the labels are the critic's, and a trial without an effect has unknown
+// outcome labels, so it does not count as unblinded. Nil when the rule does not
+// fire.
+func blindingBiasWithoutPool(studies []evidenceStudy) *model.BlindingBias {
+	var randomized []evidenceStudy
+
+	for i := range studies {
+		if studies[i].design.IsRandomized() {
+			randomized = append(randomized, studies[i])
+		}
+	}
+
+	var total, unblinded float64
+
+	for i, w := range participantWeighted(randomized) {
+		total += w.weight
+
+		if s := &randomized[i]; unblindedLabels(s.blinding, s.objective, s.selfReported) {
+			unblinded += w.weight
+		}
+	}
+
+	if total <= 0 || unblinded/total <= majority+shareEpsilon {
+		return nil
+	}
+
+	return &model.BlindingBias{Levels: blindingLevels, Reason: blindingReason(unblinded/total, byParticipantsBasis)}
 }
 
 // unblindedBias reports whether a study carries the bias of lack of blinding.
@@ -108,11 +162,17 @@ func blindingBias(items []pooledStudy, weights []float64) *model.BlindingBias {
 // (participants masked), double-blind, unclear and missing blinding never count,
 // the rule does not fire on a guess.
 func unblindedBias(s *pooledStudy) bool {
-	objective := s.objective != nil && *s.objective
-	subjective := s.objective != nil && !*s.objective
-	selfReported := s.selfReported != nil && *s.selfReported
+	return unblindedLabels(s.blinding, s.objective, s.selfReported)
+}
 
-	switch s.blinding {
+// unblindedLabels is unblindedBias on the critic's labels themselves, for the
+// studies that are not pooled (nil is unknown).
+func unblindedLabels(blinding model.Blinding, objectiveLabel, selfReportedLabel *bool) bool {
+	objective := objectiveLabel != nil && *objectiveLabel
+	subjective := objectiveLabel != nil && !*objectiveLabel
+	selfReported := selfReportedLabel != nil && *selfReportedLabel
+
+	switch blinding {
 	case model.BlindingOpen:
 		return subjective || (selfReported && !objective)
 	case model.BlindingAssessorOnly:

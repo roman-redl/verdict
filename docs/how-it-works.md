@@ -969,10 +969,29 @@ an MD of ±0.2 SD (only when the SD is known).
 
 **Risk of bias from lack of blinding.** Cochrane experts rate risk of bias down
 for lack of blinding when the outcome is subjective or self-reported, and never
-for an objective one such as death. Go applies this to the pooled studies
-(`pool_blinding.go`) from the critic's labels and the pool's own weights (the
-random-effects shares that `meta.Pool` computes). The rule fires when the
-studies that count as unblinded carry more than half of the weight. Two kinds
+for an objective one such as death. Go applies this (`pool_blinding.go`) from
+the critic's labels in two cases. With a pooled estimate the studies are the
+pooled ones and the weights are the pool's own (the random-effects shares that
+`meta.Pool` computes). Without a pooled estimate (a few small open-label trials
+of a subjective outcome often give no common numbers) the studies are the
+direct primary randomized trials of the run (`rct`, `cluster_rct`,
+`crossover_rct`; not retracted, not reviews or non-study papers), one per trial
+(reports that share a registration number count once), and the weights are the
+participants: a trial that states no size weighs as much as the mean of the
+known sizes, all equal when none is known (the same method as the per-study
+risk-of-bias items without a pool, over the randomized trials only). Only
+randomized trials are in the
+denominator because the critic defines blinding for randomized trials only: a
+cohort has no blinding label, and counting its participants would dilute the
+share with studies the rule cannot judge. The outcome labels come only from
+an effect on the question's own outcome (a missing match reads as the same):
+a trial without one has unknown labels and does not count as unblinded. The
+pool reads the pooled report's own labels; without a pool the labels and the
+blinding are folded over a trial's reports (the first stated value, the kept
+report first), as in the evidence-base blinding counts. In both cases the
+rule fires when the studies that count as unblinded carry more than half of the
+weight (the `reason` says which weights: "of the pool weight", or "of the
+participants" with the note that there is no pooled estimate). Two kinds
 count: an open trial (`blinding` = `open`) with `outcome_objective` explicitly
 `false`, or with `outcome_self_reported` `true` and the outcome not stated
 objective; and an assessor-blinded trial (`assessor_blind`) whose participants
@@ -989,8 +1008,7 @@ trial with masked participants (`double_blind`, `single_blind`) and pain, does
 not count either. An `unclear` or missing
 blinding counts as not open and an unknown objectivity as not subjective, so a
 critique without the new fields never fires it. Blinding of a study whose design
-is known not to be randomized is not counted. Nothing fires without a pooled
-estimate. The result is `blinding_bias` (`levels` 1, a `reason` with that
+is known not to be randomized is not counted. The result is `blinding_bias` (`levels` 1, a `reason` with that
 share), next to `imprecision` in the judge's input and in the report ("Risk of
 bias from lack of blinding (computed)"). Go counts it as one of the
 risk-of-bias levels (see "The certainty level is computed from a checklist"),

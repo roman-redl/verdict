@@ -66,10 +66,10 @@ func ParseBlinding(s string) (Blinding, error) {
 }
 
 // BlindingBias is the risk-of-bias rating for lack of blinding, computed by
-// the pipeline from the pooled studies (not by the synthesis): most of the
-// pool's weight is open-label studies with a subjective outcome, or studies
-// with only the outcome assessor masked whose participants report the outcome
-// themselves.
+// the pipeline (not by the synthesis): most of the pool's weight, or without a
+// pooled estimate most of the participants of the randomized trials, is
+// open-label studies with a subjective outcome, or studies with only the
+// outcome assessor masked whose participants report the outcome themselves.
 type BlindingBias struct {
 	// Levels is how many levels to rate down for risk of bias: 1 (serious).
 	Levels int `json:"levels"`

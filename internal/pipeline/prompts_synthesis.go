@@ -130,7 +130,8 @@ Verdict definitions — the certainty that the stated direction (supports the cl
     - stopped_early_for_benefit: a trial stopped early for benefit.
     Lack of blinding is not an item, and it does not lower an objective outcome (death, survival, hospital ` +
 	`admission, laboratory values). When the input has blinding_bias, the pipeline computed it (most of the ` +
-	`pooled weight is open-label studies with a subjective outcome, or studies with only the outcome assessor ` +
+	`pooled weight, or without pooled_estimate most of the participants of the randomized trials, is ` +
+	`open-label studies with a subjective outcome, or studies with only the outcome assessor ` +
 	`masked whose participants report the outcome themselves): it is one of the levels ` +
 	`of risk of bias, so do not count blinding again; the items can still add a second level;
   - inconsistency: one level when inconsistency_basis.comparable_studies is 2 or more and ` +
