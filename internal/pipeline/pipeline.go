@@ -370,7 +370,7 @@ func (p *Pipeline) deepenLoadedCritique(ctx context.Context, rp runParams, st *S
 		return fmt.Errorf("stage %s: %w", stageCritique, err)
 	}
 
-	if err := p.critiqueTail(ctx, rp, st); err != nil {
+	if err := p.followUpEffects(ctx, rp, st); err != nil {
 		return fmt.Errorf("stage %s: %w", stageCritique, err)
 	}
 

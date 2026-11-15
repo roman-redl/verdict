@@ -34,7 +34,12 @@ type State struct {
 	// from the pooled studies in the same step; nil when the rule did not
 	// fire and in artifacts written before it.
 	BlindingBias *model.BlindingBias `json:"blinding_bias,omitempty"`
-	Report       *model.Report       `json:"report,omitempty"`
+	// RelatedOutcomes is the share of the pool's weight carried by studies of
+	// a related outcome, computed from the pooled studies in the same step; nil
+	// without a pooled estimate that has weights and in artifacts written
+	// before it.
+	RelatedOutcomes *model.RelatedOutcomes `json:"related_outcomes,omitempty"`
+	Report          *model.Report          `json:"report,omitempty"`
 	// TextMode is the text mode of the run that produced the report; the
 	// report lists the full texts not obtained only where full texts were
 	// asked for. Empty in artifacts written before the field existed.

@@ -7,7 +7,8 @@ import (
 
 // OutcomeMatch says how the outcome an effect is measured for relates to the
 // question's primary outcome. The critic answers it per effect; the pipeline
-// pools only effects for the same outcome.
+// pools the effects for the same and for a related outcome, and rates the
+// related ones down for indirectness by their share of the pool's weight.
 type OutcomeMatch string
 
 const (
@@ -34,9 +35,14 @@ func ParseOutcomeMatch(s string) (OutcomeMatch, error) {
 	return "", fmt.Errorf("unknown outcome match %q (want same | related | different)", s)
 }
 
-// IsSame reports whether the effect may be pooled as the question's outcome.
-// A missing value counts as the same outcome: "unknown" is not "different".
-func (m OutcomeMatch) IsSame() bool { return m == "" || m == OutcomeSame }
+// IsDifferent reports whether the effect is for another outcome than the
+// question's: the only label that keeps it out of the pool. A missing value
+// counts as the same outcome: "unknown" is not "different".
+func (m OutcomeMatch) IsDifferent() bool { return m == OutcomeDifferent }
+
+// IsRelated reports whether the effect is for a surrogate, a composite, a
+// component or another definition of the question's outcome.
+func (m OutcomeMatch) IsRelated() bool { return m == OutcomeRelated }
 
 // TimepointMatch says whether the follow-up an effect is measured at is the
 // time frame the question asks about.

@@ -231,9 +231,9 @@ func TestFollowUpNormalizesTheEffect(t *testing.T) {
 	assert.Contains(t, logs.String(), "unknown outcome match")
 }
 
-// The labels the vote leaves in an effect (the critic's own ones) are the
-// pipeline's to write: a follow-up reply that carries them loses them.
-func TestFollowUpDropsTheCriticLabelsOfTheReply(t *testing.T) {
+// The keys of the removed outcome vote in a follow-up reply are ignored; the
+// labels themselves stay.
+func TestFollowUpIgnoresTheKeysOfTheRemovedVote(t *testing.T) {
 	s := repliesBy(`{"effect":{"outcome_match":"related","timepoint_match":"no",` +
 		`"outcome_match_critic":"same","timepoint_match_critic":"yes",` +
 		`"intervention":{"events":3,"total":50},"control":{"events":9,"total":50}}}`)
@@ -243,10 +243,8 @@ func TestFollowUpDropsTheCriticLabelsOfTheReply(t *testing.T) {
 
 	got := r.st.Critiques[0].Effect
 	require.NotNil(t, got)
-	assert.Equal(t, model.OutcomeRelated, got.OutcomeMatch, "the labels themselves stay")
+	assert.Equal(t, model.OutcomeRelated, got.OutcomeMatch)
 	assert.Equal(t, model.TimepointNo, got.TimepointMatch)
-	assert.Empty(t, got.OutcomeMatchCritic)
-	assert.Empty(t, got.TimepointMatchCritic)
 }
 
 // Writing a changed critique through to the cache keeps the CheckedAt of an

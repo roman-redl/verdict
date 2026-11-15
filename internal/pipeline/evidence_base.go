@@ -75,6 +75,11 @@ type evidenceStudy struct {
 	// pooled or there is no estimate with weights.
 	dois   []string
 	weight float64
+	// related is true when the study is in the pool (a single-study estimate
+	// too) and the report the pool kept has a related outcome; relatedWeight is
+	// that report's weight, so it is part of weight (zero for any other study).
+	related       bool
+	relatedWeight float64
 }
 
 // answerKey is how the synthesis names a report in its per-study answers: the
@@ -288,6 +293,9 @@ func foldTrial(st *State, crits []model.Critique, reports []int, pooled map[stri
 		s.pooled = s.pooled || (key != "" && pooled[key])
 		s.weight += weights[key]
 
+		marked, w := relatedReport(c, key, pooled, weights)
+		s.related, s.relatedWeight = s.related || marked, s.relatedWeight+w
+
 		if key := answerKey(e); key != "" {
 			s.dois = append(s.dois, key)
 		}
@@ -302,6 +310,27 @@ func foldTrial(st *State, crits []model.Critique, reports []int, pooled map[stri
 	}
 
 	return s
+}
+
+// relatedReport tells whether the report with the key has a related outcome and
+// is in the pool: marked, and then its weight in the pool (the weight of
+// related outcomes); a report that is not marked has no such weight. The
+// weights name every study of the estimate, a single study included (weight 1),
+// which pooledKeys does not: that study counts and is marked as well, since it
+// is the whole estimate.
+func relatedReport(
+	c model.Critique, key string, pooled map[string]bool, weights map[string]float64,
+) (marked bool, weight float64) {
+	if key == "" || c.Effect == nil || !c.Effect.OutcomeMatch.IsRelated() {
+		return false, 0
+	}
+
+	weight, weighted := weights[key]
+	if !pooled[key] && !weighted {
+		return false, 0
+	}
+
+	return true, weight
 }
 
 // foldBlinding is the blinding of a trial from its reports in the order given:
@@ -375,6 +404,7 @@ func (s evidenceStudy) record() model.EvidenceStudy {
 	return model.EvidenceStudy{
 		DOI: s.ref.doi, Title: s.ref.title, Year: s.ref.year, Design: s.design, Blinding: s.blinding,
 		Cochrane: s.cochrane, Participants: s.size, Direction: s.ref.direction, Pooled: s.pooled,
+		OutcomeRelated: s.related,
 	}
 }
 

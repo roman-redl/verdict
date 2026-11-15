@@ -240,8 +240,9 @@ func TestPoolStratumRandomizedOnAnotherOutcomeStillKeepsCohortsOut(t *testing.T)
 	assert.Equal(t, []string{trialA + " (other outcome)", cohortA + " (non-randomized)"}, leftOutTexts(res.leftOut))
 }
 
-// Only an effect for the question's outcome at the question's time point is
-// pooled; a missing label is "unknown", which does not exclude.
+// Only an effect for the question's outcome, or one related to it, at the
+// question's time point is pooled; a missing label is "unknown", which does not
+// exclude.
 func TestPoolOutcomeAndTimepointMatch(t *testing.T) {
 	const (
 		same, related, different = model.OutcomeSame, model.OutcomeRelated, model.OutcomeDifferent
@@ -258,7 +259,9 @@ func TestPoolOutcomeAndTimepointMatch(t *testing.T) {
 		{"both labels missing, as in an old artifact", "", "", ""},
 		{"an unclear time point is kept", same, unclear, ""},
 		{"a missing outcome label reads as the same", "", yes, ""},
-		{"a related outcome", related, yes, leftOtherOutcome},
+		{"a related outcome is pooled", related, yes, ""},
+		{"a related outcome at an unclear time point", related, unclear, ""},
+		{"a related outcome at another time point", related, no, leftOtherTime},
 		{"a different outcome", different, yes, leftOtherOutcome},
 		{"another time point", same, no, leftOtherTime},
 		{"another outcome beats another time point as the reason", different, no, leftOtherOutcome},

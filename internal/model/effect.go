@@ -103,11 +103,6 @@ type Effect struct {
 	// the question's time frame; empty reads as "unclear".
 	TimepointWeeks *float64       `json:"timepoint_weeks,omitempty"`
 	TimepointMatch TimepointMatch `json:"timepoint_match,omitempty"`
-	// OutcomeMatchCritic and TimepointMatchCritic keep the critic's own label
-	// when the outcome adjudication (pipeline.adjudicateMatches) changed it;
-	// empty when the vote left the label as the critic wrote it.
-	OutcomeMatchCritic   OutcomeMatch   `json:"outcome_match_critic,omitempty"`
-	TimepointMatchCritic TimepointMatch `json:"timepoint_match_critic,omitempty"`
 	// Adjusted is true when the numbers are an adjusted estimate (aOR, aRR,
 	// aHR) of a non-randomized study; false or absent means crude numbers.
 	Adjusted bool `json:"adjusted,omitempty"`

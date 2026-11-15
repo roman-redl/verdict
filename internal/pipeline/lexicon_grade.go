@@ -85,7 +85,8 @@ func (l lexicon) verdictDiffers(computed, said string) string {
 
 // domainText is "risk of bias −1 (lack of blinding, attrition 64%)": the
 // levels, then the causes the domain has (a cause the table does not know is
-// shown as stored), a cause with a share of the weight followed by it.
+// shown as stored), a cause with a share of the weight above one half followed
+// by it.
 func (l lexicon) domainText(name string, d model.GradeDomain) string {
 	s := name + " " + minus + strconv.Itoa(d.Levels)
 	if len(d.Causes) == 0 {
@@ -100,7 +101,9 @@ func (l lexicon) domainText(name string, d model.GradeDomain) string {
 			words[i] = w
 		}
 
-		if share, ok := d.Shares[c]; ok {
+		// the share of a cause the model's answer alone counts (an outcome
+		// with a related share of the pool at or below one half) is not shown
+		if share, ok := d.Shares[c]; ok && share > majority+shareEpsilon {
 			words[i] += " " + strconv.Itoa(int(math.Round(share*percent))) + "%"
 		}
 	}

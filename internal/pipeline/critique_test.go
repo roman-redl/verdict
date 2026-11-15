@@ -159,10 +159,10 @@ func TestCritiqueStageUsesCache(t *testing.T) {
 	require.NotZero(t, s3.calls, "added full text must re-critique, not serve the cached abstract critique")
 }
 
-// The markers the pipeline keeps in a critique (the effect follow-up was made,
-// the labels were voted on, the critic's own labels) are not the model's to
-// set: a fresh reply that carries them loses them, so that it cannot suppress
-// the follow-up or the vote.
+// The marker the pipeline keeps in a critique (the effect follow-up was made)
+// is not the model's to set: a fresh reply that carries it loses it, so that it
+// cannot suppress the follow-up. The keys of the removed outcome vote
+// (match_adjudicated, outcome_match_critic, timepoint_match_critic) are ignored.
 func TestFreshCritiqueRepliesLoseThePipelinesMarkers(t *testing.T) {
 	const marked = `"effect_asked":true,"match_adjudicated":true,` +
 		`"effect":{"outcome":"x","outcome_match":"related","timepoint_match":"no",` +
@@ -173,12 +173,9 @@ func TestFreshCritiqueRepliesLoseThePipelinesMarkers(t *testing.T) {
 		t.Helper()
 
 		assert.False(t, c.EffectAsked)
-		assert.False(t, c.MatchAdjudicated)
 		require.NotNil(t, c.Effect)
 		assert.Equal(t, model.OutcomeRelated, c.Effect.OutcomeMatch, "the model's own labels stay")
 		assert.Equal(t, model.TimepointNo, c.Effect.TimepointMatch)
-		assert.Empty(t, c.Effect.OutcomeMatchCritic)
-		assert.Empty(t, c.Effect.TimepointMatchCritic)
 	}
 
 	t.Run("a batch reply", func(t *testing.T) {
@@ -199,29 +196,25 @@ func TestFreshCritiqueRepliesLoseThePipelinesMarkers(t *testing.T) {
 		check(t, got)
 	})
 
-	t.Run("the follow-up and the vote stay due", func(t *testing.T) {
+	t.Run("the follow-up stays due", func(t *testing.T) {
 		c := normalizeCritique(model.Critique{
 			DOI: doiA, Relevance: relevanceDirect, ResultDirection: resultPositive, StudyDesign: designRCT,
-			EffectAsked: true, MatchAdjudicated: true,
+			EffectAsked: true,
 		}, ep(doiA), quietLog())
 
 		assert.True(t, needsEffectFollowUp(&model.EnrichedPaper{Abstract: "text", StudyDesign: designRCT}, c))
-		assert.False(t, c.MatchAdjudicated)
 	})
 }
 
 // A critique loaded from the cache is the pipeline's own record: it keeps its
-// markers and is not asked again.
+// marker and is not asked again.
 func TestCachedCritiqueKeepsThePipelinesMarkers(t *testing.T) {
 	tmp := t.TempDir()
 	cachePath := filepath.Join(tmp, "critique-cache.json")
 
 	cached := crit(doiA, qualityHigh, relevanceDirect, directionPositive)
-	cached.EffectAsked, cached.MatchAdjudicated = true, true
-	cached.Effect = &model.Effect{
-		OutcomeMatch: model.OutcomeRelated, OutcomeMatchCritic: model.OutcomeSame,
-		TimepointMatch: model.TimepointNo, TimepointMatchCritic: model.TimepointYes,
-	}
+	cached.EffectAsked = true
+	cached.Effect = &model.Effect{OutcomeMatch: model.OutcomeRelated, TimepointMatch: model.TimepointNo}
 
 	seeded := CritiqueCache{critiqueCacheKey(ep(doiA), "q?"): {CheckedAt: testNow, Critique: cached}}
 	require.NoError(t, seeded.Save(cachePath))

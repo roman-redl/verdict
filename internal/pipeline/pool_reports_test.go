@@ -69,12 +69,28 @@ func TestPoolReportChoice(t *testing.T) {
 			wantLeft: []string{doiReflux5y + " (same trial as " + doiReflux12m + ", " + regReflux + ")"},
 		},
 		{
-			name: "a related outcome is not eligible: the report that matches is kept",
+			name: "a related outcome is eligible, but the report that matches is kept",
 			reports: []poolStudy{
 				report(doiReflux12m, 2008, 59, same, yes, 52), report(doiReflux5y, 2013, 50, related, yes, 260),
 			},
 			wantDOI:  doiReflux12m,
-			wantLeft: []string{doiReflux5y + " (other outcome)"},
+			wantLeft: []string{doiReflux5y + " (same trial as " + doiReflux12m + ", " + regReflux + ")"},
+		},
+		{
+			name: "the outcome beats a related one before the time point: unclear against a match",
+			reports: []poolStudy{
+				report(doiReflux12m, 2008, 59, same, unclear, 52), report(doiReflux5y, 2013, 50, related, yes, 260),
+			},
+			wantDOI:  doiReflux12m,
+			wantLeft: []string{doiReflux5y + " (same trial as " + doiReflux12m + ", " + regReflux + ")"},
+		},
+		{
+			name: "the outcome at another time point is not eligible: the related report at the time point is kept",
+			reports: []poolStudy{
+				report(doiReflux12m, 2008, 59, same, no, 52), report(doiReflux5y, 2013, 50, related, yes, 260),
+			},
+			wantDOI:  doiReflux5y,
+			wantLeft: []string{doiReflux12m + " (other time point)"},
 		},
 		{
 			name: "nothing is labelled (an old artifact): the later year, as before",

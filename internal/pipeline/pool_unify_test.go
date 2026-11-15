@@ -327,6 +327,37 @@ func TestUnifiedPoolIsChosenOnlyWithMoreParticipants(t *testing.T) {
 	}
 }
 
+// The number of studies plays no part in the choice between the native pool and
+// the unified one: a third study of unknown size makes the unified pool larger
+// by one study, not by a participant, and the native pool stays.
+func TestUnifiedPoolNeedsMoreParticipantsNotMoreStudies(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		sizeOfThird int
+		wantUnified bool
+	}{
+		{name: "a third study of unknown size: the native pool is kept", sizeOfThird: 0},
+		{name: "a third study with participants: the unified pool wins", sizeOfThird: 1, wantUnified: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, _ := poolPipeline(t)
+
+			items := []pooledStudy{
+				{doi: study1, measure: model.MeasureMD, unit: unitPoints, continuous: true, higherIsBetter: new(true), n: 100},
+				{doi: study2, measure: model.MeasureMD, unit: unitPoints, continuous: true, higherIsBetter: new(true), n: 100},
+				{doi: study3, measure: model.MeasureRR, fromCounts: true, eventIsHarm: new(false), n: tc.sizeOfThird},
+			}
+			best := &poolGroup{measure: model.MeasureMD, unit: unitPoints, items: items[:2], idx: []int{0, 1}}
+
+			chosen, reasons := p.preferUnified(items, best)
+
+			assert.Equal(t, tc.wantUnified, chosen != best)
+			assert.Equal(t, tc.wantUnified, chosen.converted)
+			assert.Empty(t, reasons)
+		})
+	}
+}
+
 // A reported HR, an RR or OR without counts and an MD without SDs cannot be put
 // on the standardized scale: they stay out under their own measure.
 func TestUnifiedPoolDoesNotConvertReportedEstimates(t *testing.T) {

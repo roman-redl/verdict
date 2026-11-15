@@ -188,27 +188,18 @@ func TestSynthesisInputDropsDegenerateInterval(t *testing.T) {
 	require.NotNil(t, st.Critiques[0].Effect.CILow, "the stored critique stays as the critic wrote it")
 }
 
-// The pipeline's own markers are resume bookkeeping: the judge does not see
-// them, while the state keeps them.
+// The pipeline's own marker is resume bookkeeping: the judge does not see it,
+// while the state keeps it.
 func TestSynthesisInputOmitsPipelineMarkers(t *testing.T) {
 	st := poolState(&model.Effect{
 		Outcome: "weight", Measure: "MD", Value: new(0.5), CILow: new(0.1), CIHigh: new(0.9),
-		OutcomeMatchCritic: model.OutcomeMatch("related"), TimepointMatchCritic: model.TimepointMatch("unclear"),
 	})
 	st.Critiques[0].EffectAsked = true
-	st.Critiques[0].MatchAdjudicated = true
 
 	out, err := synthesisUserPrompt(st)
 	require.NoError(t, err)
 
 	assert.Contains(t, out, `"value":0.5`)
-
-	for _, key := range []string{"effect_asked", "match_adjudicated", "outcome_match_critic", "timepoint_match_critic"} {
-		assert.NotContains(t, out, key)
-	}
-
-	assert.True(t, st.Critiques[0].EffectAsked, "the state keeps the markers")
-	assert.True(t, st.Critiques[0].MatchAdjudicated)
-	assert.NotEmpty(t, st.Critiques[0].Effect.OutcomeMatchCritic)
-	assert.NotEmpty(t, st.Critiques[0].Effect.TimepointMatchCritic)
+	assert.NotContains(t, out, "effect_asked")
+	assert.True(t, st.Critiques[0].EffectAsked, "the state keeps the marker")
 }

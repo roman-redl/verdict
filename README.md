@@ -338,7 +338,9 @@ docs/how-it-works.md §2.2.
   random-effects pooled estimate (DerSimonian-Laird), and the judge *reads*
   it — so three non-significant trials with a significant pooled effect are
   not judged one by one. A pool is one outcome at one time point from one
-  design class: randomized trials and non-randomized studies are never pooled
+  design class (studies of a related outcome join it only beside studies of
+  the question's own outcome, and the synthesis rates the outcome down for
+  indirectness by their share of the pool weight): randomized trials and non-randomized studies are never pooled
   together (randomized first, non-randomized only from adjusted estimates),
   cluster trials are adjusted for clustering, and papers that are not study
   reports (errata, comments) are left out. One report per trial is pooled:

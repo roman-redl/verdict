@@ -416,9 +416,25 @@ type GradeDomain struct {
 	Causes []string `json:"causes,omitempty"`
 	// Shares is, for the risk-of-bias items answered per study, the share (0 to
 	// 1) of the studies' weight that answered yes, by cause; every item is in
-	// it, the counting ones (share above one half) also in Causes. Nil for the
-	// other domains and for the global answers of an older reply.
+	// it, the counting ones (share above one half) also in Causes. For
+	// indirectness it is the share of the pool's weight carried by studies of a
+	// related outcome, under the cause "outcome", when there is a pooled
+	// estimate with weights. Nil for the other domains and for the global
+	// answers of an older reply.
 	Shares map[string]float64 `json:"shares,omitempty"`
+}
+
+// RelatedOutcomes is the outcome indirectness the pipeline computes from the
+// pooled estimate: the share of the pool's weight carried by studies whose
+// outcome_match is related (a surrogate, a composite, a component or another
+// definition of the question's outcome). Nil without a pooled estimate that
+// has weights.
+type RelatedOutcomes struct {
+	// Share is the related studies' share of the pool's weight, 0 to 1.
+	Share float64 `json:"share"`
+	// RatedDown is true when Share is above one half: the indirectness domain
+	// then has the cause "outcome", whatever the model answered.
+	RatedDown bool `json:"rated_down"`
 }
 
 // GradeAssessment is the certainty level computed by the pipeline from the

@@ -7,6 +7,12 @@ package pipeline
 // due stays with the synthesis model; the code only counts the studies it can
 // be judged across.
 
+import (
+	"strings"
+
+	"github.com/roman-redl/verdict/internal/model"
+)
+
 // inconsistencyBasis is the synthesis input "inconsistency_basis".
 type inconsistencyBasis struct {
 	// ComparableStudies is the number of distinct trials or studies that
@@ -20,13 +26,17 @@ type inconsistencyBasis struct {
 // without results of its own, whose extracted effect is usable (arm counts or
 // means the code can turn into an estimate, or a reported estimate with its
 // interval) and whose outcome is the question's (a missing label reads as the
-// same). The design stratum, the measure and the time point do not matter and
-// neither does whether the study entered the pooled estimate: a second trial
-// with numbers on the outcome that was kept out of the pool (another measure,
-// a non-randomized design) still makes inconsistency judgeable.
+// same) or, only when the study is in the pooled estimate, related to it. The
+// design stratum, the measure and the time point do not matter, and neither does
+// whether a study of the question's own outcome entered the pooled estimate: a
+// second trial with numbers on the outcome that was kept out of the pool
+// (another measure, a non-randomized design) still makes inconsistency
+// judgeable. A related study left out of the pool is no evidence on the
+// outcome and does not count.
 func comparableStudies(st *State) int {
 	crits := critiquesFor(st)
 	trials := trialGroups(trialInputs(st, crits))
+	pooled := poolMembers(st.Pooled)
 	seen := map[int]struct{}{}
 
 	for i := range st.Enriched {
@@ -36,7 +46,11 @@ func comparableStudies(st *State) int {
 			continue
 		}
 
-		if !c.Effect.OutcomeMatch.IsSame() {
+		if c.Effect.OutcomeMatch.IsDifferent() {
+			continue
+		}
+
+		if c.Effect.OutcomeMatch.IsRelated() && !pooled[studyKey(e)] {
 			continue
 		}
 
@@ -48,4 +62,27 @@ func comparableStudies(st *State) int {
 	}
 
 	return len(seen)
+}
+
+// poolMembers is the set of the keys (studyKey) of every study in the pooled
+// estimate, a single study that is the whole estimate included (unlike
+// pooledKeys); empty when nothing is pooled.
+func poolMembers(pe *model.PooledEstimate) map[string]bool {
+	set := map[string]bool{}
+
+	if pe == nil {
+		return set
+	}
+
+	for _, k := range pe.Studies {
+		// the normalized form too: an estimate saved before the keys were
+		// normalized names a DOI as the paper wrote it
+		for _, key := range []string{strings.TrimSpace(k), model.NormalizeDOI(k)} {
+			if key != "" {
+				set[key] = true
+			}
+		}
+	}
+
+	return set
 }

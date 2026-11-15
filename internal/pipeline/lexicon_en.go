@@ -108,6 +108,8 @@ func englishList() listWords {
 		review:      "review",
 		notAssessed: "not assessed",
 		pooled:      "pooled",
+
+		relatedOutcome: "related outcome",
 		designs: map[model.StudyDesign]string{
 			model.DesignRCT: "RCT", model.DesignClusterRCT: "cluster RCT", model.DesignCrossoverRCT: "crossover RCT",
 			model.DesignNonrandomizedTrial: "non-randomized trial", model.DesignCohort: "cohort",

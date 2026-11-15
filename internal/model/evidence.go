@@ -83,6 +83,11 @@ type EvidenceStudy struct {
 	Direction    StudyDirection `json:"direction"`
 	// Pooled is true when the study is in the pooled estimate.
 	Pooled bool `json:"pooled,omitempty"`
+	// OutcomeRelated is true when the study is in the pooled estimate (the one
+	// study of a single-study estimate too, which Pooled does not mark) and its
+	// outcome is a related one (a surrogate, a composite, a component or
+	// another definition) of the question's.
+	OutcomeRelated bool `json:"outcome_related,omitempty"`
 }
 
 // EvidenceGroup describes the direct studies of one design group.

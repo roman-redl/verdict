@@ -225,13 +225,8 @@ type Critique struct {
 	// for the missing effect to the critic (pipeline.followUpEffects), whatever
 	// the answer was: a study that has no numbers is not asked again on a
 	// resume or in a re-run served from the critique cache.
-	EffectAsked bool `json:"effect_asked,omitempty"`
-	// MatchAdjudicated is true when the pipeline already settled the effect's
-	// outcome_match and timepoint_match by a vote of independent calls
-	// (pipeline.adjudicateMatches); the labels are not voted on again on a
-	// resume or in a re-run served from the critique cache.
-	MatchAdjudicated bool   `json:"match_adjudicated,omitempty"`
-	Error            string `json:"error,omitempty"`
+	EffectAsked bool   `json:"effect_asked,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // MatrixRow is one row of the evidence matrix in the final report. All

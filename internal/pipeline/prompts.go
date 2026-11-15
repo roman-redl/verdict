@@ -77,15 +77,10 @@ func hasCritique(c model.Critique) bool {
 // judgeCritique is the copy of a critique that goes to the synthesis model:
 // the cleaned effect (the stored critique keeps the critic's numbers as they
 // are) and none of the pipeline's markers, which are resume bookkeeping and
-// mean nothing to the judge. The state keeps them; usableEffect returns a
-// copy, so clearing the effect's markers does not touch the original.
+// mean nothing to the judge. The state keeps them.
 func judgeCritique(c model.Critique) model.Critique {
 	c.Effect = usableEffect(c.Effect)
-	c.EffectAsked, c.MatchAdjudicated = false, false
-
-	if c.Effect != nil {
-		c.Effect.OutcomeMatchCritic, c.Effect.TimepointMatchCritic = "", ""
-	}
+	c.EffectAsked = false
 
 	return c
 }
@@ -159,6 +154,19 @@ func synthesisUserPrompt(st *State) (string, error) {
 		"inconsistency_basis": inconsistencyBasis{ComparableStudies: comparableStudies(st)},
 	}
 
+	addComputed(data, st)
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		return "", fmt.Errorf("encoding the dataset: %w", err)
+	}
+
+	return "Build the evidence assessment for this dataset:\n\n" + string(b), nil
+}
+
+// addComputed puts what the pipeline computed from the pool into the dataset:
+// each member only when there is one.
+func addComputed(data map[string]any, st *State) {
 	if st.Pooled != nil {
 		data["pooled_estimate"] = st.Pooled
 	}
@@ -171,12 +179,9 @@ func synthesisUserPrompt(st *State) (string, error) {
 		data["blinding_bias"] = st.BlindingBias
 	}
 
-	b, err := json.Marshal(data)
-	if err != nil {
-		return "", fmt.Errorf("encoding the dataset: %w", err)
+	if st.RelatedOutcomes != nil {
+		data["related_outcomes"] = st.RelatedOutcomes
 	}
-
-	return "Build the evidence assessment for this dataset:\n\n" + string(b), nil
 }
 
 func truncate(s string, n int) string {

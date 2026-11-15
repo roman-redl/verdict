@@ -11,8 +11,10 @@ package pipeline
 // with the start by the design of the evidence, the lack-of-blinding and the
 // imprecision ratings as the pipeline computed them (pool_blinding.go,
 // imprecision.go; where it computed none the model rates the imprecision
-// itself, as a number of levels), the risk of bias aggregated by weight from the
-// per-study answers (grade_risk.go), and the caps below. The model does not say
+// itself, as a number of levels), the outcome of the indirectness counted when
+// related outcomes carry most of the pool's weight (outcome_indirectness.go),
+// the risk of bias aggregated by weight from the per-study answers
+// (grade_risk.go), and the caps below. The model does not say
 // whether a direct study exists. The model's own "verdict" field is only
 // compared with the result.
 
@@ -69,6 +71,10 @@ type certaintyInput struct {
 	// pipeline computed none (no estimate, or one it cannot rate), when the
 	// imprecision is the checklist's imprecision_without_pool.
 	Imprecision *model.Imprecision
+	// Related is the outcome indirectness computed from the pool; nil when the
+	// pipeline computed none (no pooled estimate with weights), when the
+	// outcome is the checklist's answer alone.
+	Related *model.RelatedOutcomes
 	// Studies are the direct primary studies with their weights, the basis of
 	// the per-study risk-of-bias answers.
 	Studies   []riskStudy
@@ -86,7 +92,7 @@ func computeGrade(in certaintyInput) model.GradeAssessment {
 		Start:           certaintyNames[start],
 		RiskOfBias:      riskOfBiasDomain(in.BlindingFired, in.Studies, &in.Checklist.RiskOfBias),
 		Inconsistency:   inconsistencyDomain(in.Comparable, &in.Checklist.Inconsistency),
-		Indirectness:    indirectnessDomain(&in.Checklist.Indirectness),
+		Indirectness:    indirectnessDomain(in.Related, &in.Checklist.Indirectness),
 		PublicationBias: publicationBiasDomain(&in.Checklist.PublicationBias),
 		NoDirectStudy:   in.NoDirectStudy,
 		Checklist:       in.Checklist,
@@ -140,25 +146,34 @@ func inconsistencyDomain(studies int, it *model.InconsistencyItems) model.GradeD
 }
 
 // indirectnessDomain is one level when any of the four elements differs from
-// the question.
-func indirectnessDomain(it *model.IndirectnessItems) model.GradeDomain {
+// the question. The outcome differs when the model says so (the prompt limits
+// that to what the related share cannot see, so that the two do not overrule
+// each other) or when studies of a related outcome carry most of the pool's
+// weight (related.RatedDown). The share is stored with the domain whenever it is
+// known, the counting or not.
+func indirectnessDomain(related *model.RelatedOutcomes, it *model.IndirectnessItems) model.GradeDomain {
 	var causes []string
 
 	for _, c := range []struct {
-		answer model.YesNo
-		cause  string
+		differs bool
+		cause   string
 	}{
-		{it.Population, model.CausePopulation},
-		{it.Intervention, model.CauseIntervention},
-		{it.Comparator, model.CauseComparator},
-		{it.Outcome, model.CauseOutcome},
+		{it.Population.IsYes(), model.CausePopulation},
+		{it.Intervention.IsYes(), model.CauseIntervention},
+		{it.Comparator.IsYes(), model.CauseComparator},
+		{it.Outcome.IsYes() || (related != nil && related.RatedDown), model.CauseOutcome},
 	} {
-		if c.answer.IsYes() {
+		if c.differs {
 			causes = append(causes, c.cause)
 		}
 	}
 
-	return model.GradeDomain{Levels: min(len(causes), 1), Causes: causes}
+	d := model.GradeDomain{Levels: min(len(causes), 1), Causes: causes}
+	if related != nil {
+		d.Shares = map[string]float64{model.CauseOutcome: related.Share}
+	}
+
+	return d
 }
 
 // imprecisionDomain takes the levels computed from the pooled estimate,
@@ -297,6 +312,7 @@ func (p *Pipeline) certainty(st *State, eb *model.EvidenceBase, jr *synthesisRes
 		BlindingFired: st.BlindingBias != nil,
 		Comparable:    comparableStudies(st),
 		Imprecision:   st.Imprecision,
+		Related:       st.RelatedOutcomes,
 		Studies:       p.riskWeights(st),
 		Checklist:     *jr.GradeChecklist,
 	})

@@ -57,8 +57,8 @@ const critiqueBlindingField = `blinding (only for a randomized trial; omit for a
 	`"unclear" when the text does not say,`
 
 // critiqueOutcomeMatchDef and critiqueTimepointMatchDef define the two labels
-// the pool filters on. The critic prompts and the outcome adjudication
-// (match_adjudication.go) share them, so that both judge by one definition.
+// the pool reads: a different outcome and a time point of "no" keep an effect
+// out of it, a related outcome is pooled and rated down for indirectness.
 const critiqueOutcomeMatchDef = `outcome_match: "same" | "related" | "different" — "same" is the question's ` +
 	`primary outcome, defined the same way; "related" is a surrogate, a composite, a component, or the same ` +
 	`outcome under another definition; "different" is another outcome`
@@ -287,12 +287,12 @@ func critiqueInput(e model.EnrichedPaper) map[string]any {
 
 // normalizeCritique fills the guaranteed fields from the study when the LLM
 // omitted or garbled them; an unknown study design becomes "unclear" with a
-// warning in the log. It is for a fresh reply only: the markers the pipeline
-// keeps in a critique (EffectAsked, MatchAdjudicated) are reset, so that the
-// model cannot suppress the follow-up or the vote by writing them; a critique
-// loaded from the cache or the artifact keeps its markers.
+// warning in the log. It is for a fresh reply only: the marker the pipeline
+// keeps in a critique (EffectAsked) is reset, so that the model cannot
+// suppress the follow-up by writing it; a critique loaded from the cache or the
+// artifact keeps its marker.
 func normalizeCritique(c model.Critique, e model.EnrichedPaper, log *slog.Logger) model.Critique {
-	c.EffectAsked, c.MatchAdjudicated = false, false
+	c.EffectAsked = false
 	c.DOI = cmp.Or(c.DOI, e.DOI)
 	c.StudyDesign = normalizeDesign(c.StudyDesign, c.DOI, log)
 	c.Blinding = normalizeBlinding(c.Blinding, c.DOI, log)

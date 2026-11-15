@@ -132,6 +132,8 @@ func russianList() listWords {
 		review:      "обзор",
 		notAssessed: "не оценены",
 		pooled:      "в объединённой оценке",
+
+		relatedOutcome: "смежный исход",
 		designs: map[model.StudyDesign]string{
 			model.DesignRCT: "РКИ", model.DesignClusterRCT: "кластерное РКИ", model.DesignCrossoverRCT: "перекрёстное РКИ",
 			model.DesignNonrandomizedTrial: "нерандомизированное исследование", model.DesignCohort: "когортное",
