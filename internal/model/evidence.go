@@ -83,11 +83,6 @@ type EvidenceStudy struct {
 	Direction    StudyDirection `json:"direction"`
 	// Pooled is true when the study is in the pooled estimate.
 	Pooled bool `json:"pooled,omitempty"`
-	// OutcomeRelated is true when the study is in the pooled estimate (the one
-	// study of a single-study estimate too, which Pooled does not mark) and its
-	// outcome is a related one (a surrogate, a composite, a component or
-	// another definition) of the question's.
-	OutcomeRelated bool `json:"outcome_related,omitempty"`
 }
 
 // EvidenceGroup describes the direct studies of one design group.
@@ -99,6 +94,7 @@ type EvidenceGroup struct {
 	// critique cache), which says nothing about the paper.
 	DoubleBlind         int `json:"double_blind,omitempty"`
 	SingleBlind         int `json:"single_blind,omitempty"`
+	AssessorBlind       int `json:"assessor_blind,omitempty"`
 	Open                int `json:"open,omitempty"`
 	BlindingNotStated   int `json:"blinding_not_stated,omitempty"`
 	BlindingNotAssessed int `json:"blinding_not_assessed,omitempty"`

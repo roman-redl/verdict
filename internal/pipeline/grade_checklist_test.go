@@ -1416,7 +1416,16 @@ func TestSynthesisPromptCarriesTheChecklist(t *testing.T) {
 		"the text states that allocation was not random or not concealed",
 		"A baseline imbalance between the arms (in age, prognostic factors or any other characteristic) is NOT " +
 			"this item",
-		"the outcome is a post hoc, non-prespecified or subgroup-only analysis",
+		"the reported result was chosen after the data were seen",
+		"the outcome or analysis differs from the one prespecified in the protocol or registration",
+		"time points, analyses or subgroups only a favourable one is reported",
+		"A report of the trial's prespecified outcome on a part of the trial defined by site " +
+			"(a centre, a region, a cohort enrolled or followed separately) is NOT this item, nor is a " +
+			"secondary publication of a prespecified outcome",
+		"nor a report of one prespecified time point unless the text shows that other time points were " +
+			"measured and left out",
+		"a part defined by a participant characteristic (age, sex, disease severity) is not covered by this " +
+			"exemption",
 		"Answer \"yes\" ONLY when the text states it",
 		"an unreported detail is a gap, not a flaw",
 		"Lack of blinding is not an item",
@@ -1458,5 +1467,7 @@ func TestSynthesisPromptCarriesTheChecklist(t *testing.T) {
 		"the model no longer decides which studies carry the evidence for risk of bias")
 	assert.NotContains(t, synthesisSystemPrompt, `"studies": [doi, ...]`)
 	assert.NotContains(t, synthesisSystemPrompt, "or an important baseline imbalance the authors report")
+	assert.NotContains(t, synthesisSystemPrompt, "subgroup-only analysis",
+		"a report on part of the participants is not selective reporting")
 	assert.Contains(t, synthesisPrompt(model.LangRU), "grade_checklist (object, REQUIRED)")
 }

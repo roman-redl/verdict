@@ -132,13 +132,8 @@ func (l lexicon) listRowOf(s model.EvidenceStudy, largest int) listRow {
 		r.year = strconv.Itoa(s.Year)
 	}
 
-	switch {
-	case s.Pooled && s.OutcomeRelated:
-		r.pooled = l.list.pooled + ", " + l.list.relatedOutcome
-	case s.Pooled:
+	if s.Pooled {
 		r.pooled = l.list.pooled
-	case s.OutcomeRelated: // the single study of an estimate: not pooled with anything, but all of it
-		r.pooled = l.list.relatedOutcome
 	}
 
 	return r

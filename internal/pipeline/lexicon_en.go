@@ -55,7 +55,8 @@ func english() lexicon {
 		item: "%[1]d %[2]s",
 		blindingNames: map[model.Blinding]string{
 			model.BlindingDouble: "double-blind", model.BlindingSingle: "single-blind", model.BlindingOpen: "open-label",
-			model.BlindingUnclear: "blinding not stated", "": "blinding not assessed",
+			model.BlindingAssessorOnly: "assessor-blinded",
+			model.BlindingUnclear:      "blinding not stated", "": "blinding not assessed",
 		},
 
 		pooledSingle: "Effect of the one direct study with numbers (not pooled)",
@@ -120,8 +121,6 @@ func englishList() listWords {
 		review:      "review",
 		notAssessed: "not assessed",
 		pooled:      "pooled",
-
-		relatedOutcome: "related outcome",
 		designs: map[model.StudyDesign]string{
 			model.DesignRCT: "RCT", model.DesignClusterRCT: "cluster RCT", model.DesignCrossoverRCT: "crossover RCT",
 			model.DesignNonrandomizedTrial: "non-randomized trial", model.DesignCohort: "cohort",

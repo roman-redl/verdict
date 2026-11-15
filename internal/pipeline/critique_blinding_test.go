@@ -25,7 +25,8 @@ func TestNormalizeBlinding(t *testing.T) {
 		{name: "open-label is open", raw: "open-label", want: model.BlindingOpen},
 		{name: "unblinded is open", raw: "Unblinded", want: model.BlindingOpen},
 		{name: "triple blind is double blind", raw: "triple_blind", want: model.BlindingDouble},
-		{name: "assessor-blinded is single blind", raw: "assessor-blinded", want: model.BlindingSingle},
+		{name: "assessor_blind is kept", raw: model.BlindingAssessorOnly, want: model.BlindingAssessorOnly},
+		{name: "assessor-blinded is assessor only", raw: "assessor-blinded", want: model.BlindingAssessorOnly},
 		{name: "unclear", raw: model.BlindingUnclear, want: model.BlindingUnclear},
 		{name: "missing stays missing", raw: "", want: ""},
 		{name: "unknown becomes unclear", raw: "partly masked", want: model.BlindingUnclear, wantWarn: true},
@@ -48,7 +49,8 @@ func TestCritiqueParsesTheBlindingFields(t *testing.T) {
 	batch := `{"critiques":[` +
 		`{"doi":"10.1/a","blinding":"Double-Blind","effect":{"outcome_objective":true,"events_total":212,` +
 		`"measure":"HR","value":0.8,"ci_low":0.6,"ci_high":1.0}},` +
-		`{"doi":"10.1/b","blinding":"partly masked","effect":{"outcome_objective":false,"events_total":-4,` +
+		`{"doi":"10.1/b","blinding":"partly masked","effect":{"outcome_objective":false,` +
+		`"outcome_self_reported":true,"events_total":-4,` +
 		`"measure":"HR","value":0.8,"ci_low":0.6,"ci_high":1.0}},` +
 		`{"doi":"10.1/c","effect":{"measure":"HR","value":0.8,"ci_low":0.6,"ci_high":1.0}}]}`
 	s := &scriptCompleter{replies: []string{batch}}
@@ -72,11 +74,14 @@ func TestCritiqueParsesTheBlindingFields(t *testing.T) {
 	assert.Equal(t, model.BlindingUnclear, b.Blinding)
 	require.NotNil(t, b.Effect.OutcomeObjective)
 	assert.False(t, *b.Effect.OutcomeObjective)
+	require.NotNil(t, b.Effect.OutcomeSelfReported)
+	assert.True(t, *b.Effect.OutcomeSelfReported)
 	assert.Nil(t, b.Effect.EventsTotal)
 
 	c := got["10.1/c"]
 	assert.Empty(t, c.Blinding)
 	assert.Nil(t, c.Effect.OutcomeObjective)
+	assert.Nil(t, c.Effect.OutcomeSelfReported)
 	assert.Nil(t, c.Effect.EventsTotal)
 
 	assert.Equal(t, 2, strings.Count(logs.String(), "level=WARN"), logs.String())
@@ -109,11 +114,14 @@ func TestCritiquePromptsAskForTheBlindingFields(t *testing.T) {
 	} {
 		assert.Contains(t, prompt, "blinding (only for a randomized trial; omit for any other design)", name)
 		assert.Contains(t, prompt, "outcome_objective (true when the outcome is objective", name)
+		assert.Contains(t, prompt, "outcome_self_reported (true when the participants report the outcome themselves", name)
+		assert.Contains(t, prompt, "false when someone else measures, observes or rates it", name)
 		assert.Contains(t, prompt, "events_total (number:", name)
 		assert.Contains(t, prompt, "never derive it from percentages", name)
 
 		for _, b := range []model.Blinding{
-			model.BlindingDouble, model.BlindingSingle, model.BlindingOpen, model.BlindingUnclear,
+			model.BlindingDouble, model.BlindingSingle, model.BlindingAssessorOnly, model.BlindingOpen,
+			model.BlindingUnclear,
 		} {
 			assert.Contains(t, prompt, `"`+string(b)+`"`, name+": "+string(b))
 		}

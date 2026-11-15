@@ -59,7 +59,8 @@ func russian() lexicon {
 		item: "%[2]s: %[1]d",
 		blindingNames: map[model.Blinding]string{
 			model.BlindingDouble: "двойное слепое", model.BlindingSingle: "одинарное слепое",
-			model.BlindingOpen: "открытое", model.BlindingUnclear: "ослепление не указано", "": "ослепление не оценено",
+			model.BlindingAssessorOnly: "ослеплён только оценщик",
+			model.BlindingOpen:         "открытое", model.BlindingUnclear: "ослепление не указано", "": "ослепление не оценено",
 		},
 
 		pooledSingle: "Эффект единственного прямого исследования с числами (не объединён)",
@@ -160,8 +161,6 @@ func russianList() listWords {
 		review:      "обзор",
 		notAssessed: "не оценены",
 		pooled:      "в объединённой оценке",
-
-		relatedOutcome: "смежный исход",
 		designs: map[model.StudyDesign]string{
 			model.DesignRCT: "РКИ", model.DesignClusterRCT: "кластерное РКИ", model.DesignCrossoverRCT: "перекрёстное РКИ",
 			model.DesignNonrandomizedTrial: "нерандомизированное исследование", model.DesignCohort: "когортное",

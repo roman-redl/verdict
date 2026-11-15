@@ -34,11 +34,6 @@ type State struct {
 	// from the pooled studies in the same step; nil when the rule did not
 	// fire and in artifacts written before it.
 	BlindingBias *model.BlindingBias `json:"blinding_bias,omitempty"`
-	// RelatedOutcomes is the share of the pool's weight carried by studies of
-	// a related outcome, computed from the pooled studies in the same step; nil
-	// without a pooled estimate that has weights and in artifacts written
-	// before it.
-	RelatedOutcomes *model.RelatedOutcomes `json:"related_outcomes,omitempty"`
 	// Robustness is the leave-one-out check of the pooled conclusion, computed
 	// after the synthesis (it needs the claim's change) and kept out of the
 	// synthesis input and of the GRADE level; nil without a pooled estimate and

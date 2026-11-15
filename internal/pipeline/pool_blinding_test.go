@@ -150,6 +150,15 @@ func blindedStudy(doi string, b model.Blinding, objective *bool, ef *model.Effec
 	return poolStudy{doi: doi, design: model.DesignRCT, effect: ef, blinding: b}
 }
 
+// assessorStudy is a randomized trial with only the outcome assessor masked, with
+// the critic's labels of the outcome: objective and self-reported by the
+// participants (nil: not stated).
+func assessorStudy(doi string, objective, selfReported *bool, ef *model.Effect) poolStudy {
+	ef.OutcomeSelfReported = selfReported
+
+	return blindedStudy(doi, model.BlindingAssessorOnly, objective, ef)
+}
+
 func TestPoolBlindingBias(t *testing.T) {
 	yes, no := new(true), new(false)
 	// a large trial (about 0.95 of the weight) and a small one
@@ -175,6 +184,58 @@ func TestPoolBlindingBias(t *testing.T) {
 				blindedStudy(doiW1, model.BlindingOpen, yes, big()),
 				blindedStudy(doiW2, model.BlindingDouble, yes, small()),
 			},
+		},
+		{
+			name: "assessor-blinded only and an outcome the participants report counts as unblinded",
+			studies: []poolStudy{
+				assessorStudy(doiW1, no, yes, big()),
+				blindedStudy(doiW2, model.BlindingDouble, no, small()),
+			},
+			want: true,
+		},
+		{
+			name: "assessor-blinded only and a clinician-rated outcome does not count",
+			studies: []poolStudy{
+				assessorStudy(doiW1, no, no, big()),
+				blindedStudy(doiW2, model.BlindingDouble, no, small()),
+			},
+		},
+		{
+			name: "assessor-blinded only and an unknown self-reporting does not count",
+			studies: []poolStudy{
+				assessorStudy(doiW1, no, nil, big()),
+				assessorStudy(doiW2, no, nil, small()),
+			},
+		},
+		{
+			name: "assessor-blinded only and an objective outcome does not count",
+			studies: []poolStudy{
+				assessorStudy(doiW1, yes, no, big()),
+				blindedStudy(doiW2, model.BlindingDouble, yes, small()),
+			},
+		},
+		{
+			name: "assessor-blinded only and an unknown outcome does not count",
+			studies: []poolStudy{
+				assessorStudy(doiW1, nil, nil, big()),
+				assessorStudy(doiW2, nil, nil, small()),
+			},
+		},
+		{
+			name: "single-blind (participants masked) and a subjective outcome does not count",
+			studies: []poolStudy{
+				blindedStudy(doiW1, model.BlindingSingle, no, big()),
+				blindedStudy(doiW2, model.BlindingSingle, no, small()),
+			},
+		},
+		{
+			name: "open and assessor-blinded studies add up",
+			studies: []poolStudy{
+				assessorStudy(doiW1, no, yes, counts(50, 500, 100, 500)),
+				blindedStudy(doiW2, model.BlindingOpen, no, counts(50, 500, 100, 500)),
+				blindedStudy(doiW3, model.BlindingDouble, no, small()),
+			},
+			want: true,
 		},
 		{
 			name: "objectivity unknown counts as not subjective",
@@ -256,8 +317,9 @@ func TestPoolBlindingBias(t *testing.T) {
 
 			require.NotNil(t, res.blinding)
 			assert.Equal(t, 1, res.blinding.Levels)
-			assert.Regexp(t, `^open-label studies with a subjective or self-reported outcome carry \d+% `+
-				`of the pool weight$`, res.blinding.Reason)
+			assert.Regexp(t, `^studies with a subjective outcome and unmasked participants \(open-label\), or `+
+				`with an outcome the participants report themselves and only the outcome assessor masked, `+
+				`carry \d+% of the pool weight$`, res.blinding.Reason)
 		})
 	}
 }
@@ -273,8 +335,9 @@ func TestBlindingBiasUsesThePoolWeights(t *testing.T) {
 	))
 
 	require.NotNil(t, res.blinding)
-	assert.Equal(t, "open-label studies with a subjective or self-reported outcome carry 95% "+
-		"of the pool weight", res.blinding.Reason)
+	assert.Equal(t, "studies with a subjective outcome and unmasked participants (open-label), or with an "+
+		"outcome the participants report themselves and only the outcome assessor masked, "+
+		"carry 95% of the pool weight", res.blinding.Reason)
 }
 
 // The rule is a function of the weights: shares of exactly one half do not fire.
@@ -288,6 +351,41 @@ func TestBlindingBiasNeedsMoreThanHalf(t *testing.T) {
 	assert.Nil(t, blindingBias(items, []float64{0.5, 0.5}))
 	assert.NotNil(t, blindingBias(items, []float64{0.51, 0.49}))
 	assert.Nil(t, blindingBias(nil, nil))
+}
+
+// Which studies carry the bias: an open trial with a subjective outcome, an
+// assessor-blinded one with an outcome the participants report; masked
+// participants, an unknown or unclear label never count (the rule does not fire
+// on a guess).
+func TestUnblindedBias(t *testing.T) {
+	yes, no := new(true), new(false)
+	study := func(b model.Blinding, objective, selfReported *bool) pooledStudy {
+		return pooledStudy{blinding: b, objective: objective, selfReported: selfReported}
+	}
+
+	for _, tc := range []struct {
+		name string
+		s    pooledStudy
+		want bool
+	}{
+		{"open, subjective", study(model.BlindingOpen, no, nil), true},
+		{"open, objective", study(model.BlindingOpen, yes, nil), false},
+		{"open, objectivity unknown", study(model.BlindingOpen, nil, nil), false},
+		{"open, self-reported, objectivity unknown", study(model.BlindingOpen, nil, yes), true},
+		{"open, self-reported but objective", study(model.BlindingOpen, yes, yes), false},
+		{"assessor-blinded, self-reported but objective", study(model.BlindingAssessorOnly, yes, yes), false},
+		{"assessor-blinded, self-reported", study(model.BlindingAssessorOnly, nil, yes), true},
+		{"assessor-blinded, rated by someone else", study(model.BlindingAssessorOnly, no, no), false},
+		{"assessor-blinded, self-reporting unknown", study(model.BlindingAssessorOnly, no, nil), false},
+		{"double-blind", study(model.BlindingDouble, no, yes), false},
+		{"single-blind", study(model.BlindingSingle, no, yes), false},
+		{"unclear blinding", study(model.BlindingUnclear, no, yes), false},
+		{"blinding not given", study("", no, yes), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, unblindedBias(&tc.s))
+		})
+	}
 }
 
 // Weights that are not the studies' own cannot come from the arithmetic: the
@@ -360,6 +458,7 @@ func TestOldArtifactsWithoutTheNewFields(t *testing.T) {
 	for _, c := range st.Critiques {
 		assert.Empty(t, c.Blinding)
 		assert.Nil(t, c.Effect.OutcomeObjective)
+		assert.Nil(t, c.Effect.OutcomeSelfReported)
 		assert.Nil(t, c.Effect.EventsTotal)
 	}
 

@@ -198,10 +198,6 @@ func addComputed(data map[string]any, st *State) {
 	if st.BlindingBias != nil {
 		data["blinding_bias"] = st.BlindingBias
 	}
-
-	if st.RelatedOutcomes != nil {
-		data["related_outcomes"] = st.RelatedOutcomes
-	}
 }
 
 func truncate(s string, n int) string {

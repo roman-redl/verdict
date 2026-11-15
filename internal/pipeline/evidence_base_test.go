@@ -132,10 +132,20 @@ func TestEvidenceBaseBlinding(t *testing.T) {
 		{
 			name: "every value",
 			blinding: []model.Blinding{
-				model.BlindingDouble, model.BlindingSingle, model.BlindingOpen, model.BlindingUnclear, "",
+				model.BlindingDouble, model.BlindingSingle, model.BlindingAssessorOnly, model.BlindingOpen,
+				model.BlindingUnclear, "",
 			},
-			want: model.EvidenceGroup{DoubleBlind: 1, SingleBlind: 1, Open: 1, BlindingNotStated: 1, BlindingNotAssessed: 1},
-			text: "1 double-blind, 1 single-blind, 1 open-label, 1 blinding not stated, 1 blinding not assessed",
+			want: model.EvidenceGroup{
+				DoubleBlind: 1, SingleBlind: 1, AssessorBlind: 1, Open: 1, BlindingNotStated: 1, BlindingNotAssessed: 1,
+			},
+			text: "1 double-blind, 1 single-blind, 1 assessor-blinded, 1 open-label, 1 blinding not stated, " +
+				"1 blinding not assessed",
+		},
+		{
+			name:     "assessor-blinded only",
+			blinding: []model.Blinding{model.BlindingAssessorOnly, model.BlindingAssessorOnly, model.BlindingDouble},
+			want:     model.EvidenceGroup{DoubleBlind: 1, AssessorBlind: 2},
+			text:     "1 double-blind, 2 assessor-blinded",
 		},
 		{
 			name:     "unclear reads as not stated",
@@ -169,7 +179,7 @@ func TestEvidenceBaseBlinding(t *testing.T) {
 			require.NotNil(t, g)
 
 			got := model.EvidenceGroup{
-				DoubleBlind: g.DoubleBlind, SingleBlind: g.SingleBlind, Open: g.Open,
+				DoubleBlind: g.DoubleBlind, SingleBlind: g.SingleBlind, AssessorBlind: g.AssessorBlind, Open: g.Open,
 				BlindingNotStated: g.BlindingNotStated, BlindingNotAssessed: g.BlindingNotAssessed,
 			}
 			assert.Equal(t, tc.want, got)
@@ -187,6 +197,10 @@ func TestEvidenceBaseBlindingOfRepeatReports(t *testing.T) {
 		want model.EvidenceGroup // the blinding counters
 	}{
 		{"stated beats unclear", model.BlindingUnclear, model.BlindingOpen, model.EvidenceGroup{Open: 1}},
+		{
+			"assessor-only is a stated value", model.BlindingUnclear, model.BlindingAssessorOnly,
+			model.EvidenceGroup{AssessorBlind: 1},
+		},
 		{"stated beats missing", "", model.BlindingDouble, model.EvidenceGroup{DoubleBlind: 1}},
 		{"unclear beats missing", "", model.BlindingUnclear, model.EvidenceGroup{BlindingNotStated: 1}},
 		{"neither has the field", "", "", model.EvidenceGroup{BlindingNotAssessed: 1}},
@@ -200,7 +214,7 @@ func TestEvidenceBaseBlindingOfRepeatReports(t *testing.T) {
 
 			assert.Equal(t, 1, g.Studies)
 			assert.Equal(t, tc.want, model.EvidenceGroup{
-				DoubleBlind: g.DoubleBlind, SingleBlind: g.SingleBlind, Open: g.Open,
+				DoubleBlind: g.DoubleBlind, SingleBlind: g.SingleBlind, AssessorBlind: g.AssessorBlind, Open: g.Open,
 				BlindingNotStated: g.BlindingNotStated, BlindingNotAssessed: g.BlindingNotAssessed,
 			})
 		})

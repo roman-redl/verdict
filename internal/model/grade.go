@@ -71,8 +71,15 @@ type RiskOfBiasStudy struct {
 	// allocation by date or record number, a concealment stated as broken or
 	// absent. A baseline imbalance between the arms is not this item.
 	AllocationFlaw YesNo `json:"allocation_flaw"`
-	// SelectiveOutcome is yes when the outcome is a post hoc, non-prespecified
-	// or subgroup-only analysis.
+	// SelectiveOutcome is yes only when the text shows the reported result was
+	// chosen after the data were seen: an outcome or analysis that differs from
+	// the prespecified one, one called post hoc (a prespecified secondary
+	// outcome called exploratory is not), or a favourable
+	// one (also a subgroup) reported out of several. A report of the
+	// prespecified outcome on a part of the trial defined by site (a centre, a
+	// region, a cohort enrolled or followed separately) is not this item, nor is
+	// one prespecified time point unless other measured ones were left out; a
+	// part defined by a participant characteristic is not exempt.
 	SelectiveOutcome YesNo `json:"selective_outcome"`
 	// StoppedEarlyForBenefit is yes for a trial stopped early for benefit.
 	StoppedEarlyForBenefit YesNo `json:"stopped_early_for_benefit"`
@@ -416,25 +423,9 @@ type GradeDomain struct {
 	Causes []string `json:"causes,omitempty"`
 	// Shares is, for the risk-of-bias items answered per study, the share (0 to
 	// 1) of the studies' weight that answered yes, by cause; every item is in
-	// it, the counting ones (share above one half) also in Causes. For
-	// indirectness it is the share of the pool's weight carried by studies of a
-	// related outcome, under the cause "outcome", when there is a pooled
-	// estimate with weights. Nil for the other domains and for the global
-	// answers of an older reply.
+	// it, the counting ones (share above one half) also in Causes. Nil for the
+	// other domains and for the global answers of an older reply.
 	Shares map[string]float64 `json:"shares,omitempty"`
-}
-
-// RelatedOutcomes is the outcome indirectness the pipeline computes from the
-// pooled estimate: the share of the pool's weight carried by studies whose
-// outcome_match is related (a surrogate, a composite, a component or another
-// definition of the question's outcome). Nil without a pooled estimate that
-// has weights.
-type RelatedOutcomes struct {
-	// Share is the related studies' share of the pool's weight, 0 to 1.
-	Share float64 `json:"share"`
-	// RatedDown is true when Share is above one half: the indirectness domain
-	// then has the cause "outcome", whatever the model answered.
-	RatedDown bool `json:"rated_down"`
 }
 
 // GradeAssessment is the certainty level computed by the pipeline from the

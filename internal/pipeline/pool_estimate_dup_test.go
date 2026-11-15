@@ -282,31 +282,6 @@ func TestDropDuplicatesAmongAbstractsTheEarlierIsKept(t *testing.T) {
 	assert.Equal(t, []string{"10.1/early"}, doisOf(kept))
 }
 
-// The same numbers under two outcome labels are one result: the study of the
-// question's own outcome is kept, even when it is the later report or a
-// conference abstract. None of it depends on the order of the input.
-func TestDropDuplicatesKeepsTheQuestionsOutcomeOverARelatedLabel(t *testing.T) {
-	related := chainStudy("10.1/related", 2005, 1.000)
-	related.related = true
-
-	own := chainStudy("10.1/own", 2007, 1.000)
-	own.abstract = true
-
-	for _, order := range permutations(2) {
-		t.Run(fmt.Sprint(order), func(t *testing.T) {
-			in := make([]pooledStudy, 0, len(order))
-			for _, i := range order {
-				in = append(in, []pooledStudy{related, own}[i])
-			}
-
-			kept, dropped := dropDuplicates(in)
-
-			assert.Equal(t, []string{"10.1/own"}, doisOf(kept))
-			assert.Equal(t, []string{"10.1/related (same results as 10.1/own)"}, leftTexts(dropped))
-		})
-	}
-}
-
 func leftTexts(items []leftOut) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {

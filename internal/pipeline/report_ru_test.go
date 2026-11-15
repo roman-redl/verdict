@@ -154,6 +154,12 @@ func TestRussianEvidenceText(t *testing.T) {
 	assert.True(t, strings.HasSuffix(text, "Не оценены (сбой оценки): 2."), text)
 }
 
+func TestRussianBlindingTextCountsAssessorOnly(t *testing.T) {
+	g := &model.EvidenceGroup{Studies: 3, DoubleBlind: 1, AssessorBlind: 2}
+
+	assert.Equal(t, "двойное слепое: 1, ослеплён только оценщик: 2", russian().blindingText(g))
+}
+
 func TestRussianEvidenceTextEdges(t *testing.T) {
 	ru := russian()
 
@@ -231,7 +237,8 @@ func TestLexiconsAreComplete(t *testing.T) {
 		}
 
 		for _, b := range []model.Blinding{
-			model.BlindingDouble, model.BlindingSingle, model.BlindingOpen, model.BlindingUnclear, "",
+			model.BlindingDouble, model.BlindingSingle, model.BlindingAssessorOnly, model.BlindingOpen,
+			model.BlindingUnclear, "",
 		} {
 			assert.Contains(t, lx.blindingNames, b, lx.lang)
 		}

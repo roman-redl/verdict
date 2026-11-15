@@ -43,9 +43,6 @@ var riskItems = []riskItem{
 type riskStudy struct {
 	dois   []string
 	weight float64
-	// related is the part of the weight carried by a related outcome (see
-	// evidenceStudy.relatedWeight); only a pool weight has one.
-	related float64
 }
 
 // riskStudiesFor weighs the direct primary studies of the evidence: by the
@@ -68,7 +65,7 @@ func riskStudiesFor(studies []evidenceStudy, pe *model.PooledEstimate) (out []ri
 		var total float64
 
 		for i := range primary {
-			out[i] = riskStudy{dois: primary[i].dois, weight: primary[i].weight, related: primary[i].relatedWeight}
+			out[i] = riskStudy{dois: primary[i].dois, weight: primary[i].weight}
 			total += primary[i].weight
 		}
 

@@ -7,14 +7,9 @@ package pipeline
 // scale: a continuous outcome as Hedges' g, a binary one as ln(OR) x sqrt(3)/pi
 // (Handbook 10.6), after every scale is pointed the same way (6.5.1.2) and
 // without mixing final values with change scores (10.5.2). The critic labels the
-// direction (model.Effect), Go does the arithmetic. Studies of a related outcome
-// (a surrogate, a component) are on this scale only when no study of the
-// question's own outcome could be: they never change what the others are pooled
-// on (sameOutcomeOnly).
+// direction (model.Effect), Go does the arithmetic.
 
 import (
-	"slices"
-
 	"github.com/roman-redl/verdict/internal/meta"
 	"github.com/roman-redl/verdict/internal/model"
 )
@@ -100,7 +95,6 @@ func unifiedGroup(items []pooledStudy) (g *poolGroup, reasons map[int]leftOut) {
 		oriented = append(oriented, i)
 	}
 
-	oriented = sameOutcomeOnly(items, oriented)
 	g = &poolGroup{measure: model.MeasureSMD, converted: true}
 
 	for _, i := range dropMinorMetric(items, oriented, reasons) {
@@ -110,20 +104,6 @@ func unifiedGroup(items []pooledStudy) (g *poolGroup, reasons map[int]leftOut) {
 	}
 
 	return g, reasons
-}
-
-// sameOutcomeOnly keeps studies of a related outcome out of the unified pool
-// when it has a study of the question's own outcome: they only join when every
-// study of the group is related (no study of the question's own outcome could
-// be put on the scale). A study left out here has no reason of its own and
-// keeps its measure as the reason, like one that cannot be converted. It returns
-// the positions that stay.
-func sameOutcomeOnly(items []pooledStudy, pos []int) []int {
-	if !slices.ContainsFunc(pos, func(i int) bool { return !items[i].related }) {
-		return pos
-	}
-
-	return slices.DeleteFunc(slices.Clone(pos), func(i int) bool { return items[i].related })
 }
 
 // dropMinorMetric keeps final values and change scores out of one SMD pool:
@@ -169,11 +149,9 @@ func dropMinorMetric(items []pooledStudy, pos []int, reasons map[int]leftOut) []
 // preferUnified decides between the best native pool and the unified SMD pool.
 // Nothing changes when the best native pool already holds every study. Otherwise
 // the unified pool wins when it holds at least two studies and MORE participants
-// than the native one (poolGroup.moreParticipants: with related studies around,
-// a pool with a study of the question's own outcome beats one without, then
-// only the participants of such studies count); a tie keeps the native pool.
-// The reasons for the studies it leaves out come back with it. The native pool,
-// and no reasons, otherwise.
+// than the native one (the rule that picks among native pools, applied again: a
+// larger body of data comes first); the reasons for the studies it leaves out
+// come back with it. The native pool, and no reasons, otherwise.
 func (p *Pipeline) preferUnified(
 	items []pooledStudy, best *poolGroup,
 ) (chosen *poolGroup, reasons map[int]leftOut) {
@@ -182,7 +160,7 @@ func (p *Pipeline) preferUnified(
 	}
 
 	unified, excluded := unifiedGroup(items)
-	if len(unified.items) < 2 || !unified.moreParticipants(best) {
+	if len(unified.items) < 2 || unified.participants() <= best.participants() {
 		return best, nil
 	}
 

@@ -1,13 +1,8 @@
 package pipeline
 
 // Which studies may enter a pool. A meta-analysis combines only what answers
-// one question: the question's outcome (or one related to it: a surrogate, a
-// composite, a component, another definition) at the same time point, from
-// studies of one design class (Cochrane Handbook 5.2.1, 6.2.4, 10.10.1,
-// 24.6.2.1). Only another outcome is kept out: a related outcome joins the
-// pool and is rated down for indirectness by its share of the pool's weight
-// (relatedOutcomes), as GRADE does, because the critic's borderline choice
-// between "same" and "related" must not decide whether a pool exists. The
+// one question: the same outcome at the same time point, from studies of one
+// design class (Cochrane Handbook 5.2.1, 6.2.4, 10.10.1, 24.6.2.1). The
 // critic labels each effect (model.Effect); the rules here are code.
 
 import (
@@ -196,16 +191,15 @@ func stratumKind(d model.StudyDesign, ef *model.Effect, stratum model.Stratum) s
 
 // eligibilityKind says why the effect cannot be pooled for the question: the
 // study's design class, the outcome and the time point. Empty when it can. A
-// related outcome can; only a different one cannot. A missing label is
-// "unknown", which is not "different": a missing outcome match reads as the
-// same outcome, a missing time point match as unclear.
+// missing label is "unknown", which is not "different": a missing outcome match
+// reads as the same outcome, a missing time point match as unclear.
 func eligibilityKind(d model.StudyDesign, ef *model.Effect, stratum model.Stratum) string {
 	if kind := stratumKind(d, ef, stratum); kind != "" {
 		return kind
 	}
 
 	switch {
-	case ef.OutcomeMatch.IsDifferent():
+	case !ef.OutcomeMatch.IsSame():
 		return leftOtherOutcome
 	case ef.TimepointMatch.IsOff():
 		return leftOtherTime

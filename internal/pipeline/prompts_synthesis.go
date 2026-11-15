@@ -117,11 +117,21 @@ Verdict definitions — the certainty that the stated direction (supports the cl
 	`quasi-random or alternating allocation, allocation by date or record number, a concealment stated as ` +
 	`broken or absent. A baseline imbalance between the arms (in age, prognostic factors or any other ` +
 	`characteristic) is NOT this item, even when the authors report it: answer "no";
-    - selective_outcome: the outcome is a post hoc, non-prespecified or subgroup-only analysis;
+    - selective_outcome: "yes" ONLY when the text shows that the reported result was chosen after the data ` +
+	`were seen: the outcome or analysis differs from the one prespecified in the protocol or registration, the ` +
+	`authors call it post hoc (not prespecified; a prespecified secondary outcome the authors call ` +
+	`exploratory is not this), or of several measured outcomes, time points, analyses or ` +
+	`subgroups only a favourable one is reported. A report of the trial's prespecified outcome on a part of ` +
+	`the trial defined by site (a centre, a region, a cohort enrolled or followed separately) is NOT this ` +
+	`item, nor is a secondary publication of a prespecified outcome, nor a report of one prespecified time ` +
+	`point unless the text shows that other time points were measured and left out: answer "no" for these; ` +
+	`a part defined by a participant characteristic (age, sex, disease severity) is not covered by this ` +
+	`exemption;
     - stopped_early_for_benefit: a trial stopped early for benefit.
     Lack of blinding is not an item, and it does not lower an objective outcome (death, survival, hospital ` +
 	`admission, laboratory values). When the input has blinding_bias, the pipeline computed it (most of the ` +
-	`pooled weight is open-label studies with a subjective or self-reported outcome): it is one of the levels ` +
+	`pooled weight is open-label studies with a subjective outcome, or studies with only the outcome assessor ` +
+	`masked whose participants report the outcome themselves): it is one of the levels ` +
 	`of risk of bias, so do not count blinding again; the items can still add a second level;
   - inconsistency: one level when inconsistency_basis.comparable_studies is 2 or more and ` +
 	`directions_conflict (the direct studies disagree in direction) or sizes_differ_beyond_chance (the effect ` +
@@ -132,17 +142,6 @@ Verdict definitions — the certainty that the stated direction (supports the cl
 	`disease (population); a different drug, dose or route, or a co-intervention in one arm only ` +
 	`(intervention); an active comparator where the question asks for placebo, or the other way round ` +
 	`(comparator); a surrogate or composite outcome, or a different time frame than the question's (outcome). ` +
-	// related_outcomes is computed from the critics' outcome_match labels weighted by the pool; the pipeline
-	// counts the outcome when its share is above one half or the model says yes (an OR). The model must not
-	// repeat the critics' related label (it would overrule a share at or below one half), but it is the only
-	// judge of what the code did not count: another time frame, and a surrogate pooled with no related
-	// label (share 0); related studies left out of the pool count for nothing
-	`When the input has related_outcomes, the pipeline already rates the pooled studies the critics ` +
-	`labelled "related" (related_outcomes.share is their share of the pool weight; rated_down true means ` +
-	`the outcome is counted): do not count those again. In that case, answer "yes" for outcome in two cases only: a ` +
-	`different time frame than the question's, or a pooled_estimate.outcome that is itself not the ` +
-	`question's outcome (a surrogate) while related_outcomes.share is 0; related studies left out of the ` +
-	`pool do not count. ` +
 	`Co-interventions given to both arms, a population narrower than the question or a different setting are ` +
 	`"no" by themselves;
   - imprecision: when the input has imprecision, the pipeline computed it from the pooled estimate by GRADE ` +
@@ -213,18 +212,14 @@ Hard rules:
 	`estimate leans. Do not state a direction (supports or opposite) from the point estimate of an interval ` +
 	`that includes no effect: you may describe the lean ("the estimate leans toward an increase, but the ` +
 	`interval includes no effect") in the rationale and consensus, never as a finding. ` +
-	`The pool takes studies of the question's outcome and of a related one (a surrogate, a composite, a ` +
-	`component, another definition; pooled_estimate.outcome names what was pooled), and related_outcomes, when ` +
-	`present, is their share of the pool weight. ` +
 	`Studies listed in left_out are not in the pooled numbers, each with its reason in parentheses: another ` +
-	`measure, another outcome (not a related one) or time point, a non-randomized or unadjusted study ` +
-	`beside randomized trials, a cluster trial that could not be adjusted for clustering, another report of ` +
-	`a trial whose chosen report is pooled, the same results as another paper, or, beside a converted pool, ` +
-	`an unknown direction of the scale or change scores against final values. A pooled_estimate with ` +
-	`converted true puts studies that report one outcome on different measures (means and counts) on one ` +
-	`standardized scale: positive favours the intervention, and its outcome says so. Weigh left-out studies ` +
-	`as individual results (a repeat report or a paper with the same results adds no participants and no ` +
-	`independent evidence). When no pooled_estimate ` +
+	`measure, another outcome or time point, a non-randomized or unadjusted study beside randomized trials, ` +
+	`a cluster trial that could not be adjusted for clustering, another report of a trial whose chosen report ` +
+	`is pooled, the same results as another paper, or, beside a converted pool, an unknown direction of the ` +
+	`scale or change scores against final values. A pooled_estimate with converted true puts studies that ` +
+	`report one outcome on different measures (means and counts) on one standardized scale: positive favours ` +
+	`the intervention, and its outcome says so. Weigh left-out studies as individual results (a repeat report or a ` +
+	`paper with the same results adds no participants and no independent evidence). When no pooled_estimate ` +
 	`is present, the direct studies are judged one by one.
 9. Systematic reviews and meta-analyses (see design and critique.study_design) are a cross-check of the ` +
 	`primary studies, not independent evidence: do not count a review in the direct tally together with the ` +

@@ -5,7 +5,6 @@ package pipeline
 // them, the unified SMD pool (pool_unify.go).
 
 import (
-	"cmp"
 	"slices"
 
 	"github.com/roman-redl/verdict/internal/meta"
@@ -35,85 +34,16 @@ func (g *poolGroup) participants() int {
 	return total
 }
 
-// sameAmount is the participants and the number of the studies of the question's
-// own outcome (not labelled related); a related study adds to a pool but never
-// decides which pool is chosen.
-func (g *poolGroup) sameAmount() (participants, studies int) {
-	for i := range g.items {
-		if !g.items[i].related {
-			participants += g.items[i].n
-			studies++
-		}
-	}
-
-	return participants, studies
-}
-
-// hasSameOutcome is true when the group holds a study of the question's own
-// outcome (labelled same, or not labelled).
-func (g *poolGroup) hasSameOutcome() bool {
-	return slices.ContainsFunc(g.items, func(it pooledStudy) bool { return !it.related })
-}
-
-// moreParticipants is true when g has strictly more participants than o, the
-// comparison that lets the unified pool replace a native one (the number of
-// studies plays no part, a tie keeps the native pool). A group with a study of
-// the question's own outcome beats one without; between groups that both have
-// such studies only their participants count, between groups of related studies
-// alone all of them. Without related studies it is the plain count of
-// participants.
-func (g *poolGroup) moreParticipants(o *poolGroup) bool {
-	if a, b := g.hasSameOutcome(), o.hasSameOutcome(); a != b {
-		return a
-	}
-
-	if !g.hasSameOutcome() {
-		return g.participants() > o.participants()
-	}
-
-	gPeople, _ := g.sameAmount()
-	oPeople, _ := o.sameAmount()
-
-	return gPeople > oPeople
-}
-
-// moreData compares the amount of data of two groups: positive when g has more.
-// A group with a study of the question's own outcome always has more than one
-// without (a pool of related outcomes alone is only the last resort). Between
-// groups that both have such studies only those studies count: their
-// participants, then their number (a study of unknown size counts 0
-// participants), so that a related study never decides; between groups of
-// related studies alone all of them count the same way. Without related studies
-// this is the plain count of participants, then of studies.
-func (g *poolGroup) moreData(o *poolGroup) int {
-	if a, b := g.hasSameOutcome(), o.hasSameOutcome(); a != b {
-		if a {
-			return 1
-		}
-
-		return -1
-	}
-
-	gPeople, gStudies := g.sameAmount()
-	oPeople, oStudies := o.sameAmount()
-
-	if !g.hasSameOutcome() {
-		gPeople, gStudies, oPeople, oStudies = g.participants(), len(g.items), o.participants(), len(o.items)
-	}
-
-	if c := cmp.Compare(gPeople, oPeople); c != 0 {
-		return c
-	}
-
-	return cmp.Compare(gStudies, oStudies)
-}
-
-// better orders groups by the amount of data (moreData, the number of studies
-// included), then by the fixed measure order, then by the unit (so that the
-// choice is deterministic).
+// better orders groups by the amount of data: more participants (a study of
+// unknown size counts 0), then more studies, then the fixed measure order, then
+// the unit (so that the choice is deterministic).
 func (g *poolGroup) better(o *poolGroup) bool {
-	if c := g.moreData(o); c != 0 {
-		return c > 0
+	if a, b := g.participants(), o.participants(); a != b {
+		return a > b
+	}
+
+	if len(g.items) != len(o.items) {
+		return len(g.items) > len(o.items)
 	}
 
 	if a, b := slices.Index(measureOrder, g.measure), slices.Index(measureOrder, o.measure); a != b {

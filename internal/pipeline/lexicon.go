@@ -110,11 +110,8 @@ type listWords struct {
 	review      string
 	notAssessed string
 	pooled      string
-	// relatedOutcome marks a pooled study whose outcome is a related one
-	// (a surrogate, a composite, a component or another definition).
-	relatedOutcome string
-	designs        map[model.StudyDesign]string
-	directions     map[model.StudyDirection]string
+	designs     map[model.StudyDesign]string
+	directions  map[model.StudyDirection]string
 }
 
 // The keys of the enum tables: the verdict levels and the consensus statuses

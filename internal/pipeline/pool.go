@@ -70,13 +70,6 @@ type pooledStudy struct {
 	// outcome is the critic's name of the outcome with its time point.
 	outcome string
 
-	// related is true when the critic labelled the study's outcome a related
-	// one (outcome_match related). Studies of the question's own outcome (same
-	// or unlabelled) drive every choice of the pool; a related study joins
-	// the one they build and builds a pool alone only when none of them has
-	// usable numbers.
-	related bool
-
 	// trial is 1 + the index of the first paper of the study's trial (papers
 	// that share a trial registration number report one trial); 0 means it is
 	// not known to repeat another study. regs are the study's registration
@@ -106,10 +99,11 @@ type pooledStudy struct {
 	events      float64
 	eventsKnown bool
 
-	// blinding and objective are the critic's labels for the blinding rule:
-	// empty and nil are unknown.
-	blinding  model.Blinding
-	objective *bool
+	// blinding, objective and selfReported are the critic's labels for the
+	// blinding rule: empty and nil are unknown.
+	blinding     model.Blinding
+	objective    *bool
+	selfReported *bool
 }
 
 var errNoNumbers = errors.New("no usable numbers")
@@ -255,7 +249,7 @@ func (p *Pipeline) studyEffect(
 
 	// the key is the numbers as extracted (SDs restored), not as adjusted
 	ps.doi, ps.results = doi, resultsKey(ef)
-	ps.outcome, ps.related = outcomeLabel(c.Effect), c.Effect.OutcomeMatch.IsRelated()
+	ps.outcome = outcomeLabel(c.Effect)
 
 	if ps.converted != "" {
 		p.log.Info("effect counts derived from percentages", "doi", e.DOI, "derived", ps.converted)
@@ -312,18 +306,12 @@ func normUnit(s string) string { return strings.ToLower(tidyUnit(s)) }
 
 // settleContinuous decides, for the studies that gave means, between the mean
 // difference (every one of them states the same unit) and the standardized
-// one (units differ or are missing). The studies of the question's own outcome
-// make that decision; the studies of a related outcome make it only when there
-// are none of the former. A related study then follows it: in an SMD pool it
-// joins, in an MD pool it keeps its own unit, so that a unit that is not the
-// pool's puts it in a group of its own (left out for its measure) instead of
-// turning the pool into an SMD one.
+// one (units differ or are missing).
 func settleContinuous(items []pooledStudy) []pooledStudy {
-	hasOwn := slices.ContainsFunc(items, func(it pooledStudy) bool { return it.continuous && !it.related })
 	unit, same := "", true
 
 	for i := range items {
-		if !items[i].continuous || (hasOwn && items[i].related) {
+		if !items[i].continuous {
 			continue
 		}
 
@@ -353,17 +341,12 @@ func settleContinuous(items []pooledStudy) []pooledStudy {
 // poolBest takes the candidate with the most data and pools it: random effects
 // for two or more studies, the study's own effect for one. The studies it gets
 // are already eligible and one per trial, so the measure is the only choice
-// left. The candidate with the most data wins (poolGroup.moreData: the
-// participants, then the number of studies), so that a pair of pilot trials
-// does not beat one large trial that happens to be on another measure; ties go
-// by measureOrder (RR before OR for counts), then the unit. Only the studies of
-// the question's own outcome count: a candidate with none of them never beats
-// one that has one, and the studies related to the outcome never make a
-// candidate win, so related studies alone build the pool only when no study of
-// the question's own outcome has usable numbers. The studies outside the winner
-// come back as left out for their measure. When some studies stay outside the
-// winner, the unified SMD pool (pool_unify.go) replaces it if it holds more
-// participants (moreParticipants).
+// left. The candidate with the most participants wins, so that a pair of pilot
+// trials does not beat one large trial that happens to be on another measure;
+// ties go by the number of studies, then measureOrder (RR before OR for
+// counts), then the unit. The studies outside the winner come back as left out
+// for their measure. When some studies stay outside the winner, the unified SMD
+// pool (pool_unify.go) replaces it if it holds more participants.
 func (p *Pipeline) poolBest(items []pooledStudy) poolChoice {
 	groups := candidateGroups(items)
 	best := groups[0]

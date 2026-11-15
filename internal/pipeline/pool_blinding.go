@@ -3,7 +3,8 @@ package pipeline
 // What the pool needs from the critic beyond the effect itself: the number of
 // events behind a ratio (shown in the pooled line and the evidence base; the
 // imprecision rule does not read it) and the blinding of the trial with the
-// objectivity of its outcome (the risk-of-bias rule for lack of blinding). Both
+// objectivity and self-reporting of its outcome (the risk-of-bias rule for lack
+// of blinding). Both
 // are optional in the critique: a missing value is unknown, and an unknown
 // value never makes a rule fire.
 
@@ -35,8 +36,8 @@ func totalEvents(ef *model.Effect) (events float64, ok bool) {
 }
 
 // withSource notes on the pooled study what the critique says beyond the
-// numbers: the events, and the blinding and the outcome's objectivity for the
-// blinding rule. The events are the arms' counts when the study gave them
+// numbers: the events, and the blinding and the outcome's objectivity and
+// self-reporting for the blinding rule. The events are the arms' counts when the study gave them
 // (deriveCounts, already effective for a cluster trial), else the critic's
 // total as reported. Blinding of a study whose design is known not to be
 // randomized is not kept (the critic is told to leave it out), so that a stray
@@ -47,6 +48,7 @@ func (ps *pooledStudy) withSource(c model.Critique, ef *model.Effect, design mod
 	}
 
 	ps.objective = ef.OutcomeObjective
+	ps.selfReported = ef.OutcomeSelfReported
 
 	if !design.IsKnown() || design.IsRandomized() {
 		ps.blinding = c.Blinding
@@ -70,32 +72,56 @@ func (g *poolGroup) events() int {
 }
 
 // blindingBias applies the lack-of-blinding rule to the studies of a pool with
-// their weights in it: it fires when studies that are open-label AND have a
-// subjective or self-reported outcome (objective explicitly false) carry more
-// than half of the weight. An unclear or missing blinding counts as not open,
-// an unknown objectivity as not subjective. Nil when it does not fire. There
-// is one weight per study (ratedBlinding checks it).
+// their weights in it: it fires when the studies that count as unblinded
+// (unblindedBias) carry more than half of the weight. Nil when it does not
+// fire. There is one weight per study (ratedBlinding checks it).
 func blindingBias(items []pooledStudy, weights []float64) *model.BlindingBias {
-	// only a study that is both open-label and measures a subjective outcome
-	// counts: an open trial of death or a blinded trial of pain carries no
-	// such bias
-	var openSubjective float64
+	var unblinded float64
 
 	for i := range items {
-		if items[i].blinding == model.BlindingOpen && items[i].objective != nil && !*items[i].objective {
-			openSubjective += weights[i]
+		if unblindedBias(&items[i]) {
+			unblinded += weights[i]
 		}
 	}
 
-	if openSubjective <= majority {
+	if unblinded <= majority {
 		return nil
 	}
 
 	return &model.BlindingBias{
 		Levels: blindingLevels,
-		Reason: fmt.Sprintf("open-label studies with a subjective or self-reported outcome carry %.0f%% "+
-			"of the pool weight", openSubjective*100),
+		Reason: fmt.Sprintf("studies with a subjective outcome and unmasked participants (open-label), or "+
+			"with an outcome the participants report themselves and only the outcome assessor masked, "+
+			"carry %.0f%% of the pool weight", unblinded*100),
 	}
+}
+
+// unblindedBias reports whether a study carries the bias of lack of blinding.
+// An open trial counts when its outcome is subjective (objective explicitly
+// false) or reported by the participants themselves: an open trial of death
+// carries no such bias. A trial with only the outcome assessor masked counts
+// only when the participants report the outcome themselves (pain, quality of
+// life, a diary): a masked assessor of an observer-rated outcome (a clinician's
+// scale) is low risk of bias, so it does not count; an unknown self-reporting
+// does not count either. An outcome stated objective never counts, even when
+// the participants read it themselves (a home scale, a worn device). Single-blind
+// (participants masked), double-blind, unclear and missing blinding never count,
+// the rule does not fire on a guess.
+func unblindedBias(s *pooledStudy) bool {
+	objective := s.objective != nil && *s.objective
+	subjective := s.objective != nil && !*s.objective
+	selfReported := s.selfReported != nil && *s.selfReported
+
+	switch s.blinding {
+	case model.BlindingOpen:
+		return subjective || (selfReported && !objective)
+	case model.BlindingAssessorOnly:
+		return selfReported && !objective
+	case model.BlindingDouble, model.BlindingSingle, model.BlindingUnclear:
+		return false
+	}
+
+	return false
 }
 
 // ratedBlinding is blindingBias for the studies of a pool. The arithmetic

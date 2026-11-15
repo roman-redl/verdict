@@ -22,7 +22,6 @@ func TestComparableStudies(t *testing.T) {
 	tests := []struct {
 		name    string
 		studies []poolStudy
-		pooled  bool // the pooled estimate is computed (a related study counts only when it is in it)
 		want    int
 	}{
 		{
@@ -58,7 +57,7 @@ func TestComparableStudies(t *testing.T) {
 			want: 1,
 		},
 		{
-			name: "a trial on a different outcome does not count, one on a related outcome in the pool does",
+			name: "a second trial with numbers on another outcome does not count",
 			studies: []poolStudy{
 				{doi: trialA, design: model.DesignRCT, effect: counts(10, 100, 20, 100)},
 				{
@@ -70,31 +69,7 @@ func TestComparableStudies(t *testing.T) {
 					effect: matched(counts(12, 100, 22, 100), model.OutcomeRelated, model.TimepointYes, 0),
 				},
 			},
-			pooled: true,
-			want:   2,
-		},
-		{
-			name: "a related trial without a pooled estimate does not count",
-			studies: []poolStudy{
-				{doi: trialA, design: model.DesignRCT, effect: counts(10, 100, 20, 100)},
-				{
-					doi: trialC, design: model.DesignRCT,
-					effect: matched(counts(12, 100, 22, 100), model.OutcomeRelated, model.TimepointYes, 0),
-				},
-			},
 			want: 1,
-		},
-		{
-			name: "a related trial kept out of the pool by its measure does not count",
-			studies: []poolStudy{
-				{doi: trialA, design: model.DesignRCT, effect: counts(10, 100, 20, 100)},
-				{
-					doi: trialC, design: model.DesignRCT,
-					effect: matched(reported("HR", 0.8, 0.6, 1.1), model.OutcomeRelated, model.TimepointYes, 0),
-				},
-			},
-			pooled: true,
-			want:   1,
 		},
 		{
 			name: "a second trial on the same outcome, kept out of the pool by its measure",
@@ -185,14 +160,7 @@ func TestComparableStudies(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			st := poolCorpus(tc.studies...)
-
-			if tc.pooled {
-				p, _ := poolPipeline(t)
-				st.Pooled = p.poolEffects(st)
-			}
-
-			assert.Equal(t, tc.want, comparableStudies(st))
+			assert.Equal(t, tc.want, comparableStudies(poolCorpus(tc.studies...)))
 		})
 	}
 }

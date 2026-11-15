@@ -49,16 +49,19 @@ const critiqueDesignField = `study_design: "rct" | "cluster_rct" | "crossover_rc
 
 // critiqueBlindingField documents the blinding field in the field list of both
 // critique prompts. The pipeline rates risk of bias for lack of blinding from
-// it (pool_blinding.go) together with the effect's outcome_objective.
+// it (pool_blinding.go) together with the effect's outcome_objective and
+// outcome_self_reported.
 const critiqueBlindingField = `blinding (only for a randomized trial; omit for any other design): ` +
-	`"double_blind" | "single_blind" | "open" | "unclear" — the masking as the text states it: ` +
-	`"double-blind" or "double-masked" is double_blind; "assessor-blinded", "single-blind" or ` +
-	`"masked outcome assessment" is single_blind; "open-label" or "unblinded" is open; ` +
-	`"unclear" when the text does not say,`
+	`"double_blind" | "single_blind" | "assessor_blind" | "open" | "unclear" — the masking as the text ` +
+	`states it: double_blind is participants AND those delivering care or assessing outcomes masked ` +
+	`(a placebo- or sham-controlled "double-blind" trial); single_blind is participants masked, or the ` +
+	`text says "single-blind" without saying who; assessor_blind is outcome assessors, observers or data ` +
+	`collectors masked while the participants were not (or could not be: surgery, exercise, behavioural ` +
+	`interventions); open is nobody masked ("open-label", "unblinded"); "unclear" when the text does not say,`
 
 // critiqueOutcomeMatchDef and critiqueTimepointMatchDef define the two labels
-// the pool reads: a different outcome and a time point of "no" keep an effect
-// out of it, a related outcome is pooled and rated down for indirectness.
+// the pool filters on: an outcome that is not the same and a time point of "no"
+// keep an effect out of it.
 const critiqueOutcomeMatchDef = `outcome_match: "same" | "related" | "different" — "same" is the question's ` +
 	`primary outcome, defined the same way; "related" is a surrogate, a composite, a component, or the same ` +
 	`outcome under another definition; "different" is another outcome`
@@ -86,6 +89,10 @@ const critiqueEffectField = `effect (OPTIONAL object; omit it entirely when the 
 	`a hospital admission, a physical quantity read by a device; false when it is subjective or self-reported: ` +
 	`a symptom score, pain, quality of life, a questionnaire, a clinician-rated scale, an event the participant ` +
 	`reports; omit when unsure),
+  outcome_self_reported (true when the participants report the outcome themselves: pain or symptom scores ` +
+	`they fill in, quality-of-life and other questionnaires, diaries, patient-reported outcomes; false when ` +
+	`someone else measures, observes or rates it: a clinician-rated scale, a laboratory value, an event ` +
+	`recorded by staff; omit when unsure),
   events_total (number: participants with the event in both compared arms together, only for a binary or ` +
 	`time-to-event outcome, when the text states the total or each arm's count; also when the effect is only a ` +
 	`ratio (RR, OR, HR); omit for a continuous outcome (means, scores), when not stated, and never derive it ` +

@@ -95,6 +95,7 @@ func (l lexicon) blindingText(g *model.EvidenceGroup) string {
 	}{
 		{g.DoubleBlind, model.BlindingDouble},
 		{g.SingleBlind, model.BlindingSingle},
+		{g.AssessorBlind, model.BlindingAssessorOnly},
 		{g.Open, model.BlindingOpen},
 		{g.BlindingNotStated, model.BlindingUnclear},
 		{g.BlindingNotAssessed, ""},

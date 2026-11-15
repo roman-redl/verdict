@@ -114,6 +114,13 @@ type Effect struct {
 	// pain, questionnaires, clinician-rated scales); nil when the critic could
 	// not tell, and in artifacts written before the field existed.
 	OutcomeObjective *bool `json:"outcome_objective,omitempty"`
+	// OutcomeSelfReported is true when the participants report the outcome
+	// themselves (pain or symptom scores they fill in, quality-of-life and
+	// other questionnaires, diaries) and false when someone else measures,
+	// observes or rates it (clinician-rated scales, laboratory values, events
+	// recorded by staff); nil when the critic could not tell, and in artifacts
+	// written before the field existed. Only an assessor-blinded trial reads it.
+	OutcomeSelfReported *bool `json:"outcome_self_reported,omitempty"`
 	// EventsTotal is the number of participants with the event in both
 	// compared arms together, as the text states it, also for a study that
 	// reports only a ratio; nil when not stated. Where there are no arm counts

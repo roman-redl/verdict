@@ -294,6 +294,10 @@ func TestDesignLabel(t *testing.T) {
 			"cluster RCT, single-blind", "кластерное РКИ, одинарное слепое",
 		},
 		{
+			model.EvidenceStudy{Design: model.DesignRCT, Blinding: model.BlindingAssessorOnly},
+			"RCT, assessor-blinded", "РКИ, ослеплён только оценщик",
+		},
+		{
 			model.EvidenceStudy{Design: model.DesignRCT, Blinding: model.BlindingUnclear},
 			"RCT, blinding not stated", "РКИ, ослепление не указано",
 		},

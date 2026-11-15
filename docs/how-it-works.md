@@ -559,11 +559,15 @@ two jobs:
   `guideline`, `other`, `unclear`; a meta-analysis of RCTs is `meta_analysis`,
   not `rct`). An unknown word becomes `unclear` with a warning. For a
   randomized trial it also gives `blinding` as the text states it
-  (`double_blind`, `single_blind` — for example assessor-blinded —, `open`,
+  (`double_blind`: participants and those delivering care or assessing
+  outcomes masked; `single_blind`: participants masked, or "single-blind"
+  without saying who; `assessor_blind`: only outcome assessors, observers or
+  data collectors masked while the participants were not, or could not be
+  (surgery, exercise, behavioural interventions); `open`: nobody masked;
   `unclear` when the text does not say); it leaves the field out for any other
   design. The usual variants are read as the value they mean (`open-label`,
   `unblinded`, `non_blinded` are `open`; `triple_blind`, `quadruple_blind` are
-  `double_blind`; `assessor_blinded`, `assessor_blind` are `single_blind`);
+  `double_blind`; `assessor_blinded` is `assessor_blind`);
   any other unknown word becomes `unclear` with a warning; a missing value
   reads as unknown, like `unclear`.
 - **Judge** — a single final call: all the data + the GRADE rubric → the
@@ -603,11 +607,16 @@ definition; `different`), `timepoint_weeks` (the follow-up in weeks, omitted
 when not stated) with `timepoint_match` (`yes` — the question's time frame, or
 the question has none; `no`; `unclear`), and for a cluster trial a `cluster`
 object (`unit`, `clusters`, `mean_size`, `icc`, `adjusted_for_clustering`).
-Two more optional labels feed the rules below, each omitted when the text
+Three more optional labels feed the rules below, each omitted when the text
 leaves it open: `outcome_objective` (`true` for all-cause death, survival, a
 laboratory value, a hospital admission or a quantity a device reads; `false`
 for a symptom score, pain, quality of life, a questionnaire, a clinician-rated
-scale or an event the participant reports) and `events_total` (only for a
+scale or an event the participant reports), `outcome_self_reported` (`true`
+when the participants report the outcome themselves: pain or symptom scores
+they fill in, quality-of-life and other questionnaires, diaries,
+patient-reported outcomes; `false` when someone else measures, observes or
+rates it: a clinician-rated scale, a laboratory value, an event recorded by
+staff) and `events_total` (only for a
 binary or time-to-event outcome: the number of participants with the event in
 both compared arms together, also for a study that reports only a ratio; never
 derived from percentages without the arms' sizes; a value that cannot be a
@@ -651,11 +660,9 @@ DerSimonian-Laird random-effects model: pooled estimate, 95% CI,
 number of studies, participants when known, I². A single study is shown with
 its own interval and marked "not pooled".
 
-**Which studies are pooled.** A pool answers one question: the question's
-outcome at the same time point, from studies of one design class (Cochrane
-Handbook 5.2.1, 6.2.4, 10.10.1, 24.6.2.1); a study of a related outcome joins it
-only beside studies of the question's own outcome (step 2) and is rated down
-for indirectness. The rules apply in this order, and every study with
+**Which studies are pooled.** A pool answers one question: the same outcome at
+the same time point, from studies of one design class (Cochrane Handbook 5.2.1,
+6.2.4, 10.10.1, 24.6.2.1). The rules apply in this order, and every study with
 usable numbers that a rule keeps out is listed in `pooled_estimate.left_out` as
 `doi (reason)` and logged, one info line per reason with the count (without a
 pooled estimate the reasons go to a report warning instead).
@@ -678,22 +685,15 @@ pooled estimate the reasons go to a report warning instead).
    (`design: randomized`) and the synthesis starts its GRADE level from it:
    randomized strong, non-randomized weak; without a pooled estimate, from the
    best design among the direct studies.
-2. **Outcome and time point.** An effect whose `outcome_match` is `same` or
-   `related` (a missing label reads as `same`) and whose `timepoint_match` is
-   not `no` (a missing one reads as `unclear`) is pooled; a `different`
+2. **Outcome and time point.** An effect whose `outcome_match` is `same` (a
+   missing label reads as `same`) and whose `timepoint_match` is not `no` (a
+   missing one reads as `unclear`) is pooled; a `related` or `different`
    outcome and a time point of `no` are left out as `other outcome` or
-   `other time point`. A `related` outcome (a surrogate, a composite, a
-   component, another definition) is not excluded but rated down for
-   indirectness, as GRADE does, by its share of the pool's weight (see "Related
-   outcomes are rated down by their share of the pool"). The rule for the
-   later steps is one: **a related study joins a pool only alongside studies of
-   the question's own outcome (`same`, or no label) on a compatible measure;
-   only when no study of the question's own outcome has usable numbers is a
-   pool built from related studies alone.** The studies of the question's own
-   outcome decide every choice (the report of a trial, the measure, the unit of
-   a mean difference, the unified scale). "Unknown" is never "different": a
-   garbled or missing label does not exclude a study. The labels are the
-   critic's.
+   `other time point`. "Unknown" is never "different": a garbled or missing
+   label does not exclude a study. The labels are the critic's. Pooling the
+   `related` outcomes (a surrogate, a composite, a component, another
+   definition) too, rated down for indirectness by their share of the pool's
+   weight, was tried and removed (see "Related outcomes stay out of the pool").
 3. **Cluster trials.** A `cluster_rct` effect from counts or means that does not
    account for clustering (`cluster.adjusted_for_clustering` not true) has the
    participants and events of each arm divided by the design effect
@@ -707,11 +707,8 @@ pooled estimate the reasons go to a report warning instead).
    effect that is adjusted for clustering, or a reported estimate, is used as
    reported; a design other than `cluster_rct` is never divided.
 4. **One report per trial** and **one study, once** (below): the report that
-   matches the question is chosen (a report of the question's own outcome
-   first: a related report is a candidate only when the trial has no report of
-   the question's own outcome; then the time point), then one paper of every group
-   that reports the same results is kept (the one of the question's own outcome
-   over one labelled related, then a full article over a conference abstract).
+   matches the question is chosen, then one paper of every group that reports
+   the same results is kept.
 5. **Measure.** Counts give an odds ratio as well as a risk
    ratio (`meta.LogOR` and `meta.LogRR` share the zero-cell rule), so a study
    from counts is a candidate for both an RR pool and an OR pool; a study that
@@ -720,22 +717,12 @@ pooled estimate the reasons go to a report warning instead).
    SMD, and MD per unit. Among the studies that are left, the pool with the most
    participants wins (a study of unknown size counts 0), so two small pilot
    trials do not outweigh one large trial on another measure; ties go to more
-   studies, then to the order RR, OR, HR, SMD, MD, then to the unit. Only the
-   studies of the question's own outcome count in that comparison: a pool with
-   none of them never beats one that has one, and related studies never make a
-   pool win (the pools are compared by the participants of the studies of the
-   question's own outcome, then by their number, then by the measure order;
-   pools of related studies alone are compared by all their studies). Whether the means
-   are an MD or an SMD is decided by the continuous studies of the question's
-   own outcome alone (one stated unit: MD; otherwise SMD); a related continuous
-   study follows that decision, so one in another unit stays out of an MD pool
-   instead of turning it into an SMD one. A study from counts is never in two
-   pools at once. Studies outside the winning pool are left out as
-   `doi (MEASURE)` (a study from counts is labelled RR).
+   studies, then to the order RR, OR, HR, SMD, MD, then to the unit. A study from
+   counts is never in two pools at once. Studies outside the winning pool are
+   left out as `doi (MEASURE)` (a study from counts is labelled RR).
 6. **One scale for one construct.** When some eligible studies stay outside
-   the best native pool, they may still report the question's outcome on
-   another measure (one trial counts events, another gives the means of a rating
-   scale).
+   the best native pool, they may still report the same outcome on another
+   measure (one trial counts events, another gives the means of a rating scale).
    Go then builds a unified SMD candidate (Handbook 10.6): a study with means,
    SDs and sizes is Hedges' g, a study with arm counts is `ln(OR) × √3/π` (the
    standard error scaled the same). Each study is **oriented** so that a POSITIVE
@@ -749,15 +736,10 @@ pooled estimate the reasons go to a report warning instead).
    on a tie) and the other is left out as `change vs final scores`; a study that
    does not state its metric, and a binary study, take no side. A reported HR, an
    RR or OR without counts, and an MD without SDs cannot be converted: they stay
-   out under their own measure, as before. A related study is on this scale
-   only when every study of the unified pool is related (no study of the
-   question's own outcome could be put on it); otherwise it stays out under its
-   own measure. The unified pool replaces the best
+   out under their own measure, as before. The unified pool replaces the best
    native pool only when it holds at least two studies and MORE participants
    than that pool (the number of studies plays no part: a tie keeps the native
-   pool); with related studies around, a pool with a study of the question's own
-   outcome beats one without, and then only the participants of such studies
-   count. Otherwise nothing changes.
+   pool); otherwise nothing changes.
    When every eligible study already shares one measure the step does not run, so
    such pools are exactly what they were. The pooled estimate is marked
    `converted: true` with `measure: SMD`, its outcome ends with "standardized,
@@ -809,44 +791,18 @@ the cache's TTL. A usage limit stops the
 follow-up like it stops the critique: what the finished calls filled stays
 cached, `--resume` continues.
 
-**Related outcomes are rated down by their share of the pool.** The critic's
-borderline choice between `same` and `related` must not decide whether a pool
-exists (a majority vote of three `plan` model calls on the labels, tried
-before, did not reduce that variance and cost three calls per study, so it is
-gone). GRADE does not exclude a surrogate, composite, component or differently
-defined outcome; it rates the evidence down for indirectness. The pool
-therefore takes `related` effects beside `same` ones (only `different` stays
-out, as `other outcome`; the rule on which related studies join which pool is
-in step 2 of "Which studies are pooled": they never decide the choices of the
-pool), and the indirectness of the outcome is computed from
-the pool: Go takes the share of the pool's weight carried by the pooled studies
-whose `outcome_match` is `related` (the same per-study weights as the
-lack-of-blinding and risk-of-bias rules; for a trial reported several times the
-weight and the label are those of the report the pool kept; a single study that
-is the whole estimate has weight 1, so a single related study gives share 1 and
-is marked in the list of studies). When the share is
-above one half (a share of exactly one half does not count) the indirectness
-domain has the cause `outcome`, combined with the model's checklist answers by
-OR: the domain stays at most one level, and the model's `indirectness.outcome`
-"yes" still counts too. The share is stored in `related_outcomes`
-(`share`, `rated_down`) in `4-synthesis.json`, in the judge's input next to
-`imprecision` and `blinding_bias`, and in `report.grade.indirectness.shares`
-under the cause `outcome`; the report's "Certainty (computed)" line shows it
-(`indirectness −1 (outcome 62%)`) when it is the reason, and the list of direct
-studies marks a pooled study of a related outcome ("pooled, related outcome").
-Without a pooled estimate with weights there is no share and the outcome is the
-model's answer alone.
-
-So that the model and the code do not count the same difference twice, the
-prompt tells the judge, when the input has `related_outcomes`, not to count
-again the `related` label of the pooled studies (the code rates it by the
-share). The model answers `indirectness.outcome` "yes" in two cases only: a
-different time frame than the question's, or a `pooled_estimate.outcome` that
-is itself not the question's outcome (a surrogate) while no pooled study is
-labelled `related` (share 0); related studies left out of the pool do not
-count. The model's "yes" for the `related` label itself
-would otherwise overrule a share at or below one half through the OR, which
-brings back the flip the weighted share exists to remove.
+**Related outcomes stay out of the pool.** The pool takes only effects whose
+`outcome_match` is `same`; a `related` outcome (a surrogate, a composite, a
+component, another definition) is left out as `other outcome`, like a
+`different` one, and the indirectness of the outcome is the model's answer
+alone (`indirectness.outcome`). Pooling the related outcomes beside the
+question's own, with the outcome rated down for indirectness by their share of
+the pool's weight, was tried and removed: on 32 benchmark questions it fixed 2
+verdicts against the Cochrane experts and broke 6 (surrogate-only pools rated
+down; related studies adding heterogeneity), and did not make the pool more
+repeatable. A majority vote of three `plan` model calls on the `outcome_match`
+and `timepoint_match` labels, tried before, stays removed too: it did not
+reduce the variance of the pool between runs and cost three calls per study.
 
 **Reviews are not pooled.** A systematic review or meta-analysis repeats the
 data of the trials it includes, so pooling both would count that data twice
@@ -890,18 +846,14 @@ section above come first), one stays, and it is chosen **before** the measure
 is, by what the report measures and when, in this order: its `timepoint_match`
 is `yes` rather than `unclear`; then its `outcome_match` is `same`; then the
 longer `timepoint_weeks`; then the later publication year; then the lower DOI
-(so the choice does not depend on the corpus order). The pool applies one rule
-before that order: among the reports of a trial that have numbers, a report of
-a `related` outcome is a candidate only when no report of the trial is of the
-question's own outcome (`same` or no label), whatever the time point. The
-direction tally and the evidence base use the plain order above. A report with
-no label reads as `unclear` / `same` and no stated follow-up, so an old artifact falls
+(so the choice does not depend on the corpus order). A report with no label
+reads as `unclear` / `same` and no stated follow-up, so an old artifact falls
 back to "the later year", as the pool did before. The case that motivated the
 order is REFLUX: a question about 12 months must take the 12-month report, not
 the 5-year one that is merely the later publication. The other reports go to
 `pooled_estimate.left_out` as `doi (same trial as <kept doi>, <registration
 number>)` and the log (a report at another time point or outcome is named for
-that instead). The plain order applies where trials are counted: the hybrid
+that instead). The same rule applies where trials are counted: the hybrid
 full-text walk skips a candidate whose trial already has a text, and the
 direction tally of the direct studies counts each trial once, with the
 direction of the report that ranks first (a retracted paper is not counted,
@@ -1019,10 +971,22 @@ an MD of ±0.2 SD (only when the SD is known).
 for lack of blinding when the outcome is subjective or self-reported, and never
 for an objective one such as death. Go applies this to the pooled studies
 (`pool_blinding.go`) from the critic's labels and the pool's own weights (the
-random-effects shares that `meta.Pool` computes). The rule fires when studies
-that are both `blinding` = `open` and `outcome_objective` explicitly `false`
-carry more than half of the weight; an open trial of death or a blinded trial
-of pain does not count. An `unclear` or missing
+random-effects shares that `meta.Pool` computes). The rule fires when the
+studies that count as unblinded carry more than half of the weight. Two kinds
+count: an open trial (`blinding` = `open`) with `outcome_objective` explicitly
+`false`, or with `outcome_self_reported` `true` and the outcome not stated
+objective; and an assessor-blinded trial (`assessor_blind`) whose participants
+report the outcome themselves (`outcome_self_reported` `true`) and whose
+outcome is not stated objective (a weight on a home scale or a step count
+from a worn device is read by the participant but is objective): a
+self-reported outcome such as pain or quality of life is assessed by the
+participant, who knows the group, so a masked data collector does not help
+(GRADE and RoB 2 treat such a trial as unblinded). An assessor-blinded trial
+of an observer-rated outcome (a clinician-rated scale such as HAM-D, where the
+masked rater is the one who assesses) is low risk of bias and does not count,
+nor does one whose self-reporting is unknown. An open trial of death, or a
+trial with masked participants (`double_blind`, `single_blind`) and pain, does
+not count either. An `unclear` or missing
 blinding counts as not open and an unknown objectivity as not subjective, so a
 critique without the new fields never fires it. Blinding of a study whose design
 is known not to be randomized is not counted. Nothing fires without a pooled
@@ -1081,8 +1045,8 @@ judgment can rest on and puts the count in the judge's input as
 (one per trial, by the same trial grouping as the pool; reviews, papers
 without results of their own and retracted papers excluded) whose extracted
 effect is usable (counts, means, or a reported estimate with its interval) and
-whose `outcome_match` is not `different` (`same` or `related`, as in the pool;
-a missing label reads as the same). The design stratum, the measure, the time point and whether the study entered the
+whose `outcome_match` is `same` (a missing label reads as the same). The
+design stratum, the measure, the time point and whether the study entered the
 pool do not matter: a second trial with numbers on the outcome that stayed out
 of the pool still makes the judgment possible, so the count is not the pool's
 `k`. With fewer than two, the prompt tells the model to answer "no" to both
@@ -1105,7 +1069,21 @@ allocation, allocation by date or record number, a concealment stated as
 broken or absent), and a baseline imbalance between the arms, in age or
 prognostic factors, is not this item: a repeat measurement flipped it to "yes"
 on a trial that merely reported such an imbalance, which Cochrane's experts did
-not rate down; `selective_outcome`; `stopped_early_for_benefit`; and a note).
+not rate down; `selective_outcome`: "yes" only when the text shows that the
+reported result was chosen after the data were seen (the outcome or analysis
+differs from the prespecified one, the authors call it post hoc — a
+prespecified secondary outcome they call exploratory is not — or only a
+favourable one of several outcomes, time points,
+analyses or subgroups is reported), while a report of the prespecified outcome
+on a part of the trial defined by site (a centre, a region, a cohort enrolled
+or followed separately), a secondary publication of it, or a report of one
+prespecified time point when nothing shows that other measured time points
+were left out, is not selective reporting
+(a part defined by a participant characteristic such as age, sex or severity is
+not exempt): a 73,000-woman
+screening trial reported for one prefecture was called "subgroup-only" in 2 of
+3 repeats, and Cochrane's experts rated its evidence high;
+`stopped_early_for_benefit`; and a note).
 The other items are one answer each for the evidence, judged on the studies
 that carry most of the evidence: `inconsistency` (`directions_conflict`,
 `sizes_differ_beyond_chance`), `indirectness` (`population`, `intervention`,
@@ -1142,10 +1120,8 @@ of levels (`imprecision_without_pool`, below). Go (`grade_checklist.go`,
   outcome, stopping early for benefit; each "yes" is a level) and logs a
   warning;
 - inconsistency: 1 when `comparable_studies` is 2 or more and either item is
-  "yes", else 0; indirectness: 1 when any of the four is "yes" or when related
-  outcomes carry more than half of the pool's weight (that counts as the
-  outcome; see "Related outcomes are rated down by their share of the pool");
-  publication bias: 1 when suspected;
+  "yes", else 0; indirectness: 1 when any of the four is "yes"; publication
+  bias: 1 when suspected;
 - imprecision: the computed levels of the pooled estimate when Go computed
   them (as before; the model's answer is then dropped). When the input has no
   `imprecision` field (no pooled estimate, or one Go cannot rate) there is no
@@ -1347,7 +1323,8 @@ The rules (`evidence_base.go`, `evidence_text.go`):
   own; the number of folded reports is shown ("N repeat reports of the same
   trials counted once"). A review is never merged into a trial.
 - *Blinding* is counted for randomized trials only, from the critic's
-  `blinding`: double-blind, single-blind, open-label, "blinding not stated"
+  `blinding`: double-blind, single-blind, assessor-blinded (`assessor_blind`:
+  only the outcome assessors masked), open-label, "blinding not stated"
   for `unclear`, and "blinding not assessed" for a missing value (shown only
   when above zero). A critique written before the field existed, for instance
   one served from the critique cache, has no blinding, so it counts as not

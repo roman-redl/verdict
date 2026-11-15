@@ -158,7 +158,7 @@ func TestNormalizeEffect(t *testing.T) {
 
 		assert.Empty(t, ef.OutcomeMatch, "missing reads as the same outcome: never excluded by a garbled answer")
 		assert.Empty(t, ef.TimepointMatch)
-		assert.False(t, ef.OutcomeMatch.IsDifferent())
+		assert.True(t, ef.OutcomeMatch.IsSame())
 		assert.False(t, ef.TimepointMatch.IsOff())
 		assert.Contains(t, logs.String(), "unknown outcome match")
 		assert.Contains(t, logs.String(), "unknown timepoint match")

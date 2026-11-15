@@ -16,9 +16,16 @@ const (
 	// BlindingDouble is a trial masked for participants and for the people who
 	// treat them or assess the outcome.
 	BlindingDouble Blinding = "double_blind"
-	// BlindingSingle is a trial masked on one side only, usually the outcome
-	// assessor.
+	// BlindingSingle is a trial in which the participants were masked (or the
+	// text says "single-blind" without saying who).
 	BlindingSingle Blinding = "single_blind"
+	// BlindingAssessorOnly is a trial in which only the outcome assessors or
+	// data collectors were masked; the participants and those delivering care
+	// knew the group (or could not be masked: surgery, exercise, behavioural
+	// interventions). A self-reported outcome is assessed by the unmasked
+	// participant, so for it the trial counts as unblinded; an outcome rated
+	// by an observer is assessed by the masked assessor, so it does not.
+	BlindingAssessorOnly Blinding = "assessor_blind"
 	// BlindingOpen is an open-label trial: nobody was masked.
 	BlindingOpen Blinding = "open"
 	// BlindingUnclear means the text does not say.
@@ -27,16 +34,14 @@ const (
 
 // blindingAliases are the words a critic uses for a value in the prompt's own
 // terms (after the spaces and hyphens are read as underscores). Triple and
-// quadruple masking add people to the double-blind case; an assessor-blinded
-// trial is masked on one side.
+// quadruple masking add people to the double-blind case.
 var blindingAliases = map[string]Blinding{
 	"open_label":       BlindingOpen,
 	"unblinded":        BlindingOpen,
 	"non_blinded":      BlindingOpen,
 	"triple_blind":     BlindingDouble,
 	"quadruple_blind":  BlindingDouble,
-	"assessor_blinded": BlindingSingle,
-	"assessor_blind":   BlindingSingle,
+	"assessor_blinded": BlindingAssessorOnly,
 }
 
 // ParseBlinding parses a blinding as the critic writes it, ignoring case and
@@ -48,7 +53,7 @@ func ParseBlinding(s string) (Blinding, error) {
 	b := Blinding(norm)
 
 	switch b {
-	case BlindingDouble, BlindingSingle, BlindingOpen, BlindingUnclear:
+	case BlindingDouble, BlindingSingle, BlindingAssessorOnly, BlindingOpen, BlindingUnclear:
 		return b, nil
 	}
 
@@ -56,13 +61,15 @@ func ParseBlinding(s string) (Blinding, error) {
 		return alias, nil
 	}
 
-	return "", fmt.Errorf("unknown blinding %q (want double_blind | single_blind | open | unclear)", s)
+	return "", fmt.Errorf(
+		"unknown blinding %q (want double_blind | single_blind | assessor_blind | open | unclear)", s)
 }
 
 // BlindingBias is the risk-of-bias rating for lack of blinding, computed by
 // the pipeline from the pooled studies (not by the synthesis): most of the
-// pool's weight is open-label studies, and most of it is on a subjective or
-// self-reported outcome.
+// pool's weight is open-label studies with a subjective outcome, or studies
+// with only the outcome assessor masked whose participants report the outcome
+// themselves.
 type BlindingBias struct {
 	// Levels is how many levels to rate down for risk of bias: 1 (serious).
 	Levels int `json:"levels"`

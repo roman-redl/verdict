@@ -15,26 +15,16 @@ import (
 
 // chooseReports keeps one report per trial, the one that carries the question's
 // outcome at its time point (reportRank), and names the others as repeat
-// reports, each with the registration number that ties it to the kept one. A
-// report of a related outcome is a candidate only when the trial has no report
-// of the question's own outcome (same or unlabelled): every candidate here is
-// eligible and has usable numbers, so the label may decide before reportRank
-// does. It runs before the measure is chosen: the report is picked for what it
-// measures and when, not for the scale it happens to use. A study that is not
-// known to repeat another (trial 0) stays.
+// reports, each with the registration number that ties it to the kept one. It
+// runs before the measure is chosen: the report is picked for what it measures
+// and when, not for the scale it happens to use. A study that is not known to
+// repeat another (trial 0) stays.
 func chooseReports(items []pooledStudy) (kept []pooledStudy, dropped []leftOut) {
-	best := map[int]int{}    // trial -> position in items of the report to keep
-	hasOwn := map[int]bool{} // trial -> some report is of the question's own outcome
-
-	for pos := range items {
-		if it := &items[pos]; it.trial != 0 && !it.related {
-			hasOwn[it.trial] = true
-		}
-	}
+	best := map[int]int{} // trial -> position in items of the report to keep
 
 	for pos := range items {
 		it := &items[pos]
-		if it.trial == 0 || (it.related && hasOwn[it.trial]) {
+		if it.trial == 0 {
 			continue
 		}
 
@@ -65,10 +55,9 @@ func chooseReports(items []pooledStudy) (kept []pooledStudy, dropped []leftOut) 
 // the same number of participants. Two papers with such numbers are one result
 // seen twice (a correction notice or a reprint carrying the abstract of the
 // paper it corrects, a conference abstract of a trial), and counting them twice
-// narrows the interval for nothing. The kept study is one of the question's
-// own outcome rather than a related one, a full article rather than a
-// conference abstract, then the paper published first, then the lower DOI
-// (keeperCmp).
+// narrows the interval for nothing. The kept study is a full article rather
+// than a conference abstract, then the paper published first, then the lower
+// DOI (keeperCmp).
 //
 // The estimate rule has a tolerance, which is not transitive (A is close to B
 // and B to C, but A is not close to C), so the groups are built over the
@@ -116,18 +105,9 @@ func dropDuplicates(items []pooledStudy) (kept []pooledStudy, dropped []leftOut)
 }
 
 // keeperCmp orders two studies by who is kept among reports of the same
-// results: a study of the question's own outcome before one labelled related
-// (the same numbers under two labels are one result, and the label of the
-// question's outcome is the one to keep), then a study that is not a conference
-// abstract, then publishedBefore.
+// results: a study that is not a conference abstract first, then publishedBefore.
 func keeperCmp(a, b *pooledStudy) int {
 	switch {
-	case a.related != b.related:
-		if a.related {
-			return 1
-		}
-
-		return -1
 	case a.abstract != b.abstract:
 		if a.abstract {
 			return 1

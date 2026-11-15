@@ -42,16 +42,12 @@ func TestParseTimepointMatch(t *testing.T) {
 func TestMatchLabelsOfAnOldEffect(t *testing.T) {
 	var ef Effect
 
-	assert.False(t, ef.OutcomeMatch.IsDifferent(), "a missing outcome match reads as the same outcome")
-	assert.False(t, ef.OutcomeMatch.IsRelated(), "and is not related either")
+	assert.True(t, ef.OutcomeMatch.IsSame(), "a missing outcome match reads as the same outcome")
 	assert.False(t, ef.TimepointMatch.IsOff(), "a missing time point match is unclear, not no")
 
-	assert.False(t, OutcomeSame.IsDifferent())
-	assert.False(t, OutcomeRelated.IsDifferent(), "a related outcome is pooled")
-	assert.True(t, OutcomeDifferent.IsDifferent())
-	assert.True(t, OutcomeRelated.IsRelated())
-	assert.False(t, OutcomeSame.IsRelated())
-	assert.False(t, OutcomeDifferent.IsRelated())
+	assert.True(t, OutcomeSame.IsSame())
+	assert.False(t, OutcomeRelated.IsSame())
+	assert.False(t, OutcomeDifferent.IsSame())
 	assert.True(t, TimepointNo.IsOff())
 	assert.False(t, TimepointYes.IsOff())
 	assert.False(t, TimepointUnclear.IsOff())
